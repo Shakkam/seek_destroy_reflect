@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="WeaponData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://simulation/weapon_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "machine_gun"
+display_name = "Mitraillette"
+damage = 2
+fire_rate = 5.0
+gauge_max = 100.0
+gauge_cost_per_shot = 4.0
+is_heavy = false

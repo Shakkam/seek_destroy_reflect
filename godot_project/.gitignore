@@ -1,0 +1,5 @@
+# Godot 4 — local editor cache, never versioned
+.godot/
+.import/
+export.cfg
+export_credentials.cfg
