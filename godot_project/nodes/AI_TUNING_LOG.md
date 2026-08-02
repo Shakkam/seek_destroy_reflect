@@ -4,6 +4,16 @@ Historique des ajustements de l'IA, dans l'ordre chronologique. Lu intégralemen
 
 ---
 
+## 2026-08-01 — IA "collée au filet" : repositionnement mid/arrière par défaut
+
+**Demande utilisateur :** "l'IA se colle beaucoup au filet. dans la logique de contrôle, elle devrait se concentrer sur le milieu / arrière du terrain. s'approcher du filet peut être intéressant pour mieux viser l'adversaire de temps en temps."
+
+**Changement :** l'ancienne logique horizontale (`ball_on_my_side → toujours pousser vers la frontière`) est remplacée par un système de profondeur préférée (`_ai_preferred_depth`, fraction 0=mur arrière à 1=frontière, tirée aléatoirement entre `AI_DEPTH_MIN=0.1` et `AI_DEPTH_MAX=0.5`, re-tirée toutes les 2-4s comme l'errance verticale). L'IA ne pousse à fond vers la frontière (`frontier_reach_x`) que lorsque `ball_close` est vrai (balle à moins de 260px **de sa propre position**, pas juste "de son côté du terrain"). Ajout d'une hystérésis horizontale (`AI_H_DEADZONE_STOP=6`, `AI_H_DEADZONE_START=18`) symétrique à celle déjà en place sur l'axe vertical, pour éviter tout jitter.
+
+**Raisonnement :** l'ancienne règle traitait "balle techniquement de mon côté" comme équivalent à "je dois foncer au filet", ce qui la faisait s'y coller en permanence dès que la balle traversait la moitié de terrain — bien avant que ce soit réellement utile. Le nouveau seuil de proximité (260px, réutilise la même valeur que `_ai_update_lift_attempt`) ne déclenche l'avancée que quand l'interception est réellement imminente.
+
+**À surveiller :** avec une profondeur par défaut assez en retrait (0.1-0.5), l'IA pourrait rater des balles rapides si le seuil de proximité (260px) s'avère trop court pour le temps de trajet à couvrir depuis sa position de repli — si l'utilisateur signale des ratés fréquents en IA plutôt qu'un simple manque d'agressivité, revoir `AI_APPROACH_DISTANCE` à la hausse plutôt que `AI_DEPTH_MAX`.
+
 ## 2026-08-01 — Implémentation initiale (Story 1.12)
 
 **Demande utilisateur :** un adversaire IA basique pour pouvoir tester le prototype en solo (FR19 du GDD).

@@ -18,12 +18,16 @@ extends Node2D
 @onready var ai_status_label: Label = $DebugHUD/AIStatusLabel
 @onready var p1_hp_fill: ColorRect = $DebugHUD/P1HPBarFill
 @onready var p2_hp_fill: ColorRect = $DebugHUD/P2HPBarFill
+@onready var ready_label: Label = $DebugHUD/ReadyLabel
 
 const HP_BAR_WIDTH := 240.0
 
 var match_state: MatchState = MatchState.new()
 var _round_active := true
 var _ai_toggle_prev := false
+
+# Pre-match gate (2026-08-01): nothing moves until a player confirms ready.
+var _match_started := false
 
 func _ready() -> void:
 	var bounds := Rect2(arena_origin, arena_size)
@@ -51,6 +55,11 @@ func _ready() -> void:
 
 	_update_round_label()
 
+	ship_1.active = false
+	ship_2.active = false
+	ball.active = false
+	ready_label.text = "Match 1\nPret ? (appuyez sur Tir pour commencer)"
+
 func _process(_delta: float) -> void:
 	p1_label.text = _debug_text(ship_1)
 	p2_label.text = _debug_text(ship_2)
@@ -58,7 +67,27 @@ func _process(_delta: float) -> void:
 	p2_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_2.state.hp / ShipState.START_HP, 0.0, 1.0)
 
 	_process_ai_toggle()
+
+	if not _match_started:
+		_process_ready_gate()
+		return
+
 	_check_round_end()
+
+## Pre-match gate — waits for either player's fire input (keyboard or
+## gamepad trigger, device 0 or 1) before unfreezing ships and ball.
+func _process_ready_gate() -> void:
+	var pressed := Input.is_physical_key_pressed(KEY_SPACE) \
+		or Input.is_physical_key_pressed(KEY_ENTER) \
+		or Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) > 0.4 \
+		or Input.get_joy_axis(1, JOY_AXIS_TRIGGER_RIGHT) > 0.4
+	if not pressed:
+		return
+	_match_started = true
+	ship_1.active = true
+	ship_2.active = true
+	ball.active = true
+	ready_label.text = ""
 
 func _debug_text(ship: ShipNode) -> String:
 	var lines := ["PV: %d" % int(ship.state.hp)]
@@ -75,14 +104,43 @@ func _on_gauge_filled(amount: float, ship: ShipNode) -> void:
 	popup.text = "+%d" % int(amount)
 	add_child(popup)
 
+const LIGHT_WEAPON_SPREAD_DEG := 2.0 # machine-gun shots get a very slight random angle, bazooka stays true (5°→2°, felt like a different weapon)
+
+# Placeholder R-Type sprites (2026-08-02) — replace with final art later.
+# Machine-gun shots are colored per-shooter (matches ship colors) so a spray
+# from both sides stays readable; bazooka keeps its own look, already
+# distinct by size, plus a 2-frame flicker (see ProjectileNode).
+const MACHINE_GUN_TEX_P1 := preload("res://assets/art/vfx/mitraillette_shot_bleu.png")
+const MACHINE_GUN_TEX_P2 := preload("res://assets/art/vfx/mitraillette_shot_rose.png")
+const BAZOOKA_TEXTURES := [
+	preload("res://assets/art/vfx/bazook.png"), # single custom sprite, replaced the extracted 2-frame R-Type version
+]
+
 func _on_weapon_fired(damage: int, is_heavy: bool, ship: ShipNode) -> void:
 	var projectile := ProjectileNode.new()
 	projectile.position = ship.position
 	var direction := 1.0 if ship.side == 0 else -1.0
-	projectile.velocity = Vector2(direction * 620.0, 0.0)
-	projectile.color = Color(1.0, 0.55, 0.2, 1.0) if is_heavy else Color(1.0, 0.9, 0.3, 1.0)
-	projectile.radius = 9.0 if is_heavy else 4.0
-	projectile.homing_strength = 1.8 if is_heavy else 0.0 # "legere tete chercheuse" for the bazooka only
+	var shot_velocity := Vector2(direction * 620.0, 0.0)
+	if not is_heavy:
+		var spread_rad := deg_to_rad(randf_range(-LIGHT_WEAPON_SPREAD_DEG, LIGHT_WEAPON_SPREAD_DEG))
+		shot_velocity = shot_velocity.rotated(spread_rad)
+	projectile.velocity = shot_velocity
+	projectile.flip_h = direction < 0.0
+	if is_heavy:
+		projectile.textures = BAZOOKA_TEXTURES
+		# bazook.png's fireball ("front") points LEFT natively — opposite of the
+		# machine-gun sprites — so it needs the inverse of the shared flip_h set
+		# above (2026-08-02: confirmed by inspecting the sprite directly).
+		projectile.flip_h = direction > 0.0
+		projectile.homing_strength = 1.8 # "legere tete chercheuse" for the bazooka only
+		projectile.visual_scale = 1.4 # +40% (2026-08-02 — reverted, stays consistent with the other projectiles)
+	else:
+		projectile.textures = [MACHINE_GUN_TEX_P1] if ship.side == 0 else [MACHINE_GUN_TEX_P2]
+		projectile.visual_scale = 1.4 # native 16x10 is hard to read orientation on at real game scale
+		# Verified 2026-08-02 by inspecting both sprites at 12x zoom: the colored
+		# tip (the bullet's "front") points RIGHT natively in both files, so the
+		# base flip_h = direction < 0.0 (set above) is already correct — the
+		# earlier toggle here was a wrong guess and has been reverted.
 	projectile.damage = damage
 	projectile.target = ship_2 if ship == ship_1 else ship_1
 	add_child(projectile)

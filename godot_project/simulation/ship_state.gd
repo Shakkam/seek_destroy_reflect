@@ -12,6 +12,12 @@ extends RefCounted
 const SPEED := 420.0 # px/s — "relativement rapide, mais pas ultra" (GDD)
 const START_HP := 100.0
 
+# Neutral zone (2026-08-01): a band straddling the frontier that ships can
+# never physically enter — not just a visual, an actual movement boundary.
+# Single source of truth: ball_node.gd reuses this same constant so its own
+# "no collision resolution here" zone always matches where ships can be.
+const NEUTRAL_ZONE_HALF_WIDTH := 30.0 # widened 2026-08-01 (playtest feedback: still felt too tight)
+
 var position: Vector2
 var side: int # 0 = left half, 1 = right half
 var half_extents: Vector2 # half width/height, used to keep the ship's edges (not just its center) in bounds
@@ -46,7 +52,7 @@ func _clamp_to_half(pos: Vector2, bounds: Rect2, frontier_x: float) -> Vector2:
 	var clamped := pos
 	clamped.y = clampf(clamped.y, min_y, max_y)
 	if side == 0:
-		clamped.x = clampf(clamped.x, min_x, frontier_x - half_extents.x)
+		clamped.x = clampf(clamped.x, min_x, frontier_x - NEUTRAL_ZONE_HALF_WIDTH - half_extents.x)
 	else:
-		clamped.x = clampf(clamped.x, frontier_x + half_extents.x, max_x)
+		clamped.x = clampf(clamped.x, frontier_x + NEUTRAL_ZONE_HALF_WIDTH + half_extents.x, max_x)
 	return clamped

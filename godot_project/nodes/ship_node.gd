@@ -15,6 +15,7 @@ signal gauge_filled(amount: float)
 var state: ShipState
 var arena_bounds: Rect2
 var frontier_x: float
+var active := true # set false by MatchArenaNode during the pre-match "ready?" gate
 
 var weapon_state: WeaponSystemState
 var _weapon_select_prev := false
@@ -24,6 +25,8 @@ const FLASH_DURATION := 0.08
 var _vulnerability_timer := 0.0
 const VULNERABILITY_DURATION := 0.7 # Story 1.8 — heavy weapons expose the shooter briefly (doubled 2026-08-01)
 const VULNERABILITY_SPEED_MULTIPLIER := 0.35
+
+const FIRE_HOLD_SPEED_MULTIPLIER := 0.5 # -50% while the fire button is held (2026-08-01 — "balance la sauce", was -40%)
 
 # Lift/spin charge (redesigned 2026-08-01): holding the lift key freezes
 # movement entirely and charges the lift over time, in tiers:
@@ -53,6 +56,26 @@ var _ai_pulse_select := false
 var _ai_lift_timer := 0.0
 var _ai_lift_decided := false
 
+# Positional depth (2026-08-01 — was "glued to the net"): the AI now mostly
+# holds a wandering mid/back position and only pushes up to the frontier
+# when the ball has actually closed the distance to it specifically.
+var _ai_depth_timer := 0.0
+var _ai_preferred_depth := 0.35 # 0 = back wall, 1 = frontier — re-picked periodically
+const AI_DEPTH_INTERVAL_MIN := 2.0
+const AI_DEPTH_INTERVAL_MAX := 4.0
+const AI_DEPTH_MIN := 0.1
+const AI_DEPTH_MAX := 0.5
+const AI_APPROACH_DISTANCE := 260.0
+var _ai_horizontal_dir := 0.0
+const AI_H_DEADZONE_STOP := 6.0
+const AI_H_DEADZONE_START := 18.0
+
+# Gamepad support (2026-08-01) — Xbox 360 / XInput-compatible pad, additive
+# to the keyboard scheme (either works, whichever the player actually uses).
+# Device index = player_index - 1, so a 2nd connected pad serves Player 2.
+const GAMEPAD_STICK_DEADZONE := 0.25
+const GAMEPAD_TRIGGER_THRESHOLD := 0.4
+
 func _ready() -> void:
 	_spawn_position = position
 	state = ShipState.new(position, side, half_extents)
@@ -65,8 +88,11 @@ func _ready() -> void:
 	weapon_state = WeaponSystemState.new(kit)
 
 func _physics_process(delta: float) -> void:
+	if not active:
+		return
 	if ai_controlled:
 		_ai_update_wander(delta)
+		_ai_update_depth(delta)
 		_ai_update_weapon_switch(delta)
 		_ai_update_lift_attempt(delta)
 
@@ -76,16 +102,24 @@ func _physics_process(delta: float) -> void:
 	else:
 		_lift_charge_timer = 0.0
 
+	var fire_held := _read_fire_pressed()
+
 	# Charging the lift freezes movement entirely — that's the risk/reward trade.
+	# Holding the fire button ("je balance la sauce") also slows movement —
+	# spraying continuously has a real positioning cost, not just ammo cost.
 	var input_direction := Vector2.ZERO if lift_held else _read_input()
-	var speed_multiplier := VULNERABILITY_SPEED_MULTIPLIER if _vulnerability_timer > 0.0 else 1.0
+	var speed_multiplier := 1.0
+	if _vulnerability_timer > 0.0:
+		speed_multiplier = VULNERABILITY_SPEED_MULTIPLIER
+	if fire_held:
+		speed_multiplier = minf(speed_multiplier, FIRE_HOLD_SPEED_MULTIPLIER)
 	state = state.update(input_direction, delta, arena_bounds, frontier_x, speed_multiplier)
 	position = state.position
 
 	_process_weapon_selection()
 	_ai_pulse_select = false # consumed for this frame, whether or not it was set
 	weapon_state = weapon_state.with_cooldown_ticked(delta)
-	if _read_fire_pressed():
+	if fire_held:
 		var result := weapon_state.fired()
 		weapon_state = result.state
 		if result.fired:
@@ -130,6 +164,8 @@ func _process_weapon_selection() -> void:
 func _read_weapon_select_pressed() -> bool:
 	if ai_controlled:
 		return _ai_pulse_select
+	if Input.is_joy_button_pressed(_gamepad_device(), JOY_BUTTON_A):
+		return true
 	if player_index == 1:
 		return Input.is_physical_key_pressed(KEY_Q) # physical Q = "A" label on AZERTY
 	return Input.is_physical_key_pressed(KEY_KP_0) # numpad — unambiguous across keyboard layouts
@@ -137,11 +173,19 @@ func _read_weapon_select_pressed() -> bool:
 func _read_fire_pressed() -> bool:
 	if ai_controlled:
 		return _ai_should_fire()
+	if Input.get_joy_axis(_gamepad_device(), JOY_AXIS_TRIGGER_RIGHT) > GAMEPAD_TRIGGER_THRESHOLD:
+		return true
 	if player_index == 1:
 		return Input.is_physical_key_pressed(KEY_SPACE)
 	return Input.is_physical_key_pressed(KEY_ENTER)
 
-## Placeholder raw-key input for Story 1.1 (single/local testing).
+## Which local joypad device serves this ship: device 0 for Player 1,
+## device 1 for Player 2. Harmless if nothing is connected at that index.
+func _gamepad_device() -> int:
+	return player_index - 1
+
+## Placeholder raw-key input for Story 1.1 (single/local testing), now with
+## an Xbox 360 / XInput-compatible left-stick reading OR'd in (2026-08-01).
 ## A future pass can replace this with a proper InputMap-based scheme
 ## so key bindings are configurable.
 func _read_input() -> Vector2:
@@ -166,6 +210,14 @@ func _read_input() -> Vector2:
 			dir.y += 1.0
 		if Input.is_physical_key_pressed(KEY_UP):
 			dir.y -= 1.0
+
+	var stick := Vector2(
+		Input.get_joy_axis(_gamepad_device(), JOY_AXIS_LEFT_X),
+		Input.get_joy_axis(_gamepad_device(), JOY_AXIS_LEFT_Y)
+	)
+	if stick.length() > GAMEPAD_STICK_DEADZONE:
+		dir += stick
+
 	return dir
 
 ## Story 1.2 — aim on ball return reuses the movement direction currently
@@ -180,6 +232,8 @@ func get_aim_input() -> Vector2:
 func _read_lift_held() -> bool:
 	if ai_controlled:
 		return _ai_lift_timer > 0.0
+	if Input.get_joy_axis(_gamepad_device(), JOY_AXIS_TRIGGER_LEFT) > GAMEPAD_TRIGGER_THRESHOLD:
+		return true
 	if player_index == 1:
 		return Input.is_physical_key_pressed(KEY_SHIFT)
 	return Input.is_physical_key_pressed(KEY_CTRL)
@@ -196,39 +250,53 @@ func get_lift_charge() -> float:
 	return 1.0
 
 ## Story 1.12 — heuristic AI (still deliberately unskilled per AC, no
-## reflex-tier precision): anticipates the ball's vertical trajectory
-## with a short lookahead, uses a hysteresis band to avoid jittering in
-## place near the target, and repositions horizontally (advance toward
-## the frontier when the ball is on its side, retreat otherwise) so it
-## reads as active rather than frozen in the x-axis.
+## reflex-tier precision): anticipates the ball's vertical trajectory with a
+## short lookahead, uses hysteresis bands (both axes) to avoid jittering in
+## place, and mostly holds a wandering mid/back position — only pushing up
+## to the frontier when the ball has actually closed in on it specifically
+## (2026-08-01: was reflexively rushing the net any time the ball was
+## technically on its side, which read as "glued to the net").
 func _ai_read_input() -> Vector2:
 	if not ball_ref:
 		return Vector2.ZERO
 
 	var ball_on_my_side := ball_ref.position.x < frontier_x if side == 0 else ball_ref.position.x > frontier_x
 
-	# Blend ball-tracking with an independent wander target so the AI doesn't
-	# read as "glued" to the ball — more wander weight when the ball isn't
-	# actually its problem right now, less (but never zero) when it's urgent.
+	# Vertical: blend ball-tracking with an independent wander target so the
+	# AI doesn't read as "glued" to the ball — more wander weight when the
+	# ball isn't actually its problem right now, less (but never zero) when urgent.
 	var ball_target_y := ball_ref.position.y + ball_ref.state.velocity.y * AI_LOOKAHEAD
 	var wander_weight := 0.2 if ball_on_my_side else 0.6
 	var target_y := lerpf(ball_target_y, _ai_wander_target_y, wander_weight)
 
-	var diff := target_y - position.y
-	if absf(diff) < AI_DEADZONE_STOP:
+	var diff_y := target_y - position.y
+	if absf(diff_y) < AI_DEADZONE_STOP:
 		_ai_vertical_dir = 0.0
-	elif absf(diff) > AI_DEADZONE_START:
-		_ai_vertical_dir = signf(diff)
+	elif absf(diff_y) > AI_DEADZONE_START:
+		_ai_vertical_dir = signf(diff_y)
 	# else: within the hysteresis band — keep the previous direction rather
 	# than flip-flopping every frame, which is what read as a "freeze".
 
-	var horizontal := 0.0
-	if ball_on_my_side:
-		horizontal = 1.0 if side == 0 else -1.0 # push up to the frontier, ready to intercept
-	else:
-		horizontal = -1.0 if side == 0 else 1.0 # retreat toward the back wall, more time to react
+	# Horizontal: default to a wandering point in the mid/back of the half
+	# (_ai_preferred_depth), only committing to the frontier when the ball
+	# has genuinely closed the distance — approaching the net is a deliberate
+	# choice for a better angle, not a reflex.
+	var forward_sign := 1.0 if side == 0 else -1.0
+	var back_x := arena_bounds.position.x + half_extents.x if side == 0 else arena_bounds.position.x + arena_bounds.size.x - half_extents.x
+	var frontier_reach_x := frontier_x - ShipState.NEUTRAL_ZONE_HALF_WIDTH - half_extents.x if side == 0 else frontier_x + ShipState.NEUTRAL_ZONE_HALF_WIDTH + half_extents.x
+	var span := absf(frontier_reach_x - back_x)
+	var default_target_x := back_x + forward_sign * span * _ai_preferred_depth
 
-	return Vector2(horizontal, _ai_vertical_dir)
+	var ball_close := ball_on_my_side and absf(ball_ref.position.x - position.x) < AI_APPROACH_DISTANCE
+	var target_x := frontier_reach_x if ball_close else default_target_x
+
+	var diff_x := target_x - position.x
+	if absf(diff_x) < AI_H_DEADZONE_STOP:
+		_ai_horizontal_dir = 0.0
+	elif absf(diff_x) > AI_H_DEADZONE_START:
+		_ai_horizontal_dir = signf(diff_x)
+
+	return Vector2(_ai_horizontal_dir, _ai_vertical_dir)
 
 ## Periodically picks a new "idle" y target within the arena, so the AI
 ## keeps some independent motion instead of purely mirroring the ball.
@@ -240,6 +308,16 @@ func _ai_update_wander(delta: float) -> void:
 	var min_y := arena_bounds.position.y + half_extents.y
 	var max_y := arena_bounds.position.y + arena_bounds.size.y - half_extents.y
 	_ai_wander_target_y = randf_range(min_y, max_y)
+
+## Periodically re-picks how deep in its half the AI prefers to sit
+## (0 = back wall, 1 = frontier), biased toward the back/mid via
+## AI_DEPTH_MIN/MAX, so it isn't parked at a single fixed depth either.
+func _ai_update_depth(delta: float) -> void:
+	_ai_depth_timer -= delta
+	if _ai_depth_timer > 0.0:
+		return
+	_ai_depth_timer = randf_range(AI_DEPTH_INTERVAL_MIN, AI_DEPTH_INTERVAL_MAX)
+	_ai_preferred_depth = randf_range(AI_DEPTH_MIN, AI_DEPTH_MAX)
 
 ## Occasionally cycles weapons, purely for variety — no strategic weighting.
 func _ai_update_weapon_switch(delta: float) -> void:

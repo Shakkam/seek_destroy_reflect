@@ -5,7 +5,7 @@ extends RefCounted
 ## see project-context.md, "Frontiere simulation/rendu" (Regle absolue n1).
 ## The ball never deals damage — it is purely a resource-catch mechanic (GDD).
 
-const BASE_SPEED := 380.0
+const BASE_SPEED := 418.0 # +10% (2026-08-01 playtest feedback: felt a bit slow to start)
 const RADIUS := 10.0
 const SPEED_INCREMENT_PER_RETURN := 18.0 # Story 1.3 — ball speeds up slightly each rally exchange
 const SPIN_STRENGTH := 1.5 # rad/s of curvature at full (100%) lift charge

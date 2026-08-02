@@ -9,36 +9,62 @@ var state: BallState
 var arena_bounds: Rect2
 var frontier_x: float
 var ships: Array[ShipNode] = []
+var active := true # set false by MatchArenaNode during the pre-match "ready?" gate
 
 var _return_cooldown := 0.0 # avoids re-triggering a return within the same frame(s)
 var _last_half := -1 # -1 = unset, 0 = left half, 1 = right half — which side the ball currently occupies
 var _blocked_side := -1 # side that already touched the ball during its current visit to a half; -1 = none
 
-# Bugfix 2026-08-01: if a ship is parked right at the frontier when the ball
-# (re)spawns at center, its inflated hit-rect can already overlap the spawn
-# point, triggering an instant "return" the very first frame (ball appears
-# to shoot backward immediately). A brief spawn grace period skips ship
-# collision resolution until the ball has had a moment to actually travel.
-var _spawn_grace := 0.0
-const SPAWN_GRACE_DURATION := 0.25
+# Bugfix 2026-08-01 (v4): a ship parked at the frontier could trigger an
+# instant "return" the moment the ball (re)spawns at center (ball appears to
+# shoot backward immediately). Fixed with a "net" — a neutral zone straddling
+# the frontier where ship collision never resolves, regardless of timers or
+# how the ball got there. The ball always spawns from inside this zone.
+# Since Story "neutral zone as a real movement wall" (2026-08-01), ships can
+# no longer physically enter this band either — see ShipState.NEUTRAL_ZONE_HALF_WIDTH,
+# the single source of truth both this check and the ship clamp read from.
+
+const SPAWN_TILT_MAX_RAD := 0.35 # ~20 degrees either side of horizontal
+
+# Placeholder sprite (2026-08-02, v2) — single static sprite, actually
+# rotated in-engine instead of cycling 3 hand-drawn frames (the swap read as
+# a janky/weird motion since those frames weren't a true rotation sequence).
+const BALL_TEXTURE := preload("res://assets/art/vfx/ball_1.png")
+const ROTATION_SPEED := 6.0 # rad/s
+var _sprite: Sprite2D
+
+## Random slight tilt at spawn so it doesn't always fire perfectly
+## horizontal (which read as "the game isn't moving").
+func _spawn_velocity() -> Vector2:
+	return Vector2(BallState.BASE_SPEED, 0.0).rotated(randf_range(-SPAWN_TILT_MAX_RAD, SPAWN_TILT_MAX_RAD))
+
+func _in_neutral_zone() -> bool:
+	return absf(state.position.x - frontier_x) < ShipState.NEUTRAL_ZONE_HALF_WIDTH
 
 func _ready() -> void:
-	state = BallState.new(position, Vector2(BallState.BASE_SPEED, 0.0))
-	_spawn_grace = SPAWN_GRACE_DURATION
+	state = BallState.new(position, _spawn_velocity())
+	_sprite = Sprite2D.new()
+	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_sprite.texture = BALL_TEXTURE
+	_sprite.scale = Vector2(1.4, 1.4) # engine-side bump — art reads small at native size (2026-08-02 feedback)
+	add_child(_sprite)
 
 func _physics_process(delta: float) -> void:
+	if not active:
+		return
 	_return_cooldown = maxf(_return_cooldown - delta, 0.0)
-	_spawn_grace = maxf(_spawn_grace - delta, 0.0)
 
 	state = state.update(delta)
 	_resolve_walls()
 	_resolve_half_crossing()
-	if _spawn_grace <= 0.0:
+
+	if not _in_neutral_zone():
 		_resolve_ships()
+
 	_resolve_out_of_bounds()
 
 	position = state.position
-	queue_redraw()
+	_sprite.rotation += ROTATION_SPEED * delta
 
 ## A ship can only return the ball once per visit to its own half — once
 ## the ball crosses back to the other half, the block clears. Prevents the
@@ -67,15 +93,23 @@ func _resolve_out_of_bounds() -> void:
 
 		reset_to_center()
 
+const SPAWN_Y_MARGIN := 100.0 # keeps the random spawn Y away from the top/bottom walls
+
+## Frontier X (always), random Y within a safe margin of the arena — so the
+## ball doesn't always reappear at the exact same spot, and doesn't reliably
+## line up with wherever a ship happens to be resting (2026-08-01 feedback).
+func _random_spawn_position() -> Vector2:
+	var min_y := arena_bounds.position.y + SPAWN_Y_MARGIN
+	var max_y := arena_bounds.position.y + arena_bounds.size.y - SPAWN_Y_MARGIN
+	return Vector2(frontier_x, randf_range(min_y, max_y))
+
 ## Story 1.9 — also used to re-center the ball at the start of a new round.
 func reset_to_center() -> void:
-	var center := arena_bounds.position + arena_bounds.size / 2.0
-	state = BallState.new(center, Vector2(BallState.BASE_SPEED, 0.0))
+	state = BallState.new(_random_spawn_position(), _spawn_velocity())
 	position = state.position
 	_blocked_side = -1
 	_last_half = -1
 	_return_cooldown = 0.0
-	_spawn_grace = SPAWN_GRACE_DURATION
 
 func _resolve_walls() -> void:
 	var min_y := arena_bounds.position.y + BallState.RADIUS
@@ -83,14 +117,19 @@ func _resolve_walls() -> void:
 	if state.position.y < min_y or state.position.y > max_y:
 		state = state.bounced_off_wall(clampf(state.position.y, min_y, max_y))
 
+func _ship_rect(ship: ShipNode) -> Rect2:
+	return Rect2(
+		ship.position - ship.half_extents - Vector2(BallState.RADIUS, BallState.RADIUS),
+		ship.half_extents * 2.0 + Vector2(BallState.RADIUS, BallState.RADIUS) * 2.0
+	)
+
 func _resolve_ships() -> void:
 	if _return_cooldown > 0.0:
 		return
 	for ship in ships:
 		if ship.side == _blocked_side:
 			continue
-		var ship_rect := Rect2(ship.position - ship.half_extents - Vector2(BallState.RADIUS, BallState.RADIUS), ship.half_extents * 2.0 + Vector2(BallState.RADIUS, BallState.RADIUS) * 2.0)
-		if ship_rect.has_point(state.position):
+		if _ship_rect(ship).has_point(state.position):
 			var outgoing_side := 1 if ship.side == 0 else -1
 			var lift_charge := ship.get_lift_charge()
 			state = state.returned(ship.get_aim_input(), lift_charge, outgoing_side)
@@ -101,6 +140,3 @@ func _resolve_ships() -> void:
 			var fill := lerpf(WeaponSystemState.RETURN_GAUGE_FILL, WeaponSystemState.RETURN_GAUGE_FILL_MAX_LIFT, lift_charge)
 			ship.fill_selected_gauge(fill)
 			return
-
-func _draw() -> void:
-	draw_circle(Vector2.ZERO, BallState.RADIUS, Color(1.0, 0.84, 0.29, 1.0)) # liseré doré-inspired ball color
