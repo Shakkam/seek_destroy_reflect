@@ -13,10 +13,14 @@ var lifetime: float = 2.0
 var damage: int = 0
 var target: ShipNode = null
 var homing_strength: float = 0.0 # 0 = straight line; >0 = gently steers toward target (bazooka only)
+var effect_type: String = "damage" # Epic 2 — "damage" (default) or "stun"
+var effect_duration: float = 0.0 # Epic 2 — stun length applied on hit when effect_type == "stun"
 
 var textures: Array = [] # of Texture2D — 1 = static sprite; 2+ = simple flicker/pulse animation
 var flip_h := false # sprites face right by default; flipped for shots travelling left
 var visual_scale := 1.0 # engine-side size bump, independent of the source art (2026-08-02 feedback)
+var fallback_color: Color = Color.WHITE # used only when no textures are assigned (no art yet for a weapon)
+var tint: Color = Color.WHITE # Epic 2 — modulate on top of a reused texture, so weapons sharing placeholder art stay visually distinct
 
 var _sprite: Sprite2D
 var _anim_timer := 0.0
@@ -24,10 +28,21 @@ var _anim_index := 0
 const ANIM_FRAME_DURATION := 0.1
 
 func _ready() -> void:
+	if textures.is_empty():
+		# Epic 2 weapons without dedicated art yet (e.g. turret shots) still
+		# need to be visible — a small colored square beats an invisible hit.
+		var fallback := Polygon2D.new()
+		fallback.polygon = PackedVector2Array([
+			Vector2(-4, -4), Vector2(4, -4), Vector2(4, 4), Vector2(-4, 4),
+		])
+		fallback.color = fallback_color
+		add_child(fallback)
+		return
 	_sprite = Sprite2D.new()
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST # keep pixel art crisp
 	_sprite.flip_h = flip_h
 	_sprite.scale = Vector2(visual_scale, visual_scale)
+	_sprite.modulate = tint
 	add_child(_sprite)
 	_update_sprite_texture()
 
@@ -43,7 +58,10 @@ func _physics_process(delta: float) -> void:
 	if target:
 		var target_rect := Rect2(target.position - target.half_extents, target.half_extents * 2.0)
 		if target_rect.has_point(position):
-			target.apply_damage(damage)
+			if effect_type == "stun":
+				target.apply_stun(effect_duration)
+			else:
+				target.apply_damage(damage)
 			queue_free()
 			return
 

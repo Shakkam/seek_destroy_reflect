@@ -4,11 +4,13 @@
 
 [resource]
 script = ExtResource("1")
-id = "bazooka"
-display_name = "Bazooka"
-damage = 10
-fire_rate = 0.8
+id = "mobility_boost"
+display_name = "Turbo"
+damage = 0
+fire_rate = 1.0
 gauge_max = 100.0
-gauge_cost_per_shot = 25.0
-is_heavy = true
-homing_strength = 1.8
+gauge_cost_per_shot = 30.0
+is_heavy = false
+effect_type = "mobility_boost"
+effect_duration = 2.0
+effect_speed_multiplier = 1.6

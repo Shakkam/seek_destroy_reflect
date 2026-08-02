@@ -276,3 +276,119 @@ So that I can test and enjoy the core loop without needing a second human player
 **Then** the AI attempts to reposition and return the ball using simple heuristics (e.g. move toward predicted ball position)
 **And** the AI fires its selected weapon using basic reactive logic (e.g. fires when the opponent is roughly in range)
 **And** the AI does not need to be balanced or highly skilled at this stage — it exists to make solo testing possible, not to be competitively tuned
+
+---
+
+## Epic 2: Roster jouable & variété d'armes
+
+Le joueur peut choisir parmi les 8 personnages du roster complet, chacun avec son kit d'armes fonctionnel et distinct (dont tourelles à placement libre et effets de stun/mobilité).
+
+**Composition du roster confirmée (2026-08-02) :**
+
+| # | Archétype | Profil |
+|---|---|---|
+| 1 | Lourd | Gros dégâts, lent, forte vulnérabilité |
+| 2 | Contrôleur | Tourelles à placement libre, zone control |
+| 3 | Mitrailleur | Cadence élevée, dégâts unitaires faibles |
+| 4 | Vif | Mobilité élevée, dégâts réduits |
+| 5 | Zoneur/Précision | Arme laser, gros dégâts à distance, étroite/lente |
+| 6 | Perturbateur | Arme boomerang, signature stun/setup (FR13) |
+| 7 | Missiles téléguidés | Tracking fort, complexité élevée (référence Zangief) |
+| 8 | Glass cannon "Mini" | Hitbox réduite, pleine puissance, très mobile mais fragile |
+
+### Story 2.1: Modèle de données personnage
+
+As a developer,
+I want a data-driven character definition (Custom Resource),
+So that adding or tuning a character never requires touching gameplay code.
+
+**Acceptance Criteria:**
+
+**Given** the project's data-driven architecture decision (Custom Resources for the roster)
+**When** a character resource is created
+**Then** it defines at minimum: id, display name, archetype label, weapon kit (ordered list of WeaponData references), and a complexity tier (beginner/intermediate/advanced, echoing the Zangief-style spread from the GDD)
+**And** a ShipNode can load any character resource and use its kit exactly as it currently uses the shared placeholder kit — no code change required to add a 9th character later
+
+### Story 2.2: Composition et définition des 8 personnages
+
+As a player,
+I want each of the 8 characters to have a distinct, functional weapon kit matching its archetype,
+So that character choice is meaningful.
+
+**Acceptance Criteria:**
+
+**Given** the 8 archetypes confirmed above
+**When** each character's data resource is authored
+**Then** each has a kit of weapons consistent with its archetype description (e.g. the Lourd's kit leans toward high-damage/low-fire-rate weapons, the Mitrailleur's toward high-fire-rate/low-damage)
+**And** every weapon referenced already exists as WeaponData (reuses Epic 1's machine_gun/bazooka pattern, extended with new weapon resources as needed per archetype)
+**And** none of the 8 are required to be balanced against each other yet (NFR4/balance is explicitly out of this story's completion condition — see Epic 2's own note in the Epic List)
+
+### Story 2.3: Sélection de personnage
+
+As a player,
+I want to choose which of the 8 characters I play as before a match starts,
+So that I can pick a kit that matches how I want to play.
+
+**Acceptance Criteria:**
+
+**Given** the pre-match "ready?" gate (already implemented in Epic 1)
+**When** each player selects a character before confirming ready
+**Then** both players can independently choose any of the 8 characters (including choosing the same one)
+**And** the chosen character's data resource determines that player's ShipNode kit for the match
+**And** selection happens locally for both players on one screen (no networking involved — that's Epic 3)
+
+### Story 2.4: Arme tourelle — placement libre et action autonome
+
+As a player using a Contrôleur-archetype character,
+I want to place a turret weapon freely on the arena,
+So that I can control zones instead of aiming directly.
+
+**Acceptance Criteria:**
+
+**Given** the player has a turret-type weapon selected with sufficient gauge charge
+**When** the player fires
+**Then** a turret is placed at the ship's current position (or a short-range placement point) rather than firing a traveling projectile
+**And** once placed, the turret fires autonomously at the opponent using its own basic targeting, with no further player input required
+**And** the turret respects the same fixed-damage-per-hit model as other weapons (Story 1.5)
+
+### Story 2.5: Effet boost de mobilité
+
+As a player using a character with a mobility-boost weapon,
+I want a weapon that temporarily increases my movement speed instead of dealing damage,
+So that I have an indirect defensive/repositioning tool.
+
+**Acceptance Criteria:**
+
+**Given** the player fires a mobility-boost weapon with sufficient gauge
+**When** the effect triggers
+**Then** the player's movement speed is increased by a defined amount for a defined duration (mirroring the existing vulnerability-window pattern from Story 1.8, but as a buff instead of a debuff)
+**And** the weapon deals no direct damage
+**And** the effect is visually distinguishable from the normal movement state (reuse the existing tint-on-Visual pattern already used for vulnerability/lift charge)
+
+### Story 2.6: Effet stun/setup
+
+As a player using the Perturbateur character,
+I want a weapon that briefly stuns my opponent,
+So that I can follow up with a heavier hit.
+
+**Acceptance Criteria:**
+
+**Given** the player fires a stun-type weapon and it connects with the opponent
+**When** the stun applies
+**Then** the opponent's ability to fire and/or move is disabled for a short, fixed duration (~1 second, per the GDD's original combo-system note)
+**And** the stunned player retains their HP and gauges unchanged — the stun only removes agency temporarily, it is not itself damage
+**And** the stun is visually clear on the affected ship (distinct from the vulnerability/lift tints already in use)
+
+### Story 2.7: Comportement IA adapté au kit de chaque personnage
+
+As a solo player facing the AI,
+I want the AI's behavior to reflect whichever character it's playing,
+So that fighting the AI with any of the 8 characters feels meaningful (FR20).
+
+**Acceptance Criteria:**
+
+**Given** the AI is controlling a character with a specific archetype
+**When** the AI makes movement and firing decisions
+**Then** its behavior parameters reflect that archetype (e.g. a Lourd-piloting AI favors its preferred-depth/positioning differently than a Vif-piloting AI; a Contrôleur-piloting AI places turrets instead of just firing directly)
+**And** this reuses the existing AI heuristic framework from Story 1.12 (wander, depth preference, lift attempts) rather than introducing a parallel AI system
+**And** the AI remains deliberately unskilled overall (per FR19/FR20) — this story is about behavioral variety per character, not competitive tuning

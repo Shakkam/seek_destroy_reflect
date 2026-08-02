@@ -92,7 +92,7 @@ func _process_ready_gate() -> void:
 func _debug_text(ship: ShipNode) -> String:
 	var lines := ["PV: %d" % int(ship.state.hp)]
 	for i in ship.weapon_state.kit.size():
-		var weapon := ship.weapon_state.kit[i]
+		var weapon: WeaponData = ship.weapon_state.kit[i]
 		var gauge := ship.weapon_state.gauges[i]
 		var marker := "> " if i == ship.weapon_state.selected_index else "  "
 		lines.append("%s%s: %d / %d" % [marker, weapon.display_name, int(gauge), int(weapon.gauge_max)])
@@ -116,23 +116,31 @@ const BAZOOKA_TEXTURES := [
 	preload("res://assets/art/vfx/bazook.png"), # single custom sprite, replaced the extracted 2-frame R-Type version
 ]
 
-func _on_weapon_fired(damage: int, is_heavy: bool, ship: ShipNode) -> void:
+## Epic 2 — the signal now carries the full WeaponData resource so this
+## handler can branch on effect_type instead of a bare damage/is_heavy pair.
+## No dedicated art exists yet for the Epic 2 weapons (laser, boomerang,
+## homing missile, mini-shot) — they reuse the bazooka look when is_heavy,
+## otherwise the per-shooter machine-gun look, same as Epic 1.
+func _on_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
+	if weapon.effect_type == "turret":
+		_spawn_turret(weapon, ship)
+		return
+
 	var projectile := ProjectileNode.new()
 	projectile.position = ship.position
 	var direction := 1.0 if ship.side == 0 else -1.0
 	var shot_velocity := Vector2(direction * 620.0, 0.0)
-	if not is_heavy:
+	if not weapon.is_heavy:
 		var spread_rad := deg_to_rad(randf_range(-LIGHT_WEAPON_SPREAD_DEG, LIGHT_WEAPON_SPREAD_DEG))
 		shot_velocity = shot_velocity.rotated(spread_rad)
 	projectile.velocity = shot_velocity
 	projectile.flip_h = direction < 0.0
-	if is_heavy:
+	if weapon.is_heavy:
 		projectile.textures = BAZOOKA_TEXTURES
 		# bazook.png's fireball ("front") points LEFT natively — opposite of the
 		# machine-gun sprites — so it needs the inverse of the shared flip_h set
 		# above (2026-08-02: confirmed by inspecting the sprite directly).
 		projectile.flip_h = direction > 0.0
-		projectile.homing_strength = 1.8 # "legere tete chercheuse" for the bazooka only
 		projectile.visual_scale = 1.4 # +40% (2026-08-02 — reverted, stays consistent with the other projectiles)
 	else:
 		projectile.textures = [MACHINE_GUN_TEX_P1] if ship.side == 0 else [MACHINE_GUN_TEX_P2]
@@ -141,9 +149,41 @@ func _on_weapon_fired(damage: int, is_heavy: bool, ship: ShipNode) -> void:
 		# tip (the bullet's "front") points RIGHT natively in both files, so the
 		# base flip_h = direction < 0.0 (set above) is already correct — the
 		# earlier toggle here was a wrong guess and has been reverted.
-	projectile.damage = damage
+	projectile.homing_strength = weapon.homing_strength
+	projectile.damage = weapon.damage
+	projectile.effect_type = weapon.effect_type
+	projectile.effect_duration = weapon.effect_duration
+	projectile.tint = _weapon_tint(weapon.id)
 	projectile.target = ship_2 if ship == ship_1 else ship_1
 	add_child(projectile)
+
+## Epic 2 weapons without dedicated art yet reuse the machine-gun/bazooka
+## sprites — a tint keeps them tellable apart from the base weapons and from
+## each other while playtesting (2026-08-02, "ça tire juste une balle
+## normale" — the boomerang was functionally correct but visually identical
+## to the machine gun).
+func _weapon_tint(weapon_id: String) -> Color:
+	match weapon_id:
+		"stun_boomerang":
+			return Color(0.6, 0.8, 1.0) # matches the pale-blue stun tint used on the hit ship
+		"homing_missile":
+			return Color(1.0, 0.6, 0.2) # orange
+		"laser":
+			return Color(0.4, 1.0, 0.5) # green
+		"mini_shot":
+			return Color(1.0, 1.0, 0.4) # yellow
+		_:
+			return Color.WHITE # machine_gun / bazooka — unchanged
+
+## Story 2.4 — turret weapons spawn a persistent autonomous-firing node at
+## the shooter's position instead of a traveling projectile.
+func _spawn_turret(weapon: WeaponData, ship: ShipNode) -> void:
+	var turret := TurretNode.new()
+	turret.position = ship.position
+	turret.weapon = weapon
+	turret.target = ship_2 if ship == ship_1 else ship_1
+	turret.owner_side = ship.side
+	add_child(turret)
 
 ## Story 1.9 — a round ends when a ship's HP reaches 0; award the round,
 ## then reset both ships and the ball, unless the match itself is over.

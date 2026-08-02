@@ -5,12 +5,18 @@ extends CharacterBody2D
 ## logic to simulation/ship_state.gd. Never contains simulation rules
 ## itself (see project-context.md, Regle absolue n1).
 
-signal weapon_fired(damage: int, is_heavy: bool)
+signal weapon_fired(weapon: WeaponData) # carries the full weapon so callers can branch on effect_type
 signal gauge_filled(amount: float)
 
 @export var player_index: int = 1 # 1 or 2 — selects which local input scheme to read
 @export var side: int = 0 # 0 = left half, 1 = right half
 @export var half_extents: Vector2 = Vector2(14, 28) # matches the vertical "paddle" collision shape
+@export var character: CharacterData # Epic 2 — if unset, falls back to the Epic 1 placeholder kit
+
+var _mobility_boost_timer := 0.0
+var _mobility_boost_multiplier := 1.0
+var _mobility_boost_active_multiplier := 1.0 # the multiplier captured at the moment the boost fired
+var _stun_timer := 0.0 # Epic 2, Story 2.6 — movement and firing disabled while > 0
 
 var state: ShipState
 var arena_bounds: Rect2
@@ -79,13 +85,24 @@ const GAMEPAD_TRIGGER_THRESHOLD := 0.4
 func _ready() -> void:
 	_spawn_position = position
 	state = ShipState.new(position, side, half_extents)
-	# Story 1.4/1.5 test kit — shared placeholder until the full roster
-	# (Epic 2, FR9) gives each character its own fixed, distinct kit.
-	var kit: Array[WeaponData] = [
-		load("res://data/weapons/machine_gun.tres"),
-		load("res://data/weapons/bazooka.tres"),
-	]
+	var kit: Array = []
+	if character and character.kit.size() > 0:
+		kit = character.kit
+	else:
+		# Story 1.4/1.5 placeholder — used until a character is assigned
+		# (Story 2.3, character selection) or for quick scene testing.
+		kit = [
+			load("res://data/weapons/machine_gun.tres"),
+			load("res://data/weapons/bazooka.tres"),
+		]
 	weapon_state = WeaponSystemState.new(kit)
+
+## Epic 2, Story 2.3 — assigns a character (and rebuilds the weapon kit from
+## it) after the ship already exists, e.g. from a character-select screen.
+func set_character(new_character: CharacterData) -> void:
+	character = new_character
+	if character and character.kit.size() > 0:
+		weapon_state = WeaponSystemState.new(character.kit)
 
 func _physics_process(delta: float) -> void:
 	if not active:
@@ -102,15 +119,15 @@ func _physics_process(delta: float) -> void:
 	else:
 		_lift_charge_timer = 0.0
 
-	var fire_held := _read_fire_pressed()
+	var fire_held := _read_fire_pressed() and _stun_timer <= 0.0 # Story 2.6 — stunned ships can't fire
 
 	# Charging the lift freezes movement entirely — that's the risk/reward trade.
 	# Holding the fire button ("je balance la sauce") also slows movement —
 	# spraying continuously has a real positioning cost, not just ammo cost.
-	var input_direction := Vector2.ZERO if lift_held else _read_input()
-	var speed_multiplier := 1.0
+	var input_direction := Vector2.ZERO if (lift_held or _stun_timer > 0.0) else _read_input()
+	var speed_multiplier := _mobility_boost_multiplier
 	if _vulnerability_timer > 0.0:
-		speed_multiplier = VULNERABILITY_SPEED_MULTIPLIER
+		speed_multiplier = minf(speed_multiplier, VULNERABILITY_SPEED_MULTIPLIER)
 	if fire_held:
 		speed_multiplier = minf(speed_multiplier, FIRE_HOLD_SPEED_MULTIPLIER)
 	state = state.update(input_direction, delta, arena_bounds, frontier_x, speed_multiplier)
@@ -123,20 +140,30 @@ func _physics_process(delta: float) -> void:
 		var result := weapon_state.fired()
 		weapon_state = result.state
 		if result.fired:
+			var weapon: WeaponData = result.weapon
 			_flash_timer = FLASH_DURATION
-			if result.is_heavy:
+			if weapon.is_heavy:
 				_vulnerability_timer = VULNERABILITY_DURATION # Story 1.8
-			weapon_fired.emit(result.damage, result.is_heavy)
-			print("%s fired %s for %d damage (gauge left: %.0f)" % [
-				name, weapon_state.selected_weapon().display_name, result.damage,
-				weapon_state.gauges[weapon_state.selected_index]
+			if weapon.effect_type == "mobility_boost":
+				# Story 2.5 — self-applied instantly, no projectile spawned.
+				_mobility_boost_timer = weapon.effect_duration
+				_mobility_boost_active_multiplier = weapon.effect_speed_multiplier
+			else:
+				weapon_fired.emit(weapon)
+			print("%s fired %s (gauge left: %.0f)" % [
+				name, weapon.display_name, weapon_state.gauges[weapon_state.selected_index]
 			])
 
+	_mobility_boost_timer = maxf(_mobility_boost_timer - delta, 0.0)
+	_mobility_boost_multiplier = _mobility_boost_active_multiplier if _mobility_boost_timer > 0.0 else 1.0
+	_stun_timer = maxf(_stun_timer - delta, 0.0)
 	_vulnerability_timer = maxf(_vulnerability_timer - delta, 0.0)
 	_flash_timer = maxf(_flash_timer - delta, 0.0)
 	var visual := get_node_or_null("Visual") as Polygon2D
 	if visual:
-		if _vulnerability_timer > 0.0:
+		if _stun_timer > 0.0:
+			visual.modulate = Color(0.75, 0.75, 1.0) # pale blue-white — distinct from vulnerability/lift tints
+		elif _vulnerability_timer > 0.0:
 			visual.modulate = Color(1.0, 0.45, 0.45) # reddish tint while vulnerable
 		elif lift_held:
 			var charge_fraction := clampf(_lift_charge_timer / LIFT_CHARGE_CAP, 0.0, 1.0)
@@ -354,6 +381,11 @@ func _ai_should_fire() -> bool:
 ## Story 1.9 (partial/test-only) — see ship_state.gd note.
 func apply_damage(amount: float) -> void:
 	state = state.damaged(amount)
+
+## Epic 2, Story 2.6 — disables movement and firing for `duration` seconds.
+## HP and gauges are untouched: a stun removes agency, it is not damage.
+func apply_stun(duration: float) -> void:
+	_stun_timer = maxf(_stun_timer, duration)
 
 ## Stories 1.6/1.7 — fills the currently selected weapon's gauge.
 func fill_selected_gauge(amount: float) -> void:

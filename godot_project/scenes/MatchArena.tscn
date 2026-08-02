@@ -3,6 +3,8 @@
 [ext_resource type="Script" uid="uid://c0dvwuji2r2ms" path="res://nodes/match_arena_node.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/Ship.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/Ball.tscn" id="3"]
+[ext_resource type="Resource" path="res://data/characters/controleur.tres" id="4"]
+[ext_resource type="Resource" path="res://data/characters/perturbateur.tres" id="5"]
 
 [node name="MatchArena" type="Node2D" unique_id=456439615]
 position = Vector2(-1, -1)
@@ -31,11 +33,13 @@ default_color = Color(0.27, 0.85, 1, 0.6)
 
 [node name="Ship1" parent="." unique_id=1907322482 instance=ExtResource("2")]
 position = Vector2(200, 360)
+character = ExtResource("4")
 
 [node name="Ship2" parent="." unique_id=439306057 instance=ExtResource("2")]
 position = Vector2(1080, 360)
 player_index = 2
 side = 1
+character = ExtResource("5")
 
 [node name="Visual" parent="Ship2"]
 color = Color(1, 0.55, 0.7, 1)

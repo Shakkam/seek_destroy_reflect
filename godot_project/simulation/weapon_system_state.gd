@@ -13,12 +13,12 @@ const RETURN_GAUGE_FILL := 10.0 # Story 1.7 — standard fill per successful ret
 const RETURN_GAUGE_FILL_MAX_LIFT := 15.0 # Story 1.7 — fill at a fully-charged (100%) lift return
 const MISS_GAUGE_FILL := 50.0 # Story 1.6 — playtest-tuned down from a "full charge" (2026-08-01 feedback)
 
-var kit: Array[WeaponData]
+var kit: Array # of WeaponData
 var gauges: Array[float] # parallel array to kit — current charge per weapon
 var selected_index: int
 var cooldown: float # seconds remaining before the next shot is allowed
 
-func _init(weapon_kit: Array[WeaponData], start_selected: int = 0) -> void:
+func _init(weapon_kit: Array, start_selected: int = 0) -> void:
 	kit = weapon_kit
 	gauges = []
 	for weapon in kit:
@@ -49,16 +49,16 @@ func with_cooldown_ticked(delta: float) -> WeaponSystemState:
 	return new_state
 
 ## Attempts to fire the currently selected weapon.
-## Returns {"state": WeaponSystemState, "fired": bool, "damage": int, "is_heavy": bool}
+## Returns {"state": WeaponSystemState, "fired": bool, "weapon": WeaponData}
 func fired() -> Dictionary:
 	var weapon := selected_weapon()
 	if cooldown > 0.0 or gauges[selected_index] < weapon.gauge_cost_per_shot:
-		return {"state": self, "fired": false, "damage": 0, "is_heavy": false}
+		return {"state": self, "fired": false, "weapon": null}
 
 	var new_state := _clone()
 	new_state.gauges[selected_index] = gauges[selected_index] - weapon.gauge_cost_per_shot
 	new_state.cooldown = 1.0 / weapon.fire_rate
-	return {"state": new_state, "fired": true, "damage": weapon.damage, "is_heavy": weapon.is_heavy}
+	return {"state": new_state, "fired": true, "weapon": weapon}
 
 func _clone() -> WeaponSystemState:
 	var copy := WeaponSystemState.new(kit, selected_index)
