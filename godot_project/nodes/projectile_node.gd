@@ -16,6 +16,22 @@ var homing_strength: float = 0.0 # 0 = straight line; >0 = gently steers toward 
 var effect_type: String = "damage" # Epic 2 — "damage" (default) or "stun"
 var effect_duration: float = 0.0 # Epic 2 — stun length applied on hit when effect_type == "stun"
 
+# "Shmup juice pass" (2026-08-05) — boomerang motion: curves outward for
+# BOOMERANG_OUT_DURATION, then arcs back toward `shooter`. Mutually exclusive
+# with homing_strength (boomerang weapons don't set it). Unlike a normal
+# projectile it does NOT despawn on hit, so it can land once on the way out
+# and once on the way back — each guarded separately below.
+var is_boomerang := false
+var shooter: ShipNode = null
+const BOOMERANG_CURVE_RATE := 70.0 # degrees/sec — bends the outbound path into a gentle arc. Was 160 (2026-08-05 playtest: "part vers le bas" — over 0.45s that swung ~72°, nearly a right angle off "straight at the opponent"; 70°/s only swings ~31°, so it still clearly travels forward first.
+const BOOMERANG_OUT_DURATION := 0.45 # seconds before it curves back
+const BOOMERANG_RETURN_TURN_RATE := 260.0 # degrees/sec — how fast it re-aims at the shooter on the way back
+const BOOMERANG_CATCH_DISTANCE := 24.0 # despawns once this close to the shooter on the return leg
+var _boomerang_timer := 0.0
+var _boomerang_returning := false
+var _boomerang_hit_outbound := false
+var _boomerang_hit_return := false
+
 var textures: Array = [] # of Texture2D — 1 = static sprite; 2+ = simple flicker/pulse animation
 var flip_h := false # sprites face right by default; flipped for shots travelling left
 var visual_scale := 1.0 # engine-side size bump, independent of the source art (2026-08-02 feedback)
@@ -47,7 +63,9 @@ func _ready() -> void:
 	_update_sprite_texture()
 
 func _physics_process(delta: float) -> void:
-	if target and homing_strength > 0.0:
+	if is_boomerang:
+		_update_boomerang(delta)
+	elif target and homing_strength > 0.0:
 		# Only steer vertically — horizontal (left/right) speed stays constant.
 		var desired_vy := clampf((target.position.y - position.y) * 2.0, -260.0, 260.0)
 		velocity.y = lerpf(velocity.y, desired_vy, clampf(homing_strength * delta, 0.0, 1.0))
@@ -58,12 +76,18 @@ func _physics_process(delta: float) -> void:
 	if target:
 		var target_rect := Rect2(target.position - target.half_extents, target.half_extents * 2.0)
 		if target_rect.has_point(position):
-			if effect_type == "stun":
-				target.apply_stun(effect_duration)
+			if is_boomerang:
+				# Can land once per leg (out/back) instead of despawning on contact.
+				if _boomerang_returning and not _boomerang_hit_return:
+					_boomerang_hit_return = true
+					_apply_hit_effect()
+				elif not _boomerang_returning and not _boomerang_hit_outbound:
+					_boomerang_hit_outbound = true
+					_apply_hit_effect()
 			else:
-				target.apply_damage(damage)
-			queue_free()
-			return
+				_apply_hit_effect()
+				queue_free()
+				return
 
 	if lifetime <= 0.0:
 		queue_free()
@@ -78,3 +102,34 @@ func _physics_process(delta: float) -> void:
 func _update_sprite_texture() -> void:
 	if textures.size() > 0 and _sprite:
 		_sprite.texture = textures[_anim_index]
+
+func _apply_hit_effect() -> void:
+	if effect_type == "stun":
+		target.apply_stun(effect_duration)
+	else:
+		target.apply_damage(damage)
+
+## Outbound leg: arcs via a constant angular curve. Return leg: re-aims at
+## the shooter's current (live) position each frame, homing-style, then
+## despawns once close enough to be "caught".
+func _update_boomerang(delta: float) -> void:
+	_boomerang_timer += delta
+	if not _boomerang_returning:
+		velocity = velocity.rotated(deg_to_rad(BOOMERANG_CURVE_RATE * delta))
+		if _boomerang_timer >= BOOMERANG_OUT_DURATION:
+			_boomerang_returning = true
+	elif is_instance_valid(shooter):
+		var to_shooter := shooter.position - position
+		if to_shooter.length() > 1.0:
+			# Rotate toward the shooter by a clamped angular step rather than
+			# lerping the velocity vector directly — lerping two same-length
+			# vectors pointing in different directions shortens the result
+			# (chord vs. arc), which bled off speed each frame and could leave
+			# it crawling back too slowly to ever reach BOOMERANG_CATCH_DISTANCE.
+			var angle_diff := wrapf(to_shooter.angle() - velocity.angle(), -PI, PI)
+			var max_turn := deg_to_rad(BOOMERANG_RETURN_TURN_RATE) * delta
+			velocity = velocity.rotated(clampf(angle_diff, -max_turn, max_turn))
+		if position.distance_to(shooter.position) < BOOMERANG_CATCH_DISTANCE:
+			queue_free()
+	else:
+		queue_free() # shooter gone (round reset mid-flight) — nothing to return to

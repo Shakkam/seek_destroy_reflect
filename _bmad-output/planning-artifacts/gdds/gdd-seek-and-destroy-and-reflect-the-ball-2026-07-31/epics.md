@@ -1,4 +1,4 @@
-# Epics de développement — Seek and Destroy and Reflect the Ball
+# Epics de développement — Seek and Destroy and Return the Ball
 
 ## Epic 1 — Prototype du Core Loop (Palier Prototype)
 

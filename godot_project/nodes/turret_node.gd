@@ -6,24 +6,36 @@ extends Node2D
 ## weapon's damage/fire_rate, with no further player input. No dedicated art
 ## exists yet (2026-08-02) — rendered as a simple colored placeholder shape,
 ## same "engine-side, no art needed yet" approach used elsewhere in Epic 2.
+##
+## Destructible (2026-08-05 playtest: "faudrait qu'elle soit destructible") —
+## any enemy projectile passing through its hitbox chips its HP (weapon.turret_hp)
+## and is consumed. A turret sits on its owner's side, roughly in the path of
+## incoming enemy fire toward the owner's ship, so this reads as "shoot the
+## turret down" without needing dedicated turret-targeting AI/aim.
 
-const LIFETIME := 6.0 # placeholder duration — not specified by the AC, tuned later
 const SHOT_SPEED := 480.0
+const HALF_EXTENTS := Vector2(10, 10) # slightly larger than the 8x8 visual — an easier target than a ship
 
 var weapon: WeaponData
 var target: ShipNode
 var owner_side: int = 0
+var hp: float = 0.0
 
-var _lifetime_left := LIFETIME
+var _visual: Polygon2D
+var _lifetime_left := 0.0 # set from weapon.turret_lifetime in _ready() — weapon isn't assigned yet at field-init time
 var _fire_cooldown := 0.0
+var _flash_timer := 0.0
+const FLASH_DURATION := 0.08
 
 func _ready() -> void:
-	var visual := Polygon2D.new()
-	visual.polygon = PackedVector2Array([
+	hp = weapon.turret_hp
+	_lifetime_left = weapon.turret_lifetime
+	_visual = Polygon2D.new()
+	_visual.polygon = PackedVector2Array([
 		Vector2(-8, -8), Vector2(8, -8), Vector2(8, 8), Vector2(-8, 8),
 	])
-	visual.color = Color(0.4, 0.9, 0.4) if owner_side == 0 else Color(0.9, 0.4, 0.9)
-	add_child(visual)
+	_visual.color = Color(0.4, 0.9, 0.4) if owner_side == 0 else Color(0.9, 0.4, 0.9)
+	add_child(_visual)
 	_fire_cooldown = 1.0 / weapon.fire_rate
 
 func _physics_process(delta: float) -> void:
@@ -36,6 +48,31 @@ func _physics_process(delta: float) -> void:
 	if _fire_cooldown <= 0.0:
 		_fire_cooldown = 1.0 / weapon.fire_rate
 		_fire_at_target()
+
+	_check_incoming_fire()
+	_flash_timer = maxf(_flash_timer - delta, 0.0)
+	if _visual:
+		_visual.modulate = Color(1.7, 1.7, 1.7) if _flash_timer > 0.0 else Color(1.0, 1.0, 1.0)
+
+## Consumes the first overlapping enemy projectile this frame (one hit per
+## frame is plenty — projectiles are small and fast, this isn't meant to be
+## a bullet sponge) and applies its damage. "Enemy" = any projectile whose
+## intended target is a ship on this turret's own side.
+func _check_incoming_fire() -> void:
+	for child in get_parent().get_children():
+		if not (child is ProjectileNode):
+			continue
+		var incoming: ProjectileNode = child
+		if not is_instance_valid(incoming.target) or incoming.target.side != owner_side:
+			continue # this shot belongs to my own side's turret/ship, not a threat
+		var my_rect := Rect2(position - HALF_EXTENTS, HALF_EXTENTS * 2.0)
+		if my_rect.has_point(incoming.position):
+			hp -= incoming.damage
+			_flash_timer = FLASH_DURATION
+			incoming.queue_free()
+			if hp <= 0.0:
+				queue_free()
+			return
 
 func _fire_at_target() -> void:
 	var projectile := ProjectileNode.new()

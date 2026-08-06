@@ -1,6 +1,18 @@
-# Journal d'apprentissage — IA adverse (Seek and Destroy and Reflect the Ball)
+# Journal d'apprentissage — IA adverse (Seek and Destroy and Return the Ball)
 
 Historique des ajustements de l'IA, dans l'ordre chronologique. Lu intégralement en début de session par shakkam-ia-seek avant toute modification — ne jamais réinventer une correction déjà tentée (et éventuellement rejetée) précédemment.
+
+---
+
+## 2026-08-02 — Comportement IA par archétype (Epic 2, Story 2.7)
+
+**Demande utilisateur :** enchaîner les stories 2.3 puis 2.7 de l'Epic 2 ("2.3 et 2.7 en suivant") — l'IA doit se comporter différemment selon le personnage piloté (FR20), sans dupliquer le framework IA existant.
+
+**Changement :** ajout de `AI_PROFILES` (dictionnaire const, clé = `CharacterData.id`) dans `ship_node.gd`, appliqué via `_apply_ai_profile()` (appelée dans `_ready()` et `set_character()`). Chaque profil surcharge des **instances** des anciens paramètres globaux (`_ai_depth_min/max`, `_ai_approach_distance`, `_ai_lift_chance`) plutôt que les constantes elles-mêmes, qui restent le fallback si le personnage n'a pas de profil (ex : kit placeholder Epic 1). Ajout d'un nouveau paramètre `signature_bias` : quand > 0, `_ai_update_weapon_switch` ne pulse plus la sélection à l'aveugle toutes les 3-6s (comportement legacy, conservé si `signature_bias == 0`) mais tire une préférence pour l'arme signature (index 0 du kit) et ne pulse que si la sélection actuelle ne correspond pas au tirage — ex. Contrôleur (`signature_bias = 0.85`) reste très majoritairement sur sa tourelle au lieu d'alterner avec la mitraillette. Réglages par archétype : Lourd/Contrôleur = profondeur basse + faible `lift_chance` (repli, campe) ; Vif/Mini = profondeur haute + `lift_chance` élevée (agressif, mobile) ; Missiles/Zoneur = profondeur basse-moyenne, `signature_bias` élevé (misent sur leur arme signature à distance) ; Perturbateur = profondeur moyenne, `signature_bias` élevé (cherche à placer son stun).
+
+**Raisonnement :** AC 2.7 exige de réutiliser le framework existant (wander/depth/lift/weapon-switch de la Story 1.12) plutôt qu'un système IA parallèle, et cite explicitement l'exemple Contrôleur = tourelle plutôt que tir direct. Passer les constantes `AI_DEPTH_MIN/MAX`/`AI_APPROACH_DISTANCE` en variables d'instance avec les mêmes valeurs par défaut garantit qu'un personnage sans profil (ou l'ancien kit placeholder) se comporte exactement comme avant Epic 2 — pas de régression Epic 1.
+
+**À surveiller :** les valeurs par profil sont des première estimations non playtestées (pas d'accès à un runtime Godot ici) — à valider/ajuster une fois testées en jeu, en particulier `signature_bias` pour Contrôleur (vérifier que l'IA replace bien une tourelle après expiration de `TurretNode.LIFETIME = 6s` plutôt que de rester bloquée sur l'arme sans jamais retirer).
 
 ---
 

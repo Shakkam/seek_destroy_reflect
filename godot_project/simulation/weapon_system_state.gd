@@ -60,6 +60,21 @@ func fired() -> Dictionary:
 	new_state.cooldown = 1.0 / weapon.fire_rate
 	return {"state": new_state, "fired": true, "weapon": weapon}
 
+## Continuous alternative to fired(), for effect_type == "beam" weapons only.
+## Instead of a one-time gauge_cost_per_shot gated by a per-shot cooldown,
+## a beam drains gauge_cost_per_shot as a PER-SECOND rate for as long as
+## it's called (i.e. as long as the fire button is held) and simply stops
+## being "active" once the gauge runs dry — no cooldown, no discrete shot.
+## Returns {"state": WeaponSystemState, "active": bool}.
+func beam_tick(delta: float) -> Dictionary:
+	var weapon := selected_weapon()
+	var cost := weapon.gauge_cost_per_shot * delta
+	if gauges[selected_index] < cost:
+		return {"state": self, "active": false}
+	var new_state := _clone()
+	new_state.gauges[selected_index] = gauges[selected_index] - cost
+	return {"state": new_state, "active": true}
+
 func _clone() -> WeaponSystemState:
 	var copy := WeaponSystemState.new(kit, selected_index)
 	copy.gauges = gauges.duplicate()

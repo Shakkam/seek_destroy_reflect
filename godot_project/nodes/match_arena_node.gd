@@ -25,11 +25,22 @@ const HP_BAR_WIDTH := 240.0
 var match_state: MatchState = MatchState.new()
 var _round_active := true
 var _ai_toggle_prev := false
+var _beams: Dictionary = {} # ShipNode -> BeamNode, tracks each ship's active laser beam (juice pass)
 
 # Pre-match gate (2026-08-01): nothing moves until a player confirms ready.
 var _match_started := false
 
 func _ready() -> void:
+	# Story 2.3 — if this scene was reached via CharacterSelect, apply the
+	# picks over whatever character (if any) is hardcoded on the scene node
+	# itself. Running MatchArena.tscn directly in the editor for quick
+	# testing leaves MatchSetup's fields null, so the scene's own defaults
+	# (or the Epic 1 placeholder kit) apply instead — no code path required.
+	if MatchSetup.p1_character:
+		ship_1.set_character(MatchSetup.p1_character)
+	if MatchSetup.p2_character:
+		ship_2.set_character(MatchSetup.p2_character)
+
 	var bounds := Rect2(arena_origin, arena_size)
 	var frontier_x := arena_origin.x + arena_size.x / 2.0
 
@@ -67,6 +78,7 @@ func _process(_delta: float) -> void:
 	p2_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_2.state.hp / ShipState.START_HP, 0.0, 1.0)
 
 	_process_ai_toggle()
+	_process_beams()
 
 	if not _match_started:
 		_process_ready_gate()
@@ -104,8 +116,6 @@ func _on_gauge_filled(amount: float, ship: ShipNode) -> void:
 	popup.text = "+%d" % int(amount)
 	add_child(popup)
 
-const LIGHT_WEAPON_SPREAD_DEG := 2.0 # machine-gun shots get a very slight random angle, bazooka stays true (5°→2°, felt like a different weapon)
-
 # Placeholder R-Type sprites (2026-08-02) — replace with final art later.
 # Machine-gun shots are colored per-shooter (matches ship colors) so a spray
 # from both sides stays readable; bazooka keeps its own look, already
@@ -116,8 +126,10 @@ const BAZOOKA_TEXTURES := [
 	preload("res://assets/art/vfx/bazook.png"), # single custom sprite, replaced the extracted 2-frame R-Type version
 ]
 
-## Epic 2 — the signal now carries the full WeaponData resource so this
-## handler can branch on effect_type instead of a bare damage/is_heavy pair.
+## Epic 2 — the signal carries the full WeaponData resource so this handler
+## can branch on effect_type instead of a bare damage/is_heavy pair.
+## "beam" (laser) never reaches here — ShipNode intercepts it before
+## emitting, same as "mobility_boost" — see MatchArenaNode._sync_beam().
 ## No dedicated art exists yet for the Epic 2 weapons (laser, boomerang,
 ## homing missile, mini-shot) — they reuse the bazooka look when is_heavy,
 ## otherwise the per-shooter machine-gun look, same as Epic 1.
@@ -126,13 +138,37 @@ func _on_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 		_spawn_turret(weapon, ship)
 		return
 
+	# "Shmup juice pass" — projectile_count > 1 fans a burst instead of a
+	# single shot (e.g. the missile swarm), staggered by burst_stagger.
+	if weapon.projectile_count <= 1:
+		_spawn_projectile(weapon, ship, 0.0)
+		return
+	for i in weapon.projectile_count:
+		var t := float(i) / float(maxi(weapon.projectile_count - 1, 1))
+		var angle_offset := lerpf(-weapon.burst_spread_deg / 2.0, weapon.burst_spread_deg / 2.0, t)
+		if weapon.burst_stagger > 0.0 and i > 0:
+			get_tree().create_timer(i * weapon.burst_stagger).timeout.connect(
+				_spawn_projectile.bind(weapon, ship, angle_offset)
+			)
+		else:
+			_spawn_projectile(weapon, ship, angle_offset)
+
+func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: float) -> void:
+	if not is_instance_valid(ship):
+		return # round may have reset mid-burst-stagger
+
 	var projectile := ProjectileNode.new()
 	projectile.position = ship.position
 	var direction := 1.0 if ship.side == 0 else -1.0
-	var shot_velocity := Vector2(direction * 620.0, 0.0)
-	if not weapon.is_heavy:
-		var spread_rad := deg_to_rad(randf_range(-LIGHT_WEAPON_SPREAD_DEG, LIGHT_WEAPON_SPREAD_DEG))
-		shot_velocity = shot_velocity.rotated(spread_rad)
+	var spread_deg := angle_offset_deg
+	# Random per-shot jitter is for single-projectile sprays (machine gun) —
+	# a multi-projectile burst already has its own deliberate fan geometry
+	# (burst_spread_deg), so layering jitter on top just made it wobble
+	# instead of reading as a clean, repeatable pattern (2026-08-06 playtest:
+	# "pas de random sur les angles" for the Éventail fan).
+	if not weapon.is_heavy and weapon.projectile_count <= 1:
+		spread_deg += randf_range(-weapon.spread_deg, weapon.spread_deg)
+	var shot_velocity := Vector2(direction * 620.0, 0.0).rotated(deg_to_rad(spread_deg))
 	projectile.velocity = shot_velocity
 	projectile.flip_h = direction < 0.0
 	if weapon.is_heavy:
@@ -149,13 +185,45 @@ func _on_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 		# tip (the bullet's "front") points RIGHT natively in both files, so the
 		# base flip_h = direction < 0.0 (set above) is already correct — the
 		# earlier toggle here was a wrong guess and has been reverted.
+	if weapon.projectile_count > 1:
+		projectile.visual_scale *= 0.7 # each unit in a burst reads smaller than a lone shot
+	projectile.visual_scale *= weapon.visual_scale_multiplier
 	projectile.homing_strength = weapon.homing_strength
 	projectile.damage = weapon.damage
 	projectile.effect_type = weapon.effect_type
 	projectile.effect_duration = weapon.effect_duration
 	projectile.tint = _weapon_tint(weapon.id)
 	projectile.target = ship_2 if ship == ship_1 else ship_1
+	if weapon.is_boomerang:
+		projectile.is_boomerang = true
+		projectile.shooter = ship
+		projectile.lifetime = 3.0 # default 2.0s can be tight for a full out-and-back arc if the shooter keeps moving
 	add_child(projectile)
+
+## "Shmup juice pass" — the laser is a continuous beam (ShipNode.beam_active,
+## driven by WeaponSystemState.beam_tick()) rather than a discrete
+## weapon_fired signal, so MatchArenaNode owns a BeamNode's whole lifecycle
+## here instead of spawning-and-forgetting like a normal projectile.
+func _process_beams() -> void:
+	_sync_beam(ship_1, ship_2)
+	_sync_beam(ship_2, ship_1)
+
+func _sync_beam(shooter: ShipNode, target: ShipNode) -> void:
+	if shooter.beam_active:
+		if not _beams.has(shooter):
+			var beam := BeamNode.new()
+			beam.shooter = shooter
+			beam.target = target
+			beam.arena_bounds = Rect2(arena_origin, arena_size)
+			var tint := _weapon_tint(shooter.beam_weapon.id) if shooter.beam_weapon else Color(0.4, 1.0, 0.5)
+			beam.color = Color(tint.r, tint.g, tint.b, 0.7) # translucent — _weapon_tint returns opaque colors
+			add_child(beam)
+			_beams[shooter] = beam
+		_beams[shooter].weapon = shooter.beam_weapon
+	elif _beams.has(shooter):
+		if is_instance_valid(_beams[shooter]):
+			_beams[shooter].queue_free()
+		_beams.erase(shooter)
 
 ## Epic 2 weapons without dedicated art yet reuse the machine-gun/bazooka
 ## sprites — a tint keeps them tellable apart from the base weapons and from

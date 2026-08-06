@@ -18,6 +18,21 @@ var _mobility_boost_multiplier := 1.0
 var _mobility_boost_active_multiplier := 1.0 # the multiplier captured at the moment the boost fired
 var _stun_timer := 0.0 # Epic 2, Story 2.6 — movement and firing disabled while > 0
 
+# Turbo afterimage trail (2026-08-06) — was flagged as deferred polish, done
+# now that the Turbo has a tint to match. Ghost copies of the ship's own
+# Visual polygon, spawned periodically while boosted and faded out via Tween.
+var _trail_timer := 0.0
+const TRAIL_INTERVAL := 0.05
+const TRAIL_LIFETIME := 0.25
+const TRAIL_COLOR := Color(0.5, 1.0, 1.0, 0.35) # matches the Turbo tint, translucent
+
+# "Shmup juice pass" (2026-08-05) — beam weapons (laser) bypass the discrete
+# fired()/cooldown flow for continuous WeaponSystemState.beam_tick() while
+# held. MatchArenaNode polls these two each frame to own the BeamNode's
+# lifecycle (spawn/update/free), same pattern already used for AI toggling.
+var beam_active := false
+var beam_weapon: WeaponData = null
+
 var state: ShipState
 var arena_bounds: Rect2
 var frontier_x: float
@@ -76,6 +91,29 @@ var _ai_horizontal_dir := 0.0
 const AI_H_DEADZONE_STOP := 6.0
 const AI_H_DEADZONE_START := 18.0
 
+# Epic 2, Story 2.7 — per-archetype AI tuning, keyed by CharacterData.id.
+# Reuses the exact heuristic framework above (wander/depth/lift/weapon-switch)
+# with different parameters per character, rather than a parallel AI system.
+# "signature_bias" = 0 keeps the legacy Epic 1 unconditional weapon-cycle
+# behavior; >0 biases the AI toward staying on kit index 0 (the character's
+# signature weapon), e.g. a Controleur AI mostly keeps its turret selected
+# instead of cycling away from it right after placing one.
+const AI_PROFILES := {
+	"lourd": {"depth_min": 0.05, "depth_max": 0.25, "approach_distance": 200.0, "lift_chance": 0.15, "signature_bias": 0.85},
+	"controleur": {"depth_min": 0.1, "depth_max": 0.3, "approach_distance": 200.0, "lift_chance": 0.2, "signature_bias": 0.85},
+	"mitrailleur": {"depth_min": 0.2, "depth_max": 0.5, "approach_distance": 280.0, "lift_chance": 0.3, "signature_bias": 0.55},
+	"vif": {"depth_min": 0.35, "depth_max": 0.65, "approach_distance": 340.0, "lift_chance": 0.45, "signature_bias": 0.7},
+	"zoneur": {"depth_min": 0.3, "depth_max": 0.55, "approach_distance": 240.0, "lift_chance": 0.2, "signature_bias": 0.75},
+	"perturbateur": {"depth_min": 0.25, "depth_max": 0.5, "approach_distance": 280.0, "lift_chance": 0.35, "signature_bias": 0.75},
+	"missiles": {"depth_min": 0.15, "depth_max": 0.35, "approach_distance": 220.0, "lift_chance": 0.2, "signature_bias": 0.8},
+	"mini": {"depth_min": 0.3, "depth_max": 0.6, "approach_distance": 340.0, "lift_chance": 0.4, "signature_bias": 0.85},
+}
+var _ai_depth_min := AI_DEPTH_MIN
+var _ai_depth_max := AI_DEPTH_MAX
+var _ai_approach_distance := AI_APPROACH_DISTANCE
+var _ai_lift_chance := 0.3
+var _ai_signature_bias := 0.0
+
 # Gamepad support (2026-08-01) — Xbox 360 / XInput-compatible pad, additive
 # to the keyboard scheme (either works, whichever the player actually uses).
 # Device index = player_index - 1, so a 2nd connected pad serves Player 2.
@@ -96,6 +134,7 @@ func _ready() -> void:
 			load("res://data/weapons/bazooka.tres"),
 		]
 	weapon_state = WeaponSystemState.new(kit)
+	_apply_ai_profile()
 
 ## Epic 2, Story 2.3 — assigns a character (and rebuilds the weapon kit from
 ## it) after the ship already exists, e.g. from a character-select screen.
@@ -103,6 +142,24 @@ func set_character(new_character: CharacterData) -> void:
 	character = new_character
 	if character and character.kit.size() > 0:
 		weapon_state = WeaponSystemState.new(character.kit)
+	_apply_ai_profile()
+
+## Story 2.7 — loads this ship's AI tuning from AI_PROFILES if its character
+## has one, else falls back to the original Story 1.12 defaults.
+func _apply_ai_profile() -> void:
+	if not character or not AI_PROFILES.has(character.id):
+		_ai_depth_min = AI_DEPTH_MIN
+		_ai_depth_max = AI_DEPTH_MAX
+		_ai_approach_distance = AI_APPROACH_DISTANCE
+		_ai_lift_chance = 0.3
+		_ai_signature_bias = 0.0
+		return
+	var profile: Dictionary = AI_PROFILES[character.id]
+	_ai_depth_min = profile.depth_min
+	_ai_depth_max = profile.depth_max
+	_ai_approach_distance = profile.approach_distance
+	_ai_lift_chance = profile.lift_chance
+	_ai_signature_bias = profile.signature_bias
 
 func _physics_process(delta: float) -> void:
 	if not active:
@@ -136,26 +193,50 @@ func _physics_process(delta: float) -> void:
 	_process_weapon_selection()
 	_ai_pulse_select = false # consumed for this frame, whether or not it was set
 	weapon_state = weapon_state.with_cooldown_ticked(delta)
-	if fire_held:
-		var result := weapon_state.fired()
-		weapon_state = result.state
-		if result.fired:
-			var weapon: WeaponData = result.weapon
-			_flash_timer = FLASH_DURATION
-			if weapon.is_heavy:
-				_vulnerability_timer = VULNERABILITY_DURATION # Story 1.8
-			if weapon.effect_type == "mobility_boost":
-				# Story 2.5 — self-applied instantly, no projectile spawned.
-				_mobility_boost_timer = weapon.effect_duration
-				_mobility_boost_active_multiplier = weapon.effect_speed_multiplier
-			else:
-				weapon_fired.emit(weapon)
-			print("%s fired %s (gauge left: %.0f)" % [
-				name, weapon.display_name, weapon_state.gauges[weapon_state.selected_index]
-			])
+	var selected := weapon_state.selected_weapon()
+	if selected.effect_type == "beam":
+		# "Shmup juice pass" — continuous channel instead of a discrete shot;
+		# see WeaponSystemState.beam_tick() and MatchArenaNode._sync_beam().
+		if fire_held:
+			var beam_result := weapon_state.beam_tick(delta)
+			weapon_state = beam_result.state
+			beam_active = beam_result.active
+			beam_weapon = selected if beam_active else null
+			if beam_active:
+				_vulnerability_timer = maxf(_vulnerability_timer, 0.15) # channeling stays exposed continuously, Story 1.8's spirit
+		else:
+			beam_active = false
+			beam_weapon = null
+	else:
+		beam_active = false
+		beam_weapon = null
+		if fire_held:
+			var result := weapon_state.fired()
+			weapon_state = result.state
+			if result.fired:
+				var weapon: WeaponData = result.weapon
+				_flash_timer = FLASH_DURATION
+				if weapon.is_heavy:
+					_vulnerability_timer = VULNERABILITY_DURATION # Story 1.8
+				if weapon.effect_type == "mobility_boost":
+					# Story 2.5 — self-applied instantly, no projectile spawned.
+					_mobility_boost_timer = weapon.effect_duration
+					_mobility_boost_active_multiplier = weapon.effect_speed_multiplier
+				else:
+					weapon_fired.emit(weapon)
+				print("%s fired %s (gauge left: %.0f)" % [
+					name, weapon.display_name, weapon_state.gauges[weapon_state.selected_index]
+				])
 
 	_mobility_boost_timer = maxf(_mobility_boost_timer - delta, 0.0)
 	_mobility_boost_multiplier = _mobility_boost_active_multiplier if _mobility_boost_timer > 0.0 else 1.0
+	if _mobility_boost_timer > 0.0:
+		_trail_timer -= delta
+		if _trail_timer <= 0.0:
+			_trail_timer = TRAIL_INTERVAL
+			_spawn_trail_ghost()
+	else:
+		_trail_timer = 0.0
 	_stun_timer = maxf(_stun_timer - delta, 0.0)
 	_vulnerability_timer = maxf(_vulnerability_timer - delta, 0.0)
 	_flash_timer = maxf(_flash_timer - delta, 0.0)
@@ -170,8 +251,26 @@ func _physics_process(delta: float) -> void:
 			visual.modulate = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.84, 0.29), charge_fraction) # builds toward gold
 		elif _flash_timer > 0.0:
 			visual.modulate = Color(1.7, 1.7, 1.7)
+		elif _mobility_boost_timer > 0.0:
+			visual.modulate = Color(0.5, 1.0, 1.0) # cyan glow — Turbo had zero visual feedback before (2026-08-05: "le turbo n'est pas fait ?"), it was working but untinted
 		else:
 			visual.modulate = Color(1.0, 1.0, 1.0)
+
+## Turbo afterimage — a faint, fading copy of this ship's own Visual shape
+## left behind at the current position, purely cosmetic (no gameplay effect).
+func _spawn_trail_ghost() -> void:
+	var visual := get_node_or_null("Visual") as Polygon2D
+	if not visual or not get_parent():
+		return
+	var ghost := Polygon2D.new()
+	ghost.polygon = visual.polygon
+	ghost.color = TRAIL_COLOR
+	ghost.position = position
+	ghost.z_index = -1 # render behind ships/ball
+	get_parent().add_child(ghost)
+	var tween := ghost.create_tween()
+	tween.tween_property(ghost, "modulate:a", 0.0, TRAIL_LIFETIME)
+	tween.finished.connect(ghost.queue_free)
 
 ## Story 1.9 (partial) — resets HP and position for a new round.
 func reset_for_new_round() -> void:
@@ -314,7 +413,7 @@ func _ai_read_input() -> Vector2:
 	var span := absf(frontier_reach_x - back_x)
 	var default_target_x := back_x + forward_sign * span * _ai_preferred_depth
 
-	var ball_close := ball_on_my_side and absf(ball_ref.position.x - position.x) < AI_APPROACH_DISTANCE
+	var ball_close := ball_on_my_side and absf(ball_ref.position.x - position.x) < _ai_approach_distance
 	var target_x := frontier_reach_x if ball_close else default_target_x
 
 	var diff_x := target_x - position.x
@@ -344,14 +443,26 @@ func _ai_update_depth(delta: float) -> void:
 	if _ai_depth_timer > 0.0:
 		return
 	_ai_depth_timer = randf_range(AI_DEPTH_INTERVAL_MIN, AI_DEPTH_INTERVAL_MAX)
-	_ai_preferred_depth = randf_range(AI_DEPTH_MIN, AI_DEPTH_MAX)
+	_ai_preferred_depth = randf_range(_ai_depth_min, _ai_depth_max)
 
-## Occasionally cycles weapons, purely for variety — no strategic weighting.
+## Story 1.12 default: cycles weapons unconditionally, purely for variety.
+## Story 2.7: when the character has a signature_bias (>0), instead of
+## blindly cycling, the AI rolls whether it "wants" its signature weapon
+## (kit index 0) and only pulses select when that doesn't match its current
+## selection — e.g. a Controleur AI mostly stays on its turret rather than
+## alternating away from it every few seconds.
 func _ai_update_weapon_switch(delta: float) -> void:
 	_ai_weapon_switch_timer -= delta
-	if _ai_weapon_switch_timer <= 0.0:
+	if _ai_weapon_switch_timer > 0.0:
+		return
+	_ai_weapon_switch_timer = randf_range(3.0, 6.0)
+	if _ai_signature_bias <= 0.0 or weapon_state.kit.size() < 2:
 		_ai_pulse_select = true
-		_ai_weapon_switch_timer = randf_range(3.0, 6.0)
+		return
+	var wants_signature := randf() < _ai_signature_bias
+	var has_signature := weapon_state.selected_index == 0
+	if wants_signature != has_signature:
+		_ai_pulse_select = true
 
 ## Rolls a chance to attempt a lift whenever the ball is closing in on this
 ## ship's side — sets _ai_lift_timer, which _read_lift_held() then reuses
@@ -369,7 +480,7 @@ func _ai_update_lift_attempt(delta: float) -> void:
 	var edge_x := arena_bounds.position.x if side == 0 else arena_bounds.position.x + arena_bounds.size.x
 	if absf(ball_ref.position.x - edge_x) < 260.0 and not _ai_lift_decided:
 		_ai_lift_decided = true
-		if randf() < 0.3:
+		if randf() < _ai_lift_chance:
 			_ai_lift_timer = [0.35, 0.75].pick_random()
 
 ## Story 1.12 — fires when roughly aligned with the opponent, basic reactive logic.

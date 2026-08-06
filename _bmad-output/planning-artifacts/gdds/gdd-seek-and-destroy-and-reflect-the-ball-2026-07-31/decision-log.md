@@ -1,4 +1,4 @@
-# Decision Log — GDD: Seek and Destroy and Reflect the Ball
+# Decision Log — GDD: Seek and Destroy and Return the Ball
 
 ## 2026-07-31 — Session start
 

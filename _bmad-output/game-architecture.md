@@ -19,7 +19,7 @@ brief: '_bmad-output/planning-artifacts/briefs/brief-seek-and-destroy-and-reflec
 
 ## Executive Summary
 
-L'architecture de **Seek and Destroy and Reflect the Ball** est conçue pour **Godot 4.7.1**, ciblant PC et Console (mobile à l'étude).
+L'architecture de **Seek and Destroy and Return the Ball** est conçue pour **Godot 4.7.1**, ciblant PC et Console (mobile à l'étude).
 
 **Décisions architecturales clés :**
 - **State Machine explicite par entité** (personnage, balle, match), orchestrée par un pattern novateur — le **Match Tick Resolver** — qui résout chaque tick de simulation dans un ordre fixe et déterministe, condition posée par le Party Mode pour ne pas fermer la porte à un futur rollback netcode.
@@ -42,7 +42,7 @@ Architecture complète — 9/9 étapes réalisées via le workflow GDS Architect
 
 ### Game Overview
 
-**Seek and Destroy and Reflect the Ball** — hybride Pong × Shoot'em Up × Fighting Game en 1v1 compétitif. Le trait distinctif est une double vigilance simultanée (balle façon Pong + combat façon fighting game) qui n'a pas de pattern architectural standard préexistant.
+**Seek and Destroy and Return the Ball** — hybride Pong × Shoot'em Up × Fighting Game en 1v1 compétitif. Le trait distinctif est une double vigilance simultanée (balle façon Pong + combat façon fighting game) qui n'a pas de pattern architectural standard préexistant.
 
 ### Technical Scope
 

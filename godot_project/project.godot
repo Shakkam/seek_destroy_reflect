@@ -10,9 +10,13 @@ config_version=5
 
 [application]
 
-config/name="Seek and Destroy and Reflect the Ball"
-run/main_scene="res://scenes/MatchArena.tscn"
+config/name="Seek and Destroy and Return the Ball"
+run/main_scene="res://scenes/TitleScreen.tscn"
 config/features=PackedStringArray("4.7")
+
+[autoload]
+
+MatchSetup="*res://nodes/match_setup.gd"
 
 [display]
 

@@ -1,6 +1,6 @@
 ---
 stepsCompleted: [1, 2, 3]
-note: 'Epic 1 fully detailed with stories and acceptance criteria. Epics 2-4 remain title/FR-level only, intentionally paused (2026-07-31) — Camil chose to move to implementation of the playable prototype (Epic 1) rather than complete all epics upfront. Resume story detailing for Epics 2-4 once the prototype is validated.'
+note: 'Epic 1 and Epic 2 fully detailed with stories, acceptance criteria, and implemented in Godot. Epic 3 (online multiplayer) explicitly paused by Camil (2026-08-06) — presenting a local-only build to a friend for his portal is the near-term priority. Epic 4 (solo campaign) story detailing resumed 2026-08-06, referencing Soul Calibur IV-style branching chapter map (see UX-DR1).'
 inputDocuments:
   - '_bmad-output/planning-artifacts/briefs/brief-seek-and-destroy-and-reflect-the-ball-2026-07-30/brief.md'
   - '_bmad-output/brainstorming-session-2026-07-29.md'
@@ -14,7 +14,7 @@ inputDocuments:
 
 ## Overview
 
-This document provides the complete epic and story breakdown for Seek and Destroy and Reflect the Ball, decomposing the requirements from the GDD and Architecture (no separate UX Design document exists — UI/UX guidance lives inside the GDD's Art & Audio Direction section) into implementable stories.
+This document provides the complete epic and story breakdown for Seek and Destroy and Return the Ball, decomposing the requirements from the GDD and Architecture (no separate UX Design document exists — UI/UX guidance lives inside the GDD's Art & Audio Direction section) into implementable stories.
 
 ## Requirements Inventory
 
@@ -62,6 +62,8 @@ NFR5: Weapon/character data must be defined via Godot Custom Resources (`.tres`)
 ### UX Design Requirements
 
 _No separate UX Design document exists for this project. UI/UX guidance (diegetic HUD, art direction, readability principles) is captured directly in the GDD's "Art and Audio Direction" section and reflected in FR14/FR15 above._
+
+**UX-DR1 (FR18, Epic 4 — 2026-08-06):** Campaign map structure references *Soul Calibur IV*'s Tower of Lost Souls chapter map: a branching node map per chapter (not a linear stage list), each node showing a stage preview thumbnail, a chapter title, running Exp/Gold counters, a description panel for the selected stage, and a "world map" zoom-out affordance. A stage can unlock multiple next paths (branching, not strictly linear progression).
 
 ### FR Coverage Map
 

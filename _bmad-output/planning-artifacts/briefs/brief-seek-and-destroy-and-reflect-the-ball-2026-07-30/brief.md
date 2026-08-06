@@ -1,15 +1,15 @@
 ---
-title: 'Game Brief - Seek and Destroy and Reflect the Ball'
+title: 'Game Brief - Seek and Destroy and Return the Ball'
 status: 'draft'
 created: '2026-07-30'
 updated: '2026-07-30'
 ---
 
-# Game Brief : Seek and Destroy and Reflect the Ball
+# Game Brief : Seek and Destroy and Return the Ball
 
 ## Résumé exécutif
 
-Seek and Destroy and Reflect the Ball est un hybride Pong × Shoot'em Up × Fighting Game en 1v1 : deux vaisseaux s'affrontent sur une arène divisée par une frontière centrale claire, où le mouvement libre en 2D dans sa moitié de terrain crée une tension permanente entre renvoyer une balle façon Pong et éviter les tirs d'un roster de personnages armés façon jeu de combat.
+Seek and Destroy and Return the Ball est un hybride Pong × Shoot'em Up × Fighting Game en 1v1 : deux vaisseaux s'affrontent sur une arène divisée par une frontière centrale claire, où le mouvement libre en 2D dans sa moitié de terrain crée une tension permanente entre renvoyer une balle façon Pong et éviter les tirs d'un roster de personnages armés façon jeu de combat.
 
 Le jeu part d'un concept prototypé en Flash il y a plus de 20 ans, ravivé aujourd'hui avec l'ambition de le concrétiser. Ce n'est ni un Pong déguisé, ni un fighting game déguisé : c'est la combinaison de deux tensions cognitives qui, séparément, n'existent dans aucun des deux genres — la lecture spatiale/anticipation de Pong, et la connaissance du matchup/réflexe d'un jeu de combat, actives **simultanément et sans interruption possible de l'une pour l'autre**.
 

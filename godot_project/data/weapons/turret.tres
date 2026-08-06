@@ -12,3 +12,5 @@ gauge_max = 100.0
 gauge_cost_per_shot = 40.0
 is_heavy = false
 effect_type = "turret"
+turret_hp = 22.0
+turret_lifetime = 25.0

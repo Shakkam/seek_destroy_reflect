@@ -6,8 +6,10 @@
 script = ExtResource("1")
 id = "laser"
 display_name = "Laser"
-damage = 14
+damage = 20
 fire_rate = 1.2
 gauge_max = 100.0
-gauge_cost_per_shot = 20.0
+gauge_cost_per_shot = 28.0
 is_heavy = true
+effect_type = "beam"
+beam_range = 450.0

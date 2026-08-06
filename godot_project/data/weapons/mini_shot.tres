@@ -5,9 +5,14 @@
 [resource]
 script = ExtResource("1")
 id = "mini_shot"
-display_name = "Mini-tir"
+display_name = "Éventail"
 damage = 3
-fire_rate = 6.0
+fire_rate = 1.0
 gauge_max = 100.0
-gauge_cost_per_shot = 8.0
+gauge_cost_per_shot = 14.0
 is_heavy = false
+spread_deg = 0.0
+projectile_count = 5
+burst_spread_deg = 35.0
+burst_stagger = 0.0
+visual_scale_multiplier = 2.0

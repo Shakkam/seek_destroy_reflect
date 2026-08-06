@@ -13,3 +13,4 @@ gauge_cost_per_shot = 35.0
 is_heavy = false
 effect_type = "stun"
 effect_duration = 1.0
+is_boomerang = true

@@ -1,12 +1,12 @@
 ---
-title: 'GDD - Seek and Destroy and Reflect the Ball'
+title: 'GDD - Seek and Destroy and Return the Ball'
 game_type: 'fighting'
 platforms: ['PC', 'Console']
 created: '2026-07-31'
 updated: '2026-07-31'
 ---
 
-# Seek and Destroy and Reflect the Ball - Game Design Document
+# Seek and Destroy and Return the Ball - Game Design Document
 
 **Auteur :** Camil
 **Type de jeu :** Fighting (avec conventions Shooter en extension — voir Fighting Specific Design)
@@ -18,7 +18,7 @@ updated: '2026-07-31'
 
 ### Concept central
 
-Seek and Destroy and Reflect the Ball est un hybride Pong × Shoot'em Up × Fighting Game en 1v1. Deux vaisseaux s'affrontent sur une arène divisée par une frontière centrale claire. Le mouvement libre en 2D, rapide et réactif ("un troisième bras", pas un boulet à piloter), crée une tension permanente entre renvoyer une balle façon Pong et éviter les tirs d'un roster de 8 personnages à kits d'armes fixes et asymétriques, façon fighting game.
+Seek and Destroy and Return the Ball est un hybride Pong × Shoot'em Up × Fighting Game en 1v1. Deux vaisseaux s'affrontent sur une arène divisée par une frontière centrale claire. Le mouvement libre en 2D, rapide et réactif ("un troisième bras", pas un boulet à piloter), crée une tension permanente entre renvoyer une balle façon Pong et éviter les tirs d'un roster de 8 personnages à kits d'armes fixes et asymétriques, façon fighting game.
 
 Ni Pong (lecture spatiale sans enjeu de combat) ni un fighting game pur (matchup sans objet tiers à traquer) n'imposent au joueur de gérer les deux tensions en continu et simultanément. C'est cette **double vigilance permanente** — jamais l'une en pause pour l'autre — qui constitue la proposition unique du jeu.
 
