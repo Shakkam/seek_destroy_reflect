@@ -18,6 +18,11 @@ func _initialize() -> void:
 	_test_mini_shot_data()
 	_test_turret_destructible()
 	_test_turbo_trail()
+	# NOTE: a round-end turret cleanup test belongs here in spirit, but
+	# MatchArenaNode can't be loaded under this harness — this file runs via
+	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
+	# and match_arena_node.gd references the MatchSetup autoload at compile
+	# time. See tests/round_end_check.gd for the scene-boot-based equivalent.
 	print("--- smoke test done: %d failure(s) ---" % _failures)
 	quit(1 if _failures > 0 else 0)
 

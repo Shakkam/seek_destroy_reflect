@@ -263,6 +263,7 @@ func _check_round_end() -> void:
 		match_state = match_state.round_won_by(winner_side)
 		_round_active = false
 		_update_round_label()
+		_clear_round_entities() # turrets/projectiles/beams don't survive a round boundary
 
 		if match_state.match_over:
 			match_label.text = "Match termine - Joueur %d gagne !" % (match_state.winner_side + 1)
@@ -271,6 +272,16 @@ func _check_round_end() -> void:
 			ship_2.reset_for_new_round()
 			ball.reset_to_center()
 			_round_active = true
+
+## Round-end cleanup (2026-08-07 bug fix — "à la fin du round 1 les tourelles
+## restent, elles devraient disparaître"): turrets, in-flight projectiles, and
+## beams are all round-scoped side effects of weapon fire; none of them
+## should survive into the next round (or linger past match end).
+func _clear_round_entities() -> void:
+	for child in get_children():
+		if child is TurretNode or child is ProjectileNode or child is BeamNode:
+			child.queue_free()
+	_beams.clear() # drop stale ShipNode -> BeamNode refs now that those nodes are queued for deletion
 
 func _update_round_label() -> void:
 	round_label.text = "Round %d - %d" % [match_state.rounds_won[0], match_state.rounds_won[1]]
