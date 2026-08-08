@@ -3,7 +3,13 @@
     "allow": [
       "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball/godot_project\" && timeout 30 \"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" --headless --import*)",
       "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball/godot_project\" && timeout 30 \"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" --headless --path . -s res://tests/*)",
-      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball/godot_project\" && timeout 30 \"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" --headless --path . res://*)"
+      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball/godot_project\" && timeout 30 \"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" --headless --path . res://*)",
+      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git add -A*)",
+      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git status*)",
+      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git commit*)",
+      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git push*)",
+      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git log*)",
+      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git diff*)"
     ]
   }
 }
