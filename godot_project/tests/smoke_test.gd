@@ -18,6 +18,13 @@ func _initialize() -> void:
 	_test_mini_shot_data()
 	_test_turret_destructible()
 	_test_turbo_trail()
+	_test_gauge_floor_twist()
+	_test_hazard_zone()
+	_test_decoy_wander()
+	_test_energy_orb_pickup()
+	_test_ball_hazard_bounce()
+	_test_campaign_data_resources()
+	_test_campaign_save()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
 	# MatchArenaNode can't be loaded under this harness — this file runs via
 	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
@@ -191,3 +198,172 @@ func _test_turbo_trail() -> void:
 
 	ghost.queue_free()
 	ship.queue_free()
+
+func _test_gauge_floor_twist() -> void:
+	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
+	var ship := ShipNode.new()
+	ship.weapon_state = WeaponSystemState.new([machine_gun])
+
+	ship.self_fill_locked = true
+	ship.fill_selected_gauge(10.0)
+	_check("gauge_floor twist never blocks the miss-fill path (Story 1.6)", ship.weapon_state.gauges[0] == 10.0)
+
+	ship.fill_selected_gauge_from_return(10.0)
+	_check("gauge_floor twist blocks the self-fill-on-return path when locked", ship.weapon_state.gauges[0] == 10.0)
+
+	ship.self_fill_locked = false
+	ship.fill_selected_gauge_from_return(10.0)
+	_check("self-fill-on-return works normally once unlocked", ship.weapon_state.gauges[0] == 20.0)
+
+	ship.weapon_state = WeaponSystemState.new([machine_gun]) # reset to 0
+	ship.passive_trickle_rate = 100.0
+	ship._apply_passive_trickle(0.5)
+	var expected_trickle := machine_gun.gauge_max * 0.5
+	_check(
+		"passive trickle adds gauge over time (%.1f expected, got %.1f)" % [expected_trickle, ship.weapon_state.gauges[0]],
+		is_equal_approx(ship.weapon_state.gauges[0], expected_trickle)
+	)
+
+	ship.queue_free()
+
+func _test_hazard_zone() -> void:
+	var target_ship := ShipNode.new()
+	target_ship.position = Vector2(300, 300)
+	target_ship.half_extents = Vector2(14, 28)
+
+	var hazard := HazardZoneNode.new()
+	hazard.position = Vector2(300, 300) # overlapping the ship
+	hazard.radius = 24.0
+	hazard.stuns_ships = true
+	hazard.deflects_ball = false
+	hazard.ships = [target_ship]
+
+	root.add_child(target_ship)
+	root.add_child(hazard)
+
+	hazard._physics_process(1.0 / 30.0)
+	_check("hazard zone stuns an overlapping ship", target_ship._stun_timer > 0.0)
+
+	target_ship.queue_free()
+	hazard.queue_free()
+
+func _test_decoy_wander() -> void:
+	var decoy := DecoyNode.new()
+	decoy.arena_bounds = Rect2(Vector2(40, 60), Vector2(1200, 600))
+	decoy.wander_speed = 500.0
+	decoy.position = Vector2(640, 360)
+	root.add_child(decoy)
+
+	var start := decoy.position
+	for i in 30:
+		decoy._physics_process(1.0 / 30.0)
+	_check("decoy moves over time (wanders)", decoy.position.distance_to(start) > 1.0)
+	_check("decoy stays within arena bounds", decoy.arena_bounds.has_point(decoy.position))
+
+	decoy.queue_free()
+
+func _test_energy_orb_pickup() -> void:
+	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
+	var ship := ShipNode.new()
+	ship.weapon_state = WeaponSystemState.new([machine_gun])
+	ship.half_extents = Vector2(14, 28)
+	ship.position = Vector2(300, 300)
+
+	var orb := EnergyOrbNode.new()
+	orb.position = Vector2(300, 300) # overlapping
+	orb.gauge_bonus_percent = 20.0
+	orb.ships = [ship]
+
+	root.add_child(ship)
+	root.add_child(orb)
+
+	orb._physics_process(1.0 / 30.0)
+	var expected_orb := machine_gun.gauge_max * 0.2
+	_check("energy orb grants +20% gauge on pickup", is_equal_approx(ship.weapon_state.gauges[0], expected_orb))
+	_check("energy orb despawns after pickup", orb.is_queued_for_deletion())
+
+	ship.queue_free()
+
+func _test_ball_hazard_bounce() -> void:
+	var state := BallState.new(Vector2(100, 0), Vector2(200, 0)) # moving right, hazard just ahead
+	var hazard_center := Vector2(120, 0)
+	var bounced := state.bounced_off_hazard(hazard_center)
+	_check("hazard bounce reverses velocity on a head-on hit", bounced.velocity.x < 0.0)
+	_check("hazard bounce preserves speed", is_equal_approx(bounced.velocity.length(), state.velocity.length()))
+
+func _test_campaign_data_resources() -> void:
+	var mook_data: WeaponData = load("res://data/weapons/machine_gun.tres")
+	var lourd: CharacterData = load("res://data/characters/lourd.tres")
+	var vif: CharacterData = load("res://data/characters/vif.tres")
+
+	var mook_encounter := RivalEncounterData.new()
+	mook_encounter.opponent = lourd
+	mook_encounter.is_mook = true
+	mook_encounter.mook_hp_multiplier = 0.6
+	mook_encounter.reward_currency = 100
+
+	var rival_encounter := RivalEncounterData.new()
+	rival_encounter.opponent = lourd
+	rival_encounter.is_mook = false
+	var gauge_floor := TwistData.new()
+	gauge_floor.twist_type = "gauge_floor"
+	rival_encounter.twist = gauge_floor
+	rival_encounter.unlock_reward = mook_data # placeholder unlock for the smoke test, not a real design choice
+
+	var branch := MiniBranchData.new()
+	branch.id = "vs_lourd"
+	branch.display_name = "Contre Lourd"
+	branch.mook_1 = mook_encounter
+	branch.mook_2 = mook_encounter
+	branch.rival = rival_encounter
+
+	var campaign := CampaignData.new()
+	campaign.character = vif
+	campaign.mini_branches = [branch]
+	campaign.required_branch_count = 3
+
+	_check("CampaignData wires a character + mini-branches", campaign.character == vif and campaign.mini_branches.size() == 1)
+	_check("MiniBranchData carries mook + rival encounters", branch.rival.opponent == lourd and branch.rival.twist.twist_type == "gauge_floor")
+	_check("required_branch_count matches the brainstorm's 3-4 range", campaign.required_branch_count >= 3 and campaign.required_branch_count <= 4)
+
+func _test_campaign_save() -> void:
+	# Loaded directly rather than via the CampaignSave autoload — this -s
+	# harness doesn't initialize project autoloads (see round_end_check.gd's
+	# note), but campaign_save.gd doesn't reference any autoload itself, so
+	# instancing its script directly works fine for testing the plain data
+	# API in isolation.
+	var save_script := load("res://nodes/campaign_save.gd")
+	var save = save_script.new()
+	save.load_from_disk() # picks up whatever real save (if any) already exists on this machine
+
+	const TEST_CHARACTER := "_smoke_test_character" # underscore-prefixed so it can never collide with a real roster id
+
+	_check("fresh character starts with 0 currency", save.get_currency(TEST_CHARACTER) == 0)
+	save.add_currency(TEST_CHARACTER, 100)
+	save.add_currency(TEST_CHARACTER, 50)
+	_check("currency accumulates across calls", save.get_currency(TEST_CHARACTER) == 150)
+
+	_check("branch starts uncompleted", not save.is_branch_completed(TEST_CHARACTER, "vs_lourd"))
+	save.mark_branch_completed(TEST_CHARACTER, "vs_lourd", "trace_lourd")
+	_check("branch is completed after marking", save.is_branch_completed(TEST_CHARACTER, "vs_lourd"))
+	_check("completed_branch_count reflects it", save.completed_branch_count(TEST_CHARACTER) == 1)
+	_check("unlock is recorded", "trace_lourd" in save.unlocks_for(TEST_CHARACTER))
+	save.mark_branch_completed(TEST_CHARACTER, "vs_lourd", "trace_lourd") # re-marking the same branch must not duplicate it
+	_check("re-completing the same branch does not duplicate it", save.completed_branch_count(TEST_CHARACTER) == 1)
+
+	_check("organizer starts undefeated", not save.is_organizer_defeated(TEST_CHARACTER))
+	save.mark_organizer_defeated(TEST_CHARACTER)
+	_check("organizer marked defeated persists in memory", save.is_organizer_defeated(TEST_CHARACTER))
+
+	# Round-trip through the real save file, then verify a fresh instance reads it back.
+	var reloaded_script := load("res://nodes/campaign_save.gd")
+	var reloaded = reloaded_script.new()
+	reloaded.load_from_disk()
+	_check("a fresh instance reloads persisted currency from disk", reloaded.get_currency(TEST_CHARACTER) == 150)
+	_check("a fresh instance reloads persisted branch completion from disk", reloaded.is_branch_completed(TEST_CHARACTER, "vs_lourd"))
+
+	# Clean up: this test's entry should never linger in the player's real save file.
+	save._data.erase(TEST_CHARACTER)
+	save.save_to_disk()
+	save.free()
+	reloaded.free()

@@ -137,6 +137,9 @@ func _resolve_ships() -> void:
 			_return_cooldown = 0.15
 
 			# Story 1.7 — fill scales with lift charge: 10 at 0% up to 15 at 100%.
+			# Epic 4's "gauge_floor" twist can lock this self-fill specifically
+			# (fill_selected_gauge_from_return), while Story 1.6's miss-fill
+			# above always goes through the ungated fill_selected_gauge().
 			var fill := lerpf(WeaponSystemState.RETURN_GAUGE_FILL, WeaponSystemState.RETURN_GAUGE_FILL_MAX_LIFT, lift_charge)
-			ship.fill_selected_gauge(fill)
+			ship.fill_selected_gauge_from_return(fill)
 			return

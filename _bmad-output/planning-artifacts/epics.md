@@ -1,6 +1,6 @@
 ---
 stepsCompleted: [1, 2, 3]
-note: 'Epic 1 and Epic 2 fully detailed with stories, acceptance criteria, and implemented in Godot. Epic 3 (online multiplayer) explicitly paused by Camil (2026-08-06) — presenting a local-only build to a friend for his portal is the near-term priority. Epic 4 (solo campaign) story detailing resumed 2026-08-06, referencing Soul Calibur IV-style branching chapter map (see UX-DR1).'
+note: 'Epic 1 and Epic 2 fully detailed with stories, acceptance criteria, and implemented in Godot. Epic 3 (online multiplayer) explicitly paused by Camil (2026-08-06) — presenting a local-only build to a friend for his portal is the near-term priority. Epic 4 (solo campaign) fully detailed 2026-08-07 (Stories 4.1-4.9) after a dedicated brainstorm + Party Mode session; Camil greenlit direct implementation ("je te laisse coder tout ça") rather than per-story formal review, mirroring how Epic 1/2 moved to implementation.'
 inputDocuments:
   - '_bmad-output/planning-artifacts/briefs/brief-seek-and-destroy-and-reflect-the-ball-2026-07-30/brief.md'
   - '_bmad-output/brainstorming-session-2026-07-29.md'
@@ -394,3 +394,142 @@ So that fighting the AI with any of the 8 characters feels meaningful (FR20).
 **Then** its behavior parameters reflect that archetype (e.g. a Lourd-piloting AI favors its preferred-depth/positioning differently than a Vif-piloting AI; a Contrôleur-piloting AI places turrets instead of just firing directly)
 **And** this reuses the existing AI heuristic framework from Story 1.12 (wander, depth preference, lift attempts) rather than introducing a parallel AI system
 **And** the AI remains deliberately unskilled overall (per FR19/FR20) — this story is about behavioral variety per character, not competitive tuning
+
+## Epic 4: Campagne solo
+
+Le joueur peut vivre une campagne narrative par personnage avec déblocages progressifs et un boss final, structurée à partir de la session de brainstorm du 2026-08-07 (voir `_bmad-output/brainstorming-session-2026-08-07.md` et son keepsake Party Mode).
+
+**Décisions de design actées en brainstorm :**
+- **Univers :** tournoi chaotique façon cartoon (ton Tenkaichi Budôkai/premier arc Dragon Ball) — un **organisateur-présentateur récurrent** invente les règles au fil du chaos et devient le boss final en piochant dans le kit de chaque personnage du roster.
+- **Structure :** les 8 branches (une par perso) sont des **qualifications**, pas le tournoi lui-même — adversaires fixes à l'intérieur d'une branche, ordre libre entre branches. Chaque branche perso a 7 mini-branches rivales possibles (une par autre archétype), le joueur en complète 3-4 sur 7 (choix libre desquelles) pour débloquer l'acte final — ce qui force la rejouabilité de façon organique.
+- **Mini-arc en 3 temps par mini-branche :** 2 combats contre des "sous-adversaires" (mooks, version mineure de l'archétype rival, rapportent Exp/Gold) → le "vrai" rival (rapporte un déblocage) → une **trace mécanique de l'adversaire vaincu** (façon Mega Man, mais une variante bonus inspirée du rival, pas son arme copiée — garde les 8 campagnes intactes).
+- **Pool de twists de combat réutilisable** (7 entrées, une par "vrai" rival/boss, jamais de twist bespoke par combat — discipline de scope solo dev) : double/triple balle, jauge à plancher (miss adverse préservé), zone qui rétrécit (animée, garde-fou anti-sortie-de-cadre), invisibilité de l'adversaire, épines+rebond de balle, zone neutre mobile (même garde-fou), "double moi" (leurre visuel). Le boss a en plus son twist signature : billes d'énergie ramassables (+20% jauge).
+- **Narration sans texte expositoire** (titres/noms acceptés, pas de pavés de lore) — tout passe par le visuel/l'environnement/l'animation.
+- **Hors scope explicite :** un power meter façon shmup + arme unique par joueur (remplacerait le switch à 2 armes actuel) a été proposé puis explicitement mis de côté — touche FR9/FR4 du jeu de base, mérite sa propre session, pas décidé ici.
+
+**FRs covered:** FR18
+**Note :** dépend des Epics 1-2 (boucle + roster) ; palier aspirationnel post-MVP selon le GDD. Epic 3 (online) reste en pause — cette epic n'en dépend pas.
+
+### Story 4.1: Modèle de données de campagne
+
+As a developer,
+I want data-driven campaign definitions (mini-branches, rivals, mooks, unlocks) as Custom Resources,
+So that campaign content can be authored and tuned without touching gameplay code.
+
+**Acceptance Criteria:**
+
+**Given** the project's data-driven architecture decision, extended from the `CharacterData`/`WeaponData` pattern (Epic 2)
+**When** a character's campaign is authored
+**Then** each of the 8 characters has up to 7 associated mini-branch resources, each referencing two mook encounters (an archetype reference + a reduced-difficulty tier) and one "real" rival encounter (an archetype reference + a twist-pool entry id, Story 4.5)
+**And** each mini-branch resource defines the unlock granted on rival victory — a bonus variant reference tied to the rival's identity, never a literal copy of the rival's own weapon
+**And** the resource format supports a per-character "minimum mini-branches to unlock the final act" count (3-4 per the brainstorm), without hardcoding that count in gameplay code
+
+### Story 4.2: Carte de campagne à embranchements
+
+As a player,
+I want a branching campaign map screen,
+So that I can navigate a character's campaign the way the Soul Calibur IV reference established (UX-DR1).
+
+**Acceptance Criteria:**
+
+**Given** a character's campaign has been selected
+**When** the map screen loads
+**Then** it shows the character's mini-branch nodes, a stage-preview thumbnail per node, a chapter title, running Exp/Gold counters, and a description panel for the currently-selected node
+**And** locked nodes render in silhouette/fog rather than being hidden outright — environmental storytelling over text, per the Constraint Injection insight from the brainstorm
+**And** once the character's required number of mini-branches (Story 4.1) are completed, the final node (the organizer fight, Story 4.8) unlocks and becomes visible/selectable
+
+### Story 4.3: Sélection de mini-branche
+
+As a player,
+I want to freely choose which of a character's 7 possible mini-branches to tackle, and in what order,
+So that replaying a character's campaign can produce a different outcome each time.
+
+**Acceptance Criteria:**
+
+**Given** a character's campaign map (Story 4.2)
+**When** the player selects an uncompleted mini-branch node
+**Then** no other mini-branch's completion state is a prerequisite — the order across mini-branches is fully free
+**And** once inside a mini-branch, its two mooks and its rival occur in a fixed, non-reorderable sequence — matches the brainstorm's resolution that opponents within a branch are never player-chosen, only which branch and in what order
+
+### Story 4.4: Combat contre un sous-adversaire (mook)
+
+As a player,
+I want to fight a weaker "mook" version of an archetype before its "real" rival,
+So that each mini-branch has pacing and build-up rather than being a flat gauntlet of full-strength duels.
+
+**Acceptance Criteria:**
+
+**Given** a mini-branch's first or second encounter (a mook)
+**When** the match starts
+**Then** the mook is AI-controlled using the target archetype's existing AI profile (Story 2.7), tuned down (e.g. reduced HP or a less aggressive `AI_PROFILES` entry) rather than via a new AI system
+**And** victory grants Exp/Gold, tracked as campaign currency (Story 4.9) — not a weapon-trace unlock, which is reserved for the "real" rival (Story 4.6)
+**And** losing does not end the campaign run permanently — the player can retry the encounter, consistent with a solo-dev-scale campaign with no permadeath
+
+### Story 4.5: Système de twists de combat réutilisable
+
+As a developer,
+I want a reusable, data-driven "match twist" system,
+So that the 7 validated battle-rule modifiers can be applied to any rival or boss encounter without bespoke per-fight code.
+
+**Acceptance Criteria:**
+
+**Given** the validated twist pool (double/triple ball, floored gauge regen, shrinking arena, opponent invisibility, spike-and-deflection hazards, drifting neutral zone, visual decoy)
+**When** a mini-branch's rival encounter or the organizer fight references a twist by id
+**Then** the match arena applies exactly that twist's configuration for the duration of the encounter, with no code changes required to unrelated systems
+**And** each twist is a self-contained, independently testable configuration — extending `WeaponSystemState` for the gauge-floor twist (`self_fill_locked` + passive trickle, `MISS_GAUGE_FILL` untouched), treating `arena_bounds`/the neutral zone as functions of match time for the shrinking-arena and drifting-neutral-zone twists, a render-only toggle for invisibility and the visual decoy, and a `BallState`/`ShipState` hazard-zone extension for the spike/deflection twist
+**And** the shrinking-arena and drifting-neutral-zone twists animate their transition over 1-2 seconds and never allow a ship to be pushed outside the (moving) legal bounds — the explicit edge-case guard raised in the brainstorm
+
+### Story 4.6: Combat contre le "vrai" rival et déblocage
+
+As a player,
+I want to fight a mini-branch's "real" rival with a battle twist applied, and earn a bonus flavored by that rival,
+So that finishing a mini-branch feels distinct and rewarding.
+
+**Acceptance Criteria:**
+
+**Given** the player has cleared both mooks in a mini-branch (Story 4.4)
+**When** the rival encounter starts
+**Then** it applies the mini-branch's assigned twist (Story 4.5) and the rival's own archetype/AI profile at full strength
+**And** victory unlocks the mini-branch's defined bonus variant (Story 4.1) and marks the mini-branch completed in the campaign save (Story 4.9)
+**And** the unlock reveal happens visually — the player's shield-of-orbs gains the new variant's color/orb — never via a stats popup or text, per the no-expository-text constraint from the brainstorm
+
+### Story 4.7: Présence narrative de l'organisateur
+
+As a player,
+I want the tournament organizer to appear as a recurring, wordless presence throughout a campaign,
+So that the campaign has a narrative throughline without needing a dialogue/text system.
+
+**Acceptance Criteria:**
+
+**Given** a mini-branch's rival encounter carries a twist (Story 4.5/4.6)
+**When** the encounter begins
+**Then** the arena telegraphs the twist environmentally before the fight starts (e.g. a visibly non-standard arena shape, a hazard already visible pre-fight) rather than via a text announcement
+**And** the organizer's established visual/color motif is present on the campaign map itself (Story 4.2), with the map's palette shifting toward that motif as the player approaches the final node — the "chaos bleeding in" idea from Phase 2 of the brainstorm
+
+### Story 4.8: Combat final contre l'organisateur
+
+As a player,
+I want a final campaign encounter against the tournament organizer that feels categorically different from every rival fight,
+So that finishing a character's campaign has a real climax.
+
+**Acceptance Criteria:**
+
+**Given** a character's campaign has reached its required number of completed mini-branches (Story 4.1/4.3)
+**When** the player enters the final node
+**Then** the organizer's kit draws from multiple roster weapons rather than a single fixed kit, reflecting "he invented every rule"
+**And** energy-orb pickups (+20% weapon gauge, reusing `WeaponSystemState.with_gauge_added()`) spawn periodically as the organizer's signature mechanic — not shared with the general twist pool (Story 4.5)
+**And** victory completes that character's campaign run and is recorded in the campaign save (Story 4.9)
+
+### Story 4.9: Sauvegarde de la progression de campagne
+
+As a player,
+I want my campaign progress saved locally,
+So that I don't lose it between play sessions.
+
+**Acceptance Criteria:**
+
+**Given** the project's existing architecture decision (local JSON save, no cloud save in V1)
+**When** the player completes a mook fight, a rival fight, or the organizer fight
+**Then** the outcome (Exp/Gold total, completed mini-branches, unlocked bonus variants) is persisted to a local save file, per character
+**And** relaunching the game restores the exact campaign state (map node states, currency, unlocks) from that file
+**And** the save/load logic lives outside `simulation/` (per project-context.md, Règle absolue n°1) — it is orchestration, not deterministic gameplay simulation

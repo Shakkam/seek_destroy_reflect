@@ -11,6 +11,7 @@ extends Node2D
 @onready var ship_1: ShipNode = $Ship1
 @onready var ship_2: ShipNode = $Ship2
 @onready var ball: BallNode = $Ball
+
 @onready var p1_label: Label = $DebugHUD/P1Label
 @onready var p2_label: Label = $DebugHUD/P2Label
 @onready var round_label: Label = $DebugHUD/RoundLabel
@@ -26,6 +27,27 @@ var match_state: MatchState = MatchState.new()
 var _round_active := true
 var _ai_toggle_prev := false
 var _beams: Dictionary = {} # ShipNode -> BeamNode, tracks each ship's active laser beam (juice pass)
+
+# Epic 4, Story 4.5 — "match twist" support for campaign rival/boss fights.
+# Campaign match-launch code (Story 4.6/4.8) sets active_twist before the
+# pre-match ready gate; MatchArenaNode owns applying/ticking whichever twist
+# is active for the whole encounter. null (the default) means "no twist" —
+# every field below stays inert and normal-match behavior is untouched.
+var active_twist: TwistData = null
+var _extra_balls: Array = [] # of BallNode — "multi_ball"
+var _hazard_spawn_timer := 0.0 # "hazard_zones"
+var _decoy: DecoyNode = null # "visual_decoy"
+var _energy_orb_timer := 0.0 # "energy_orb_pickup"
+var _base_frontier_x: float # the un-twisted center — drift/shrink animate away from and back toward this
+var _current_frontier_x: float # what ships/ball are actually fed each tick — animates for "drifting_neutral_zone"
+var _current_arena_bounds: Rect2 # what ships/ball are actually fed each tick — animates for "shrinking_arena"
+var _shrink_step := 0
+var _shrink_step_timer := 0.0
+var _shrink_anim_elapsed := 0.0
+var _shrink_animating := false
+var _shrink_start_bounds: Rect2
+var _shrink_target_bounds: Rect2
+var _drift_direction := 1.0 # "drifting_neutral_zone" — reverses at +/- drift_range from _base_frontier_x
 
 # Pre-match gate (2026-08-01): nothing moves until a player confirms ready.
 var _match_started := false
@@ -43,6 +65,9 @@ func _ready() -> void:
 
 	var bounds := Rect2(arena_origin, arena_size)
 	var frontier_x := arena_origin.x + arena_size.x / 2.0
+	_base_frontier_x = frontier_x
+	_current_frontier_x = frontier_x
+	_current_arena_bounds = bounds
 
 	ship_1.arena_bounds = bounds
 	ship_1.frontier_x = frontier_x
@@ -53,6 +78,9 @@ func _ready() -> void:
 	ball.arena_bounds = bounds
 	ball.frontier_x = frontier_x
 	ball.ships = [ship_1, ship_2]
+
+	if active_twist:
+		apply_twist(active_twist)
 
 	ship_1.opponent_ref = ship_2
 	ship_2.opponent_ref = ship_1
@@ -85,6 +113,10 @@ func _process(_delta: float) -> void:
 		return
 
 	_check_round_end()
+
+func _physics_process(delta: float) -> void:
+	if active_twist and _match_started and _round_active:
+		_process_twist(delta)
 
 ## Pre-match gate — waits for either player's fire input (keyboard or
 ## gamepad trigger, device 0 or 1) before unfreezing ships and ball.
@@ -271,6 +303,9 @@ func _check_round_end() -> void:
 			ship_1.reset_for_new_round()
 			ship_2.reset_for_new_round()
 			ball.reset_to_center()
+			for extra in _extra_balls: # "multi_ball" twist — extra balls persist across rounds within the same twisted encounter, just re-center like the primary
+				if is_instance_valid(extra):
+					extra.reset_to_center()
 			_round_active = true
 
 ## Round-end cleanup (2026-08-07 bug fix — "à la fin du round 1 les tourelles
@@ -279,9 +314,12 @@ func _check_round_end() -> void:
 ## should survive into the next round (or linger past match end).
 func _clear_round_entities() -> void:
 	for child in get_children():
-		if child is TurretNode or child is ProjectileNode or child is BeamNode:
+		if child is TurretNode or child is ProjectileNode or child is BeamNode or child is HazardZoneNode or child is EnergyOrbNode:
 			child.queue_free()
 	_beams.clear() # drop stale ShipNode -> BeamNode refs now that those nodes are queued for deletion
+	if is_instance_valid(_decoy):
+		_decoy.queue_free()
+	_decoy = null
 
 func _update_round_label() -> void:
 	round_label.text = "Round %d - %d" % [match_state.rounds_won[0], match_state.rounds_won[1]]
@@ -294,3 +332,156 @@ func _process_ai_toggle() -> void:
 		ship_2.ai_controlled = not ship_2.ai_controlled
 		ai_status_label.text = "IA J2: %s (F1)" % ("ON" if ship_2.ai_controlled else "OFF")
 	_ai_toggle_prev = pressed
+
+## Epic 4, Story 4.5 — configures the arena for one of the pool twists (or
+## the boss-only energy_orb_pickup). Call before the pre-match ready gate,
+## or set active_twist directly before this node enters the tree (_ready()
+## calls this automatically when active_twist is already assigned).
+func apply_twist(twist: TwistData) -> void:
+	active_twist = twist
+	match twist.twist_type:
+		"multi_ball":
+			_spawn_extra_balls(twist.ball_count - 1)
+		"gauge_floor":
+			for ship in [ship_1, ship_2]:
+				ship.self_fill_locked = true
+				ship.passive_trickle_rate = twist.passive_trickle_rate
+		"invisible_opponent":
+			for ship in [ship_1, ship_2]:
+				if ship.ai_controlled:
+					ship.hidden_from_opponent = true
+		"visual_decoy":
+			_spawn_decoy()
+		# shrinking_arena / hazard_zones / drifting_neutral_zone /
+		# energy_orb_pickup are pure timers/animations, handled continuously
+		# in _process_twist() instead of a one-time setup step here.
+		_:
+			pass
+
+func _process_twist(delta: float) -> void:
+	match active_twist.twist_type:
+		"shrinking_arena":
+			_process_shrinking_arena(delta)
+		"drifting_neutral_zone":
+			_process_drifting_neutral_zone(delta)
+		"hazard_zones":
+			_process_hazard_spawns(delta)
+		"energy_orb_pickup":
+			_process_energy_orb_spawns(delta)
+
+func _spawn_extra_balls(count: int) -> void:
+	var ball_scene := preload("res://scenes/Ball.tscn")
+	for i in count:
+		var extra := ball_scene.instantiate() as BallNode
+		extra.arena_bounds = _current_arena_bounds
+		extra.frontier_x = _current_frontier_x
+		extra.ships = [ship_1, ship_2]
+		add_child(extra)
+		extra.reset_to_center()
+		extra.active = ball.active # stays in sync with the primary ball's pre-match gate / round resets
+		_extra_balls.append(extra)
+
+func _spawn_decoy() -> void:
+	var mimicked := ship_2 if ship_2.ai_controlled else ship_1
+	_decoy = DecoyNode.new()
+	_decoy.position = mimicked.position
+	_decoy.half_extents = mimicked.half_extents
+	_decoy.arena_bounds = _current_arena_bounds
+	_decoy.wander_speed = active_twist.decoy_wander_speed
+	var mimicked_visual := mimicked.get_node_or_null("Visual") as Polygon2D
+	_decoy.color = mimicked_visual.color if mimicked_visual else Color.WHITE
+	add_child(_decoy)
+
+## Shrinks arena_bounds by shrink_fraction per side every shrink_interval
+## seconds, animated over shrink_animation_duration so no ship is ever
+## snapped/ejected — ShipState's per-tick clamp (Regle absolue n1: already
+## a pure function of the bounds it's given) naturally "pushes" any ship
+## caught at the edge inward as _current_arena_bounds animates, for free.
+func _process_shrinking_arena(delta: float) -> void:
+	_shrink_step_timer += delta
+	if _shrink_step_timer >= active_twist.shrink_interval:
+		_shrink_step_timer = 0.0
+		_start_next_shrink_step()
+	if _shrink_animating:
+		_shrink_anim_elapsed += delta
+		var t := clampf(_shrink_anim_elapsed / active_twist.shrink_animation_duration, 0.0, 1.0)
+		_current_arena_bounds = Rect2(
+			_shrink_start_bounds.position.lerp(_shrink_target_bounds.position, t),
+			_shrink_start_bounds.size.lerp(_shrink_target_bounds.size, t)
+		)
+		if t >= 1.0:
+			_shrink_animating = false
+		_sync_arena_bounds_to_entities()
+
+func _start_next_shrink_step() -> void:
+	_shrink_step += 1
+	var total_shrink_x := arena_size.x * active_twist.shrink_fraction * _shrink_step
+	total_shrink_x = minf(total_shrink_x, arena_size.x * 0.7) # never shrink the arena into an unplayable sliver
+	_shrink_start_bounds = _current_arena_bounds
+	_shrink_target_bounds = Rect2(
+		Vector2(arena_origin.x + total_shrink_x / 2.0, arena_origin.y),
+		Vector2(arena_size.x - total_shrink_x, arena_size.y)
+	)
+	_shrink_anim_elapsed = 0.0
+	_shrink_animating = true
+
+func _sync_arena_bounds_to_entities() -> void:
+	ship_1.arena_bounds = _current_arena_bounds
+	ship_2.arena_bounds = _current_arena_bounds
+	ball.arena_bounds = _current_arena_bounds
+	for extra in _extra_balls:
+		if is_instance_valid(extra):
+			extra.arena_bounds = _current_arena_bounds
+
+## Continuous back-and-forth drift of the shared frontier_x (both the ship
+## confinement boundary and the ball's neutral-zone center use the same
+## value already, see ship_state.gd/ball_node.gd) — moving both together
+## keeps them coherent, rather than letting the "safe zone" wander away
+## from the wall ships actually can't cross.
+func _process_drifting_neutral_zone(delta: float) -> void:
+	_current_frontier_x += active_twist.drift_speed * _drift_direction * delta
+	var offset := _current_frontier_x - _base_frontier_x
+	if absf(offset) >= active_twist.drift_range:
+		_current_frontier_x = _base_frontier_x + active_twist.drift_range * signf(offset)
+		_drift_direction *= -1.0
+	_sync_frontier_x_to_entities()
+
+func _sync_frontier_x_to_entities() -> void:
+	ship_1.frontier_x = _current_frontier_x
+	ship_2.frontier_x = _current_frontier_x
+	ball.frontier_x = _current_frontier_x
+	for extra in _extra_balls:
+		if is_instance_valid(extra):
+			extra.frontier_x = _current_frontier_x
+
+func _process_hazard_spawns(delta: float) -> void:
+	_hazard_spawn_timer -= delta
+	if _hazard_spawn_timer > 0.0:
+		return
+	_hazard_spawn_timer = active_twist.hazard_spawn_interval
+	var hazard := HazardZoneNode.new()
+	hazard.radius = active_twist.hazard_radius
+	hazard.lifetime = active_twist.hazard_lifetime
+	hazard.stuns_ships = active_twist.hazard_stuns_ships
+	hazard.deflects_ball = active_twist.hazard_deflects_ball
+	hazard.ships = [ship_1, ship_2]
+	hazard.balls = [ball] + _extra_balls
+	hazard.position = Vector2(
+		randf_range(_current_arena_bounds.position.x + 60.0, _current_arena_bounds.position.x + _current_arena_bounds.size.x - 60.0),
+		randf_range(_current_arena_bounds.position.y + 60.0, _current_arena_bounds.position.y + _current_arena_bounds.size.y - 60.0)
+	)
+	add_child(hazard)
+
+func _process_energy_orb_spawns(delta: float) -> void:
+	_energy_orb_timer -= delta
+	if _energy_orb_timer > 0.0:
+		return
+	_energy_orb_timer = active_twist.orb_spawn_interval
+	var orb := EnergyOrbNode.new()
+	orb.gauge_bonus_percent = active_twist.orb_gauge_bonus_percent
+	orb.ships = [ship_1, ship_2]
+	orb.position = Vector2(
+		_current_frontier_x,
+		randf_range(_current_arena_bounds.position.y + 60.0, _current_arena_bounds.position.y + _current_arena_bounds.size.y - 60.0)
+	)
+	add_child(orb)

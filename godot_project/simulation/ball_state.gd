@@ -32,6 +32,15 @@ func update(delta: float) -> BallState:
 func bounced_off_wall(clamped_y: float) -> BallState:
 	return BallState.new(Vector2(position.x, clamped_y), Vector2(velocity.x, -velocity.y), spin, rally_count)
 
+## Epic 4, Story 4.5 — "hazard_zones" twist: reflects velocity off a
+## circular obstacle's surface normal (same speed, new direction), the
+## "billard volontaire" deflection called for in the brainstorm.
+func bounced_off_hazard(hazard_center: Vector2) -> BallState:
+	var normal := (position - hazard_center).normalized()
+	if normal.length() < 0.01:
+		normal = Vector2.RIGHT # degenerate case: ball position exactly on the hazard's center
+	return BallState.new(position, velocity.bounce(normal), spin, rally_count)
+
 ## Player-initiated return.
 ## aim_direction: raw directional input at the moment of contact (Vector2.ZERO if none held).
 ## lift_charge: 0.0-1.0, how charged the lift/spin was (see WeaponSystemState-adjacent

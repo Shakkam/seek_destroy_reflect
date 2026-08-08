@@ -33,6 +33,15 @@ const TRAIL_COLOR := Color(0.5, 1.0, 1.0, 0.35) # matches the Turbo tint, transl
 var beam_active := false
 var beam_weapon: WeaponData = null
 
+# Epic 4, Story 4.5 — "match twist" support (campaign rival/boss fights).
+# self_fill_locked/passive_trickle_rate back the "gauge_floor" twist:
+# Story 1.7's self-fill-on-return is skippable per-ship, while
+# MISS_GAUGE_FILL (Story 1.6) is never touched — see fill_selected_gauge()
+# vs fill_selected_gauge_from_return() below.
+var self_fill_locked := false
+var passive_trickle_rate := 0.0 # % of gauge_max per second, applied to the selected weapon only
+var hidden_from_opponent := false # "invisible_opponent" twist — rendering only, simulation untouched
+
 var state: ShipState
 var arena_bounds: Rect2
 var frontier_x: float
@@ -237,12 +246,15 @@ func _physics_process(delta: float) -> void:
 			_spawn_trail_ghost()
 	else:
 		_trail_timer = 0.0
+	_apply_passive_trickle(delta)
 	_stun_timer = maxf(_stun_timer - delta, 0.0)
 	_vulnerability_timer = maxf(_vulnerability_timer - delta, 0.0)
 	_flash_timer = maxf(_flash_timer - delta, 0.0)
 	var visual := get_node_or_null("Visual") as Polygon2D
 	if visual:
-		if _stun_timer > 0.0:
+		if hidden_from_opponent:
+			visual.modulate = Color(1.0, 1.0, 1.0, 0.0) # "invisible_opponent" twist — rendering only; targeting (homing/turrets) still uses the real position
+		elif _stun_timer > 0.0:
 			visual.modulate = Color(0.75, 0.75, 1.0) # pale blue-white — distinct from vulnerability/lift tints
 		elif _vulnerability_timer > 0.0:
 			visual.modulate = Color(1.0, 0.45, 0.45) # reddish tint while vulnerable
@@ -498,7 +510,26 @@ func apply_damage(amount: float) -> void:
 func apply_stun(duration: float) -> void:
 	_stun_timer = maxf(_stun_timer, duration)
 
-## Stories 1.6/1.7 — fills the currently selected weapon's gauge.
+## Epic 4, Story 4.5 — "gauge_floor" twist's regen guarantee: a small
+## trickle to the selected weapon's gauge, independent of self_fill_locked
+## (which only gates the Story 1.7 return-bonus path, not this).
+func _apply_passive_trickle(delta: float) -> void:
+	if passive_trickle_rate <= 0.0:
+		return
+	var trickle_weapon: WeaponData = weapon_state.selected_weapon()
+	weapon_state = weapon_state.with_gauge_added(trickle_weapon.gauge_max * passive_trickle_rate / 100.0 * delta)
+
+## Stories 1.6/1.7 — fills the currently selected weapon's gauge. Used
+## directly by Story 1.6's "opponent missed" fill, which must NEVER be
+## gated by self_fill_locked (Camil: "sinon on perd le core game").
 func fill_selected_gauge(amount: float) -> void:
 	weapon_state = weapon_state.with_gauge_added(amount)
 	gauge_filled.emit(amount)
+
+## Epic 4, Story 4.5 — self-fill path for Story 1.7's successful-return
+## bonus specifically. The "gauge_floor" twist locks this (self_fill_locked)
+## while leaving fill_selected_gauge() (Story 1.6) fully active.
+func fill_selected_gauge_from_return(amount: float) -> void:
+	if self_fill_locked:
+		return
+	fill_selected_gauge(amount)
