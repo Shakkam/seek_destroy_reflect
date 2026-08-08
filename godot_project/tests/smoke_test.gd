@@ -27,6 +27,7 @@ func _initialize() -> void:
 	_test_campaign_save()
 	_test_campaign_context_sequencing()
 	_test_vif_campaign_authoring()
+	_test_gauges_reset_between_rounds()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
 	# MatchArenaNode can't be loaded under this harness — this file runs via
 	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
@@ -414,8 +415,31 @@ func _test_vif_campaign_authoring() -> void:
 	for b in campaign.mini_branches:
 		var branch: MiniBranchData = b
 		_check("branch '%s' has both mooks set" % branch.id, branch.mook_1 != null and branch.mook_2 != null)
+		# 2026-08-08 bug: mook_1 and mook_2 were the same resource instance in
+		# every branch, which made _update_campaign_label()'s identity check
+		# always report "Sous-adversaire 1/2" and read to the player as a
+		# stuck loop rather than real progress.
+		_check("branch '%s' mook_1 and mook_2 are distinct resources" % branch.id, branch.mook_1 != branch.mook_2)
 		_check("branch '%s' rival has a twist assigned" % branch.id, branch.rival.twist != null)
 		_check("branch '%s' rival grants an unlock" % branch.id, branch.rival.unlock_reward != null)
 
 	_check("organizer encounter is set", campaign.organizer_encounter != null)
 	_check("organizer encounter has its signature twist", campaign.organizer_encounter.twist != null and campaign.organizer_encounter.twist.twist_type == "energy_orb_pickup")
+
+func _test_gauges_reset_between_rounds() -> void:
+	# 2026-08-08 bug report: "quand un round se termine, les compteurs
+	# d'armes ne se remettent pas à 0" — reset_for_new_round() rebuilt HP
+	# but never touched weapon_state, so a maxed gauge from round 1 carried
+	# straight into round 2.
+	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
+	var ship := ShipNode.new()
+	ship.weapon_state = WeaponSystemState.new([machine_gun])
+	ship.weapon_state = ship.weapon_state.with_gauge_added(machine_gun.gauge_max) # simulate a maxed gauge at round end
+	_check("gauge is maxed before the round reset (test setup sanity check)", ship.weapon_state.gauges[0] == machine_gun.gauge_max)
+
+	ship.reset_for_new_round()
+	_check("gauge is back to 0 after reset_for_new_round()", ship.weapon_state.gauges[0] == 0.0)
+	_check("cooldown is also reset", ship.weapon_state.cooldown == 0.0)
+	_check("the kit itself is unchanged (still the same weapon)", ship.weapon_state.kit.size() == 1 and ship.weapon_state.kit[0] == machine_gun)
+
+	ship.queue_free()

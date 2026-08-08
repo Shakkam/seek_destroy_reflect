@@ -1,13 +1,14 @@
-[gd_resource type="Resource" script_class="MiniBranchData" load_steps=4 format=3]
+[gd_resource type="Resource" script_class="MiniBranchData" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://simulation/mini_branch_data.gd" id="1"]
-[ext_resource type="Resource" path="res://data/campaigns/vif/mook_lourd.tres" id="2"]
-[ext_resource type="Resource" path="res://data/campaigns/vif/rival_lourd.tres" id="3"]
+[ext_resource type="Resource" path="res://data/campaigns/vif/mook_1_lourd.tres" id="2"]
+[ext_resource type="Resource" path="res://data/campaigns/vif/mook_2_lourd.tres" id="3"]
+[ext_resource type="Resource" path="res://data/campaigns/vif/rival_lourd.tres" id="4"]
 
 [resource]
 script = ExtResource("1")
 id = "vs_lourd"
 display_name = "Contre Lourd"
 mook_1 = ExtResource("2")
-mook_2 = ExtResource("2")
-rival = ExtResource("3")
+mook_2 = ExtResource("3")
+rival = ExtResource("4")

@@ -294,6 +294,11 @@ func reset_for_new_round() -> void:
 	position = _spawn_position
 	state = ShipState.new(_spawn_position, side, half_extents, max_hp_override)
 	_vulnerability_timer = 0.0
+	# 2026-08-08 bug report: weapon gauges carried over between rounds
+	# (a maxed gauge from round 1's rally could open round 2 with a free
+	# shot). Rebuild fresh — same kit, gauges/cooldown back to 0 — keeping
+	# whichever weapon was selected rather than resetting to index 0.
+	weapon_state = WeaponSystemState.new(weapon_state.kit, weapon_state.selected_index)
 
 func _process_weapon_selection() -> void:
 	var select_pressed := _read_weapon_select_pressed()

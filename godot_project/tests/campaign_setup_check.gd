@@ -33,7 +33,27 @@ func _ready() -> void:
 	# the debug text's raw state.hp visibly dropped.
 	print("PASS: mook's actual starting HP matches the reduced max (not stuck at 100)" if arena.ship_2.state.hp == expected_mook_hp else "FAIL: mook state.hp=%.1f, expected %.1f" % [arena.ship_2.state.hp, expected_mook_hp])
 	print("PASS: mook fight configures ship_2 (reduced HP, no twist, correct opponent)" if mook_ok else "FAIL: mook fight setup incorrect")
+
+	# 2026-08-08 bug: "je ne vois toujours pas de twist" — some twists (like
+	# gauge_floor) have zero other visible tell, so the HUD must spell out
+	# the encounter + active twist by name.
+	var mook1_label_ok: bool = arena.campaign_label.text.contains("Sous-adversaire 1/2") and not arena.campaign_label.text.contains("Twist")
+	print("PASS: campaign_label reads 'Sous-adversaire 1/2', no twist mention" if mook1_label_ok else "FAIL: campaign_label was '%s'" % arena.campaign_label.text)
 	arena.queue_free()
+	CampaignContext.clear()
+	await get_tree().process_frame
+
+	# --- Second mook: must read as a DIFFERENT step, not the same one again
+	# (2026-08-08 bug: mook_1 and mook_2 were literally the same resource,
+	# so this label always said "1/2" even on the second fight — read by
+	# Camil as "always the same match repeating"). ---
+	CampaignContext.start_branch(vif_campaign, branch, branch.mook_2)
+	var arena_mook2 := arena_scene.instantiate() as MatchArenaNode
+	add_child(arena_mook2)
+	await get_tree().process_frame
+	var mook2_label_ok: bool = arena_mook2.campaign_label.text.contains("Sous-adversaire 2/2")
+	print("PASS: campaign_label reads 'Sous-adversaire 2/2' for the second mook" if mook2_label_ok else "FAIL: campaign_label was '%s'" % arena_mook2.campaign_label.text)
+	arena_mook2.queue_free()
 	CampaignContext.clear()
 	await get_tree().process_frame
 
@@ -47,6 +67,25 @@ func _ready() -> void:
 		and arena2.ship_2.max_hp_override == ShipState.START_HP \
 		and arena2.active_twist == branch.rival.twist
 	print("PASS: rival fight configures ship_2 (full HP, twist applied)" if rival_ok else "FAIL: rival fight setup incorrect")
+	var rival_label_ok: bool = arena2.campaign_label.text.contains("Twist") and arena2.campaign_label.text.contains(branch.rival.twist.display_name)
+	print("PASS: campaign_label names the active twist for the rival fight" if rival_label_ok else "FAIL: campaign_label was '%s'" % arena2.campaign_label.text)
+
+	# 2026-08-08 bug: "l'IA continue à bouger" after match end — verify a
+	# forced match_over freezes both ships (F1 also must be a no-op in
+	# campaign mode, next check below).
+	arena2.match_state = arena2.match_state.round_won_by(0).round_won_by(0) # best-of-3: 2 rounds seals it
+	arena2.ship_1.state = arena2.ship_1.state.damaged(1000.0) # force a round-ending HP=0 next _check_round_end()
+	arena2._check_round_end()
+	var freeze_ok: bool = not arena2.ship_1.active and not arena2.ship_2.active and not arena2.ball.active
+	print("PASS: match_over freezes ships/ball (AI stops moving)" if freeze_ok else "FAIL: ships/ball still active after match_over")
+
+	# F1 itself can't be simulated headless (no real physical key press in
+	# this environment, same limitation noted throughout this test suite),
+	# so this can only confirm the guard's precondition holds on a real
+	# campaign match rather than exercise the key press end to end.
+	var f1_guard_precondition_ok: bool = arena2._campaign_mode
+	print("PASS: campaign match has _campaign_mode set (F1 guard's precondition holds)" if f1_guard_precondition_ok else "FAIL: _campaign_mode was false on a campaign match")
+
 	arena2.queue_free()
 	CampaignContext.clear()
 	await get_tree().process_frame
@@ -60,6 +99,8 @@ func _ready() -> void:
 	var organizer_ok := arena3.ship_2.character == vif_campaign.organizer_encounter.opponent \
 		and arena3.active_twist.twist_type == "energy_orb_pickup"
 	print("PASS: organizer fight configures ship_2 and the signature twist" if organizer_ok else "FAIL: organizer fight setup incorrect")
+	var organizer_label_ok: bool = arena3.campaign_label.text.contains("Organisateur")
+	print("PASS: campaign_label names the organizer fight" if organizer_label_ok else "FAIL: campaign_label was '%s'" % arena3.campaign_label.text)
 	arena3.queue_free()
 	CampaignContext.clear()
 
@@ -99,5 +140,6 @@ func _ready() -> void:
 	print("PASS: CharacterSelect seeds both players' _confirm_prev true (carryover guard)" if vs_select_guard_ok else "FAIL: CharacterSelect's confirm_prev fields are not seeded true")
 	vs_select.queue_free()
 
-	var all_ok := mook_ok and rival_ok and organizer_ok and map_guard_ok and char_select_guard_ok and vs_select_guard_ok
+	var all_ok := mook_ok and rival_ok and organizer_ok and map_guard_ok and char_select_guard_ok and vs_select_guard_ok \
+		and mook1_label_ok and mook2_label_ok and rival_label_ok and organizer_label_ok and freeze_ok and f1_guard_precondition_ok
 	get_tree().quit(0 if all_ok else 1)

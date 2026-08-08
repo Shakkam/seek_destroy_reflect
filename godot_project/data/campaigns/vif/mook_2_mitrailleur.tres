@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="RivalEncounterData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://simulation/rival_encounter_data.gd" id="1"]
+[ext_resource type="Resource" path="res://data/characters/mitrailleur.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+opponent = ExtResource("2")
+is_mook = true
+mook_hp_multiplier = 0.6
+reward_currency = 100

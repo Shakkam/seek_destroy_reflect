@@ -20,6 +20,7 @@ extends Node2D
 @onready var p1_hp_fill: ColorRect = $DebugHUD/P1HPBarFill
 @onready var p2_hp_fill: ColorRect = $DebugHUD/P2HPBarFill
 @onready var ready_label: Label = $DebugHUD/ReadyLabel
+@onready var campaign_label: Label = $DebugHUD/CampaignLabel
 
 const HP_BAR_WIDTH := 240.0
 
@@ -88,6 +89,7 @@ func _ready() -> void:
 			ship_2.reset_for_new_round()
 		if CampaignContext.encounter.twist:
 			active_twist = CampaignContext.encounter.twist
+		_update_campaign_label()
 
 	var bounds := Rect2(arena_origin, arena_size)
 	var frontier_x := arena_origin.x + arena_size.x / 2.0
@@ -324,6 +326,17 @@ func _check_round_end() -> void:
 		_clear_round_entities() # turrets/projectiles/beams don't survive a round boundary
 
 		if match_state.match_over:
+			# 2026-08-08 bug report: "l'IA continue à bouger" after the match
+			# ends — nothing previously froze ships/ball once match_over
+			# flips, so an AI opponent kept wandering/firing on its own
+			# through the "Victoire !"/"Match termine" pause. Same freeze
+			# already used for the pre-match ready gate.
+			ship_1.active = false
+			ship_2.active = false
+			ball.active = false
+			for extra in _extra_balls:
+				if is_instance_valid(extra):
+					extra.active = false
 			if _campaign_mode:
 				_resolve_campaign_result(match_state.winner_side)
 			else:
@@ -397,9 +410,38 @@ func _clear_round_entities() -> void:
 func _update_round_label() -> void:
 	round_label.text = "Round %d - %d" % [match_state.rounds_won[0], match_state.rounds_won[1]]
 
+## Epic 4 — makes the active campaign encounter and twist legible on the HUD
+## (2026-08-08 bug report: "je ne vois toujours pas de twist" — some twists
+## like gauge_floor have no other visible tell at all, and seeing the same
+## opponent for mook_1/mook_2 back to back otherwise reads as a stuck loop
+## rather than the intended pacing beat).
+func _update_campaign_label() -> void:
+	if not _campaign_mode:
+		campaign_label.text = ""
+		return
+	var encounter_name := "Organisateur du tournoi"
+	if not CampaignContext.is_organizer_fight:
+		var step := "Rival"
+		if CampaignContext.encounter == CampaignContext.branch.mook_1:
+			step = "Sous-adversaire 1/2"
+		elif CampaignContext.encounter == CampaignContext.branch.mook_2:
+			step = "Sous-adversaire 2/2"
+		encounter_name = "%s — %s" % [CampaignContext.branch.display_name, step]
+	var twist_text := ""
+	if active_twist:
+		twist_text = " | Twist : %s" % active_twist.display_name
+	campaign_label.text = "%s%s" % [encounter_name, twist_text]
+
 ## Story 1.12 — F1 toggles a basic AI opponent on/off for Ship2, so solo
 ## testing doesn't require editing the scene.
 func _process_ai_toggle() -> void:
+	# 2026-08-08 bug report: "si j'appuie sur F1 en mode campagne, l'IA se
+	# désactive" — this debug toggle (Story 1.12) exists so a solo dev can
+	# test the 1v1 flow without a second human. A campaign mook/rival/
+	# organizer has no second human to hand control to, ever — F1 must be a
+	# no-op here instead of turning the opponent off.
+	if _campaign_mode:
+		return
 	var pressed := Input.is_physical_key_pressed(KEY_F1)
 	if pressed and not _ai_toggle_prev:
 		ship_2.ai_controlled = not ship_2.ai_controlled
