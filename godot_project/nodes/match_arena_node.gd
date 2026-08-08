@@ -79,6 +79,13 @@ func _ready() -> void:
 		ship_2.ai_controlled = true
 		if CampaignContext.encounter.is_mook:
 			ship_2.max_hp_override = ShipState.START_HP * CampaignContext.encounter.mook_hp_multiplier
+			# ship_2._ready() already ran (children ready before their parent
+			# in Godot) and built `state` using the *old* default max_hp_override
+			# — rebuild it now that the reduced value is set, or the mook
+			# starts with a full 100 HP `state.hp` and the HP bar (which now
+			# divides by max_hp_override) reads as stuck near-full while HP
+			# visibly drops in the debug text (2026-08-08 bug report).
+			ship_2.reset_for_new_round()
 		if CampaignContext.encounter.twist:
 			active_twist = CampaignContext.encounter.twist
 

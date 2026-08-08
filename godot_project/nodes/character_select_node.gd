@@ -32,8 +32,13 @@ var _p2_confirmed := false
 
 var _p1_move_prev := 0.0
 var _p2_move_prev := 0.0
-var _p1_confirm_prev := false
-var _p2_confirm_prev := false
+# Seeded true — same fix as CampaignMapNode (2026-08-08 bug report): P1's
+# confirm key here (Space) is the same key used to arrive from TitleScreen,
+# so a held-over press could instantly auto-confirm P1 on index 0 before
+# the screen was ever seen. True means "already pressed", so frame 1 can
+# never (mis)fire; it settles to the real state once actually released.
+var _p1_confirm_prev := true
+var _p2_confirm_prev := true
 
 func _ready() -> void:
 	_refresh_labels()

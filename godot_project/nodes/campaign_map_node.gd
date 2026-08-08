@@ -29,7 +29,13 @@ const ORGANIZER_MOTIF_COLOR := Color(0.6, 0.8, 1.0, 1.0) # same pale-blue as the
 var _selected_index := 0
 var _nodes: Array = [] # of MiniBranchData
 var _move_prev := 0.0
-var _confirm_prev := false
+# Seeded true, not false (2026-08-08 bug report: arriving here still holding
+# the Fire button from the match that just ended instantly re-triggered
+# _confirm_selection() on frame 1 — re-launching branch 0 before the map was
+# ever visible, which read as "no map at all" + "always the same match").
+# True means "was already pressed" so the first frame can never (mis)fire;
+# it naturally settles once the button is actually released.
+var _confirm_prev := true
 
 func _ready() -> void:
 	if not CampaignContext.campaign:

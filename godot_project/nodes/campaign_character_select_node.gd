@@ -29,7 +29,7 @@ const CHARACTERS := [ # of CharacterData — same roster order as CharacterSelec
 
 var _selected_index := 0
 var _move_prev := 0.0
-var _confirm_prev := false
+var _confirm_prev := true # seeded true — see CampaignMapNode's note (2026-08-08 bug: carried-over held key insta-confirms frame 1)
 
 func _ready() -> void:
 	_refresh()

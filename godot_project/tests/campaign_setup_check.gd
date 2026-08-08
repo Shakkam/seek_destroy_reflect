@@ -18,11 +18,20 @@ func _ready() -> void:
 	add_child(arena)
 	await get_tree().process_frame
 
+	var expected_mook_hp := ShipState.START_HP * branch.mook_1.mook_hp_multiplier
 	var mook_ok := arena.ship_2.ai_controlled \
 		and arena.ship_2.character == branch.mook_1.opponent \
-		and arena.ship_2.max_hp_override == ShipState.START_HP * branch.mook_1.mook_hp_multiplier \
+		and arena.ship_2.max_hp_override == expected_mook_hp \
+		and arena.ship_2.state.hp == expected_mook_hp \
 		and arena.active_twist == null \
 		and arena.ship_1.character == vif_campaign.character
+	# 2026-08-08 bug report: the mook's `state` was built in ship_2._ready()
+	# (children ready before their parent) using the *old* default
+	# max_hp_override, so `state.hp` started at 100 even though
+	# max_hp_override was set to the reduced value right after — the HP bar
+	# (which divides by max_hp_override) then read as stuck near-full while
+	# the debug text's raw state.hp visibly dropped.
+	print("PASS: mook's actual starting HP matches the reduced max (not stuck at 100)" if arena.ship_2.state.hp == expected_mook_hp else "FAIL: mook state.hp=%.1f, expected %.1f" % [arena.ship_2.state.hp, expected_mook_hp])
 	print("PASS: mook fight configures ship_2 (reduced HP, no twist, correct opponent)" if mook_ok else "FAIL: mook fight setup incorrect")
 	arena.queue_free()
 	CampaignContext.clear()
@@ -54,4 +63,41 @@ func _ready() -> void:
 	arena3.queue_free()
 	CampaignContext.clear()
 
-	get_tree().quit(0 if (mook_ok and rival_ok and organizer_ok) else 1)
+	# --- Confirm-key carryover guard (2026-08-08 bug report) ---
+	# A player who's still holding Fire (Space) when a match ends and the
+	# scene changes would otherwise insta-confirm frame 1 of the next menu —
+	# on CampaignMap this silently re-launched branch 0, which read as "no
+	# map at all" + "always the same match". The fix is seeding each
+	# screen's _confirm_prev to true; verify it stuck instead of relying on
+	# re-reading the source by eye.
+	# NOTE: checked immediately after add_child(), with NO awaited frame in
+	# between — headless input always reads as "not pressed", so a single
+	# _process() tick would legitimately overwrite the seeded value back to
+	# false and silently defeat this check (that bit the first version of
+	# this test).
+	CampaignContext.campaign = vif_campaign
+	var map_scene := load("res://scenes/CampaignMap.tscn") as PackedScene
+	var map := map_scene.instantiate() as CampaignMapNode
+	add_child(map)
+	var map_guard_ok: bool = map._confirm_prev == true
+	print("PASS: CampaignMap seeds _confirm_prev true (carryover guard)" if map_guard_ok else "FAIL: CampaignMap's _confirm_prev is not seeded true")
+	map.queue_free()
+	CampaignContext.clear()
+	await get_tree().process_frame
+
+	var char_select_scene := load("res://scenes/CampaignCharacterSelect.tscn") as PackedScene
+	var char_select := char_select_scene.instantiate() as CampaignCharacterSelectNode
+	add_child(char_select)
+	var char_select_guard_ok: bool = char_select._confirm_prev == true
+	print("PASS: CampaignCharacterSelect seeds _confirm_prev true (carryover guard)" if char_select_guard_ok else "FAIL: CampaignCharacterSelect's _confirm_prev is not seeded true")
+	char_select.queue_free()
+
+	var vs_select_scene := load("res://scenes/CharacterSelect.tscn") as PackedScene
+	var vs_select := vs_select_scene.instantiate() as CharacterSelectNode
+	add_child(vs_select)
+	var vs_select_guard_ok: bool = vs_select._p1_confirm_prev == true and vs_select._p2_confirm_prev == true
+	print("PASS: CharacterSelect seeds both players' _confirm_prev true (carryover guard)" if vs_select_guard_ok else "FAIL: CharacterSelect's confirm_prev fields are not seeded true")
+	vs_select.queue_free()
+
+	var all_ok := mook_ok and rival_ok and organizer_ok and map_guard_ok and char_select_guard_ok and vs_select_guard_ok
+	get_tree().quit(0 if all_ok else 1)
