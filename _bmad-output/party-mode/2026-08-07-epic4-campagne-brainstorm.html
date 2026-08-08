@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Party Mode — Epic 4 : la Campagne solo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1119;
+    --panel: #171a26;
+    --panel-border: #262b3d;
+    --text: #e8eaf2;
+    --text-dim: #8b90a8;
+    --cyan: #45d9ff;
+    --pink: #ff8fc0;
+    --gold: #ffd64a;
+    --samus: #ff9d5c;
+    --cloud: #7fd9ff;
+    --link: #7dffb0;
+    --indie: #d69bff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(ellipse at top, #171c2e 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    padding: 0 0 80px 0;
+  }
+  .hero {
+    text-align: center;
+    padding: 64px 20px 40px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: -100px; left: 50%;
+    transform: translateX(-50%);
+    width: 600px; height: 300px;
+    background: radial-gradient(ellipse, rgba(69,217,255,0.15), transparent 70%);
+    animation: pulse 6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; transform: translateX(-50%) scale(1); }
+    50% { opacity: 1; transform: translateX(-50%) scale(1.1); }
+  }
+  .hero h1 {
+    font-size: 2.2rem;
+    margin: 0 0 8px;
+    background: linear-gradient(90deg, var(--cyan), var(--pink));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    position: relative;
+  }
+  .hero .sub {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    position: relative;
+  }
+  .roster {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin: 32px auto 0;
+    max-width: 900px;
+    padding: 0 20px;
+    position: relative;
+  }
+  .roster .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    min-width: 150px;
+    text-align: center;
+    transition: transform 0.2s;
+  }
+  .roster .card:hover { transform: translateY(-4px); }
+  .roster .icon { font-size: 2rem; display: block; margin-bottom: 6px; }
+  .roster .name { font-weight: 600; font-size: 0.95rem; }
+  .roster .title { color: var(--text-dim); font-size: 0.78rem; }
+
+  main {
+    max-width: 780px;
+    margin: 48px auto 0;
+    padding: 0 20px;
+  }
+  section {
+    margin-bottom: 48px;
+  }
+  h2 {
+    font-size: 1.15rem;
+    color: var(--gold);
+    border-bottom: 1px solid var(--panel-border);
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+    letter-spacing: 0.02em;
+  }
+  .beat {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 16px;
+    align-items: flex-start;
+  }
+  .beat .avatar {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .beat .bubble {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 4px 14px 14px 14px;
+    padding: 10px 16px;
+    flex: 1;
+  }
+  .beat .who {
+    font-weight: 700;
+    font-size: 0.85rem;
+    margin-bottom: 2px;
+  }
+  .beat.samus .who, .beat.samus .avatar { color: var(--samus); border-color: var(--samus); }
+  .beat.cloud .who, .beat.cloud .avatar { color: var(--cloud); border-color: var(--cloud); }
+  .beat.link .who, .beat.link .avatar { color: var(--link); border-color: var(--link); }
+  .beat.indie .who, .beat.indie .avatar { color: var(--indie); border-color: var(--indie); }
+  .beat.camil .who, .beat.camil .avatar { color: var(--gold); border-color: var(--gold); }
+  .beat p { margin: 4px 0 0; font-size: 0.92rem; color: var(--text); }
+
+  .decision {
+    background: linear-gradient(135deg, rgba(69,217,255,0.08), rgba(255,143,192,0.06));
+    border: 1px solid var(--panel-border);
+    border-left: 3px solid var(--cyan);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 20px 0;
+    font-size: 0.92rem;
+  }
+  .decision .tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    margin-bottom: 6px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    margin-top: 12px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  th { color: var(--text-dim); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; }
+  td.status-ok { color: var(--link); }
+  td.status-warn { color: var(--gold); }
+  td.status-boss { color: var(--pink); }
+
+  .bookmark {
+    background: var(--panel);
+    border: 1px dashed var(--panel-border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-size: 0.88rem;
+    color: var(--text-dim);
+  }
+  .bookmark strong { color: var(--text); }
+
+  footer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    margin-top: 60px;
+    padding: 0 20px;
+  }
+
+  .orb {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 8px var(--cyan);
+    animation: orbit 3s linear infinite;
+  }
+  @keyframes orbit {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>Seek and Destroy and Return the Ball</h1>
+  <div class="sub"><span class="orb"></span>&nbsp; Party Mode — Brainstorm Epic 4 : la Campagne solo &nbsp;<span class="orb"></span><br>7 août 2026</div>
+</div>
+
+<div class="roster">
+  <div class="card"><span class="icon">🎲</span><div class="name">Samus Shepard</div><div class="title">Game Designer</div></div>
+  <div class="card"><span class="icon">🏛️</span><div class="name">Cloud Dragonborn</div><div class="title">Game Architect</div></div>
+  <div class="card"><span class="icon">🕹️</span><div class="name">Link Freeman</div><div class="title">Game Developer</div></div>
+  <div class="card"><span class="icon">🎮</span><div class="name">Indie</div><div class="title">Solo Dev</div></div>
+</div>
+
+<main>
+
+<section>
+  <h2>La scène</h2>
+  <p style="color:var(--text-dim); font-style:italic;">Un vieux setup improvisé — écran partagé avec le doc de brainstorm, quatre chaises, une seule table couverte de post-it. Samus a déjà les pieds sur la table. Camil vient de valider "double balle" et demande de fermer un vrai risque de design avant d'aller plus loin.</p>
+</section>
+
+<section>
+  <h2>Le softlock qu'on a failli laisser passer</h2>
+  <div class="beat samus"><div class="avatar">🎲</div><div class="bubble"><div class="who">Samus Shepard</div><p>OK là on est en Phase 4, boss et twists — LA partie fun, LES GOOO. J'en veux dix, j'en veux un qui fait complètement halluciner —</p></div></div>
+  <div class="beat link"><div class="avatar">🕹️</div><div class="bubble"><div class="who">Link Freeman</div><p>Avant de speedrunner vers dix idées, on a un bug ouvert. "Jauge sans recharge" = softlock potentiel. Camil l'a chopé tout seul, propre catch.</p></div></div>
+  <div class="decision">
+    <span class="tag">Fix adopté</span>
+    Un <strong>plancher de regen passif</strong> (~2-3%/sec) au lieu d'une jauge totalement figée — et sur l'insistance de Camil, le remplissage sur balle ratée par l'adversaire (le cœur du jeu, Story 1.6) reste intact quoi qu'il arrive. Seul l'auto-remplissage sur renvoi réussi est désactivé pour ce combat.
+  </div>
+  <div class="beat cloud"><div class="avatar">🏛️</div><div class="bubble"><div class="who">Cloud Dragonborn</div><p>Un plancher, pas une porte fermée. Ça se pose proprement comme une fonction pure — aucune violation de la Règle n°1.</p></div></div>
+</section>
+
+<section>
+  <h2>Le tournoi, l'organisateur, et un vrai fil rouge</h2>
+  <div class="beat camil"><div class="avatar">👤</div><div class="bubble"><div class="who">Camil</div><p>Un peu sport / comique je dirais.</p></div></div>
+  <div class="beat camil"><div class="avatar">👤</div><div class="bubble"><div class="who">Camil</div><p>Présentateur exubérant. Un peu comme dans les premiers Dragon Ball (premier arc).</p></div></div>
+  <div class="decision">
+    <span class="tag">Univers verrouillé</span>
+    Un tournoi chaotique façon cartoon, ton <strong>Tenkaichi Budôkai</strong> — un <strong>organisateur-présentateur récurrent</strong> qui invente les règles au fil du chaos, casse SA PROPRE règle au combat final, et devient le boss en piochant dans le kit de chaque personnage du roster.
+  </div>
+  <div class="beat camil"><div class="avatar">👤</div><div class="bubble"><div class="who">Camil</div><p>Si c'est un tournoi, choisir ses branches me paraît peu opportun. Pourquoi le joueur choisirait l'ordre, mais pas ses adversaires ?</p></div></div>
+  <div class="decision">
+    <span class="tag">Tension résolue</span>
+    Les 8 branches ne sont pas le tournoi — ce sont des <strong>qualifications</strong>. Adversaires fixes à l'intérieur d'une branche, ordre libre entre branches. Convergence vers un acte final unique.
+  </div>
+</section>
+
+<section>
+  <h2>"C'est génialissime"</h2>
+  <div class="beat camil"><div class="avatar">👤</div><div class="bubble"><div class="who">Camil</div><p>Le joueur gagnerait l'arme de son adversaire, un peu comme dans Mega Man. Mais ça réduit à une seule histoire...</p></div></div>
+  <div class="decision">
+    <span class="tag">Synthèse</span>
+    Le fun Mega Man <em>à l'intérieur</em> de chaque branche : battre un rival débloque une <strong>trace mécanique</strong> de lui (pas son arme copiée), sans sacrifier les 8 campagnes. Chaque branche devient une mini-arc en 3 temps — 2 mooks → le "vrai" rival → un bout d'arme. 3-4 des 7 mini-branches requises, le reste optionnel : <strong>ça force la rejouabilité</strong>.
+  </div>
+</section>
+
+<section>
+  <h2>La ligne qu'on n'a pas franchie</h2>
+  <div class="beat camil"><div class="avatar">👤</div><div class="bubble"><div class="who">Camil</div><p>Cela règlerait d'ailleurs le problème des 2 armes... chaque joueur n'aurait qu'une arme principale, et les power-ups la rendraient plus puissante.</p></div></div>
+  <div class="beat cloud"><div class="avatar">🏛️</div><div class="bubble"><div class="who">Cloud Dragonborn</div><p>Là, stop. Ce n'est plus un mur porteur différent, c'est une pierre angulaire différente. FR9, écrit noir sur blanc dans le GDD.</p></div></div>
+  <div class="beat indie"><div class="avatar">🎮</div><div class="bubble"><div class="who">Indie</div><p>C'est un vrai chantier de jeu de base, pas un twist de campagne. Sa propre session, pas une décision en apesanteur.</p></div></div>
+  <div class="beat camil"><div class="avatar">👤</div><div class="bubble"><div class="who">Camil</div><p>C'est un vrai changement du moteur de base, je te l'accorde.</p></div></div>
+  <div class="bookmark">
+    <strong>Bookmarké, pas décidé.</strong> Power meter façon shmup + arme unique par joueur — sujet à part entière pour une prochaine session, hors scope Epic 4.
+  </div>
+</section>
+
+<section>
+  <h2>Le pool de twists — après passe de commentaires</h2>
+  <table>
+    <tr><th>#</th><th>Twist</th><th>Statut</th></tr>
+    <tr><td>1</td><td>Double balle (extensible triple)</td><td class="status-ok">✅ Validé</td></tr>
+    <tr><td>2</td><td>Jauge à plancher (miss adverse préservé)</td><td class="status-ok">✅ Résolu et affiné</td></tr>
+    <tr><td>3</td><td>Zone qui rétrécit — animée, joueur "poussé"</td><td class="status-ok">✅ Validé, garde-fou obligatoire</td></tr>
+    <tr><td>4</td><td>Invisibilité de l'adversaire <span style="color:var(--text-dim);">(ex-vulnérabilité doublée)</span></td><td class="status-ok">✅ Remplacé — "pas ouf" → tranché</td></tr>
+    <tr><td>5</td><td>Épines + rebond de balle</td><td class="status-ok">✅ Validé malgré le coût</td></tr>
+    <tr><td>6</td><td>Zone neutre mobile</td><td class="status-ok">✅ "Un vrai truc génial"</td></tr>
+    <tr><td>7</td><td>"Double moi" — leurre visuel <span style="color:var(--text-dim);">(ex-brouillard de guerre)</span></td><td class="status-ok">✅ Tranché — "pas dingue" → leurre pur</td></tr>
+    <tr><td>—</td><td>Billes d'énergie (+20% jauge)</td><td class="status-boss">🎯 Signature de l'organisateur</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Comment ça s'est fermé</h2>
+  <div class="beat indie"><div class="avatar">🎮</div><div class="bubble"><div class="who">Indie</div><p>Pool de 7 twists complet, chiffré, et maintenant commenté ligne par ligne. C'est du contenu prêt à passer en stories.</p></div></div>
+  <div class="beat link"><div class="avatar">🕹️</div><div class="bubble"><div class="who">Link Freeman</div><p>Zéro item du pool qui reste flou côté implémentation. Bon état pour clore ce chantier.</p></div></div>
+  <div class="beat samus"><div class="avatar">🎲</div><div class="bubble"><div class="who">Samus Shepard</div><p>On a fait un sacré tour de piste aujourd'hui. Camil — je pense que c'est OK.</p></div></div>
+</section>
+
+</main>
+
+<footer>
+  Keepsake généré par Party Mode · Seek and Destroy and Return the Ball · Epic 4, session du 7 août 2026
+</footer>
+
+</body>
+</html>

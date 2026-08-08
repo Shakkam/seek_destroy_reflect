@@ -174,6 +174,87 @@ _Novelty_ : force la rejouabilité de façon organique (Camil : "ça force la re
 - **Le lore informe potentiellement le mécanique**, pas l'inverse — noté pour plus tard, pas dans le scope de cette session.
 - **Narration sans texte expositoire** (Constraint Injection) + **chaos cartoon** se renforcent naturellement : un univers cartoon se raconte très bien par le visuel/l'animation plutôt que par du texte.
 
+### Phase 4 — Défi & boss (Failure State Design, Constraint-Based Creativity, référence Bomberman "battle rules")
+
+**[Twist #1] Double balle** (Camil : "j'y avais pensé aussi :) délire !" — validé)
+_Core Loop_ : 2 balles simultanément en jeu pour un combat donné
+_Novelty_ : chaos assumé, cohérent avec le ton cartoon posé en Phase 2 — pas besoin de le justifier narrativement, le twist EST le divertissement
+
+**[Twist #2] Jauge sans recharge** — ⚠️ **risque identifié par Camil, pas validé tel quel**
+_Problème :_ "le but est de détruire l'adversaire, donc sans recharge on pourrait rapidement se retrouver dans l'impossibilité totale de le faire" — si la jauge ne se recharge jamais, un joueur qui la vide peut se retrouver définitivement incapable d'attaquer, cassant la possibilité même de gagner (pas juste "plus dur", littéralement softlock/combat qui ne peut plus se terminer normalement)
+_Piste de correction à creuser :_ recharge réduite (pas nulle) plutôt que désactivée, ou recharge nulle mais limitée dans le temps (ex. les 30 premières secondes seulement, façon "sudden start" plutôt que "sudden death")
+
+**Twists en réserve (à trier/développer) :** zone qui rétrécit, mort subite (timer), épines/obstacles au sol, zone neutre mobile, brouillard de guerre (jauge/PV adverse invisible), kit imposé/tiré au sort pour le combat
+
+**Question ouverte :** les twists sont-ils réservés aux "vrais" rivaux de mini-branche + boss, ou les sous-adversaires (mooks) en ont-ils aussi une version light ?
+
+### Party Mode — Samus Shepard, Cloud Dragonborn, Link Freeman, Indie (2026-08-07)
+
+**[Twist #1, précision] Double balle — extensible en triple**
+Camil : "OK, même triple si on veut pousser le bouchon" — le twist scale naturellement (2 ou 3 balles, même mécanique, juste le nombre d'instances qui change).
+
+**[Twist #2, résolu ET affiné] Jauge à plancher — mais on garde le remplissage sur balle ratée par l'adversaire**
+_Fix proposé par Link Freeman :_ trickle passif minime (~2-3%/sec) qui garantit qu'un joueur à zéro peut toujours, à terme, retrouver de quoi tirer une fois. Tue le softlock sans perdre la tension de gestion de ressource.
+_Précision de Camil (importante) :_ "on garde tout de même le rechargement lorsque l'adversaire perd la balle (sinon on perd le core game)" — donc ce qui est coupé pour ce combat, c'est uniquement l'**auto-remplissage sur renvoi réussi** (`RETURN_GAUGE_FILL`/`RETURN_GAUGE_FILL_MAX_LIFT`, Story 1.7). Le remplissage sur **balle ratée par l'adversaire** (`MISS_GAUGE_FILL`, Story 1.6) reste actif — c'est le cœur du jeu, on n'y touche jamais.
+_Note d'architecture (Cloud Dragonborn) :_ se pose proprement comme un mode `self_fill_locked` + `passive_trickle_rate` optionnel sur `WeaponSystemState`, `MISS_GAUGE_FILL` intact — toujours une fonction pure, aucune violation de la Règle n°1.
+
+**Décision d'architecture de contenu (Indie + Cloud, pour tenir le scope solo dev) :** un **pool restreint et réutilisable** de 6-8 twists (pas de twist bespoke par branche/combat) — double balle, zone qui rétrécit, mort subite, jauge à plancher, brouillard de guerre, zone neutre mobile. Chaque "vrai" rival de mini-branche pioche un twist du pool ; le boss final peut en cumuler plusieurs (cohérent avec "il a inventé toutes les règles"). Une seule surface à équilibrer/tester par twist, pas une par combat (Link Freeman : "chaque twist devient un `MatchConfig` optionnel testable isolément").
+
+**[Twist signature de l'organisateur, simplifié] Billes d'énergie ramassables** (Camil : "on verra. On pourrait faire poper, pour l'instant, des billes d'énergie (genre +20% jauge arme)")
+_Core Loop_ : objets neutres qui popent au centre du terrain, +20% de jauge d'arme à qui les ramasse
+_Novelty :_ version simplifiée de l'idée initiale de Samus (effet aléatoire façon Kirby/item box, mise de côté pour l'instant) — réutilise directement `WeaponSystemState.with_gauge_added()`, déjà existant pour les Stories 1.6/1.7, donc quasi gratuit en implémentation contrairement à un effet aléatoire qui demanderait sa propre state machine
+_Statut :_ point de départ retenu, l'effet aléatoire reste une évolution possible plus tard si le combat de l'organisateur a besoin d'être encore plus spectaculaire
+
+**[Idée bookmarkée — HORS SCOPE Epic 4, sujet de base du jeu] Power meter façon shmup + arme unique par joueur**
+Camil : des power-ups façon shoot'em up (R-Type/Gradius) qui boostent l'arme du joueur, reset à zéro en cas de balle ratée ("faut pas se planter") — et l'extension naturelle : **un seul kit arme principale par joueur** (plus de switch entre 2 armes), les power-ups remplaçant la progression par tiers.
+_Pourquoi c'est hors scope ici (accord unanime de la table, confirmé par Camil : "c'est un vrai changement du moteur de base, je te l'accorde") :_ touche FR9 (kit fixe de 3-4 armes) et FR4 (sélection d'arme), donc `WeaponSystemState`, `ship_node.gd`, le HUD des jauges, et rendrait obsolète le `signature_bias` de l'IA tout juste codé (Story 2.7). Pas un twist de campagne — une question de direction pour le jeu de base, qui mérite sa propre session dédiée plutôt qu'être tranchée en apesanteur ici.
+_Tension créative notée (Samus) :_ une arme qui évolue peut donner une identité de perso plus forte (progression sensible), mais on perd le jeu tactique du switch (ex. Contrôleur tourelle ↔ mitraillette selon la situation).
+_À creuser plus tard :_ quel est le vrai problème actuel avec le switch à 2 armes (confusion en combat ? redondance pour certains persos ?) — question posée, pas encore répondue par Camil.
+
+**[Twist #3] Zone qui rétrécit — validé, avec garde-fou critique**
+_Core Loop_ : `arena_bounds` se resserre par paliers (ex. -10% de profondeur par côté toutes les 15s), force les échanges rapprochés, tue le camping en fond de terrain
+_Note d'architecture (Cloud) :_ fonction pure de `(state, input, bounds_at_this_tick)`, zéro problème de déterminisme — `arena_bounds` est déjà un paramètre passé à `ShipState.update()`/`BallState.update()`. Point d'attention : la zone neutre doit rester cohérente avec l'espace réduit, sinon risque de retomber sur le bug de spawn de balle déjà corrigé cet été.
+_Garde-fou critique (Camil) :_ si un joueur est au bord au moment où ça rétrécit, il ne doit jamais sortir du cadre — il faut le "pousser" vers la nouvelle limite. Rétrécissement **animé sur 1-2 secondes** (pas instantané) pour que ce push reste smooth et lisible, pas un téléportage brutal.
+_Cas de test obligatoire (Link) :_ vérifier la jouabilité jusqu'au resserrement maximum, pas seulement en début de combat, y compris le cas "joueur collé au bord pile au moment du palier".
+
+**[Twist #4, remplacé] Invisibilité de l'adversaire**
+Camil sur la version "vulnérabilité doublée" : "pas mal, mais pas ouf. Y'a pas de truc délirant là-dedans." Remplacée par : le vaisseau adverse devient invisible pendant le combat — il faut tirer un peu à l'aveugle, en se fiant surtout aux moments où il renvoie la balle (on sait alors à peu près où il est).
+_Core Loop_ : masquer le rendu du vaisseau adverse (`Visual`/sprite) sans toucher à sa position réelle ni à la simulation — twist purement visuel, donc zéro risque de déterminisme, même famille "rendu uniquement" que les twists les plus sûrs du pool
+_Question ouverte posée par Camil, pas encore tranchée :_ "à voir ce que ça donne pour les homing missiles et les tourelles" — ces armes ciblent la position réelle du vaisseau (pas son rendu), donc elles resteraient pleinement efficaces même sur un adversaire invisible. À explorer : est-ce un bug de cohérence à corriger (pourquoi mon missile "voit" ce que je ne vois pas ?), ou un vrai avantage stratégique intéressant qui rend ces armes plus précieuses pendant ce twist précis (lecture actuelle : plutôt la seconde option, à confirmer en playtest)
+
+**[Twist #5] Épines/obstacles au sol, avec rebond de balle — validé** (Camil : "oui pour la déviation !")
+_Core Loop_ : zones qui popent sur le terrain — bloquent/stun les vaisseaux qui y stationnent, ET la balle rebondit dessus (déviation de trajectoire volontaire, pas juste un mur à éviter)
+_Novelty (Samus) :_ le rebond en fait un vrai moment de skill (billard volontaire) plutôt qu'un simple obstacle passif
+_Coût (Cloud/Indie) :_ plus cher que les autres — touche `BallState` en plus de `ShipState` (pas juste une zone `Rect2` de plus comme la zone neutre), mais jugé "objectivement plus fun que juste un mur", validé malgré le coût
+
+**[Twist #6] Zone neutre mobile — "un vrai truc génial" (Camil), même garde-fou que #3**
+_Core Loop_ : la zone neutre dérive latéralement/verticalement pendant le combat au lieu de rester fixe au centre
+_Note d'architecture (Cloud) :_ même famille que la zone qui rétrécit — fonction du temps de match, déterministe, aucun souci
+_Garde-fou critique (Camil, même remarque que pour #3) :_ animer la dérive lentement, et "pousser" le joueur s'il se retrouve contre la nouvelle limite — pas de téléportage brutal ni de sortie de cadre.
+
+**[Twist #7, remplacé et tranché] "Double moi" — un leurre visuel de l'adversaire**
+Camil sur brouillard de guerre : "Sympa. Mais pas 'dingue'. À part de la frustration, je ne vois pas ce que ça apporte." Remplacé par : l'adversaire a un **double** qui joue avec lui.
+_Core Loop_ : une copie visuelle du vaisseau adverse apparaît et bouge de façon quasi aléatoire sur le terrain — **zéro dégât, zéro PV propres, purement de la confusion** sur lequel des deux cibler
+_Décision (Indie, validée par Camil : "ok pour le leurre") :_ démarrer par la version leurre pur plutôt que vraie menace — quasi gratuit (une copie de sprite avec un mouvement erratique), garde tout le fun sans doubler la surface de combat à équilibrer. Évolution possible vers une vraie menace plus tard si le leurre seul ne suffit pas.
+
 ## Promising Combinations
 
-_À compléter._
+- **Zone qui rétrécit + zone neutre mobile** : les deux jouent sur le même espace, pourraient se cumuler sur un combat de boss particulièrement retors sans coût d'implémentation additionnel (même famille de mécanique).
+- **Brouillard de guerre + n'importe quel autre twist** : coût nul, se cumule sans risque avec n'importe lequel des 6 autres pour pimenter un combat sans surcoût de dev.
+
+## Récap — Pool de twists de combat (après passe de commentaires Camil, 2026-08-07)
+
+| # | Twist | Mécanique | Système touché | Coût | Statut |
+|---|---|---|---|---|---|
+| 1 | Double balle (extensible triple) | 2-3 balles simultanées en jeu | `BallNode`/`MatchState` | Moyen | ✅ Validé |
+| 2 | Jauge à plancher | Pas d'auto-remplissage sur renvoi réussi (Story 1.7), mais trickle passif ~2-3%/sec ; le remplissage sur balle ratée adverse (Story 1.6) reste actif | `WeaponSystemState` (mode `self_fill_locked`) | Faible | ✅ Résolu ET affiné (core game préservé) |
+| 3 | Zone qui rétrécit | `arena_bounds` se resserre par paliers (-10%/15s), **animé sur 1-2s**, joueur "poussé" à la nouvelle limite s'il est au bord | `ShipState`/`BallState` | Faible | ✅ Validé, garde-fou anti-sortie-de-cadre obligatoire |
+| 4 | ~~Vulnérabilité doublée~~ → **Invisibilité de l'adversaire** | Le vaisseau adverse n'est plus rendu à l'écran — tir à l'aveugle, surtout au renvoi | Rendu uniquement (`Visual`) | Faible | ✅ Remplacé — Camil : "pas ouf" sur l'original ; question ouverte : interaction avec homing missiles/tourelles (qui ciblent la position réelle, invisible ou pas) |
+| 5 | Épines + rebond de balle | Obstacles qui bloquent/stun + dévient la balle | `ShipState` + `BallState` | Élevé | ✅ Validé malgré le coût |
+| 6 | Zone neutre mobile | La zone neutre dérive, **animée lentement**, joueur "poussé" s'il est contre la limite | `ShipState`/`BallState` | Faible | ✅ "Un vrai truc génial" (Camil) — même garde-fou que #3 |
+| 7 | ~~Brouillard de guerre~~ → **"Double moi"** | Copie visuelle de l'adversaire, mouvement erratique, zéro dégât/PV — pure confusion sur la cible | Rendu uniquement (nouveau sprite + mouvement simple) | Très faible | ✅ Tranché — version leurre pur, évolutif vers une vraie menace plus tard si besoin |
+| — | Billes d'énergie ramassables (simplifié) | Objet qui pop au centre, +20% jauge d'arme au ramassage | Réutilise `WeaponSystemState.with_gauge_added()` | Très faible | 🎯 Point de départ retenu pour l'organisateur — effet aléatoire (idée initiale de Samus) reste une évolution possible |
+
+**Combos notés :** #3+#6 (même famille, cumul gratuit — et maintenant même garde-fou anti-sortie-de-cadre à réutiliser pour les deux) · #4 (rendu uniquement) reste cumulable sans risque avec n'importe quel autre twist, comme l'était l'ancien #7
+
+**Hors scope, bookmarké :** power meter façon shmup + arme unique par joueur (remplacerait le switch à 2 armes) — touche FR9/FR4, sujet de jeu de base, pas de campagne.
