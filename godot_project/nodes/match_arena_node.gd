@@ -75,11 +75,12 @@ func _ready() -> void:
 	# character, side 1 is always the AI-controlled mook/rival/organizer.
 	if CampaignContext.has_pending_encounter():
 		_campaign_mode = true
+		var encounter := CampaignContext.current_encounter()
 		ship_1.set_character(CampaignContext.campaign.character)
-		ship_2.set_character(CampaignContext.encounter.opponent)
+		ship_2.set_character(encounter.opponent)
 		ship_2.ai_controlled = true
-		if CampaignContext.encounter.is_mook:
-			ship_2.max_hp_override = ShipState.START_HP * CampaignContext.encounter.mook_hp_multiplier
+		if encounter.is_mook:
+			ship_2.max_hp_override = ShipState.START_HP * encounter.mook_hp_multiplier
 			# ship_2._ready() already ran (children ready before their parent
 			# in Godot) and built `state` using the *old* default max_hp_override
 			# — rebuild it now that the reduced value is set, or the mook
@@ -87,8 +88,8 @@ func _ready() -> void:
 			# divides by max_hp_override) reads as stuck near-full while HP
 			# visibly drops in the debug text (2026-08-08 bug report).
 			ship_2.reset_for_new_round()
-		if CampaignContext.encounter.twist:
-			active_twist = CampaignContext.encounter.twist
+		if encounter.twist:
+			active_twist = encounter.twist
 		_update_campaign_label()
 
 	var bounds := Rect2(arena_origin, arena_size)
@@ -352,17 +353,22 @@ func _check_round_end() -> void:
 
 ## Epic 4, Story 4.4/4.6/4.8 — records the outcome to CampaignSave (mooks
 ## grant currency, the "real" rival grants a branch completion + unlock,
-## the organizer completes the campaign run) and returns to the campaign
-## map. A loss is never punished beyond the retry itself (Story 4.4 AC: no
-## permadeath) — nothing is recorded, the player just goes back to the map.
+## the organizer completes the campaign run) and returns to either
+## MiniBranchMap (more fights left in this branch) or CampaignMap (branch
+## complete, or this was the organizer fight). A loss is never punished
+## beyond a retry of the SAME step (2026-08-08, Camil: "on ne peut jamais
+## reculer") — branch_step itself never moves backward.
 func _resolve_campaign_result(winner_side: int) -> void:
 	var character_id: String = CampaignContext.campaign.character.id
 
-	if winner_side != 0: # side 1 (the mook/rival/organizer) won — no permadeath, just retry from the map (Story 4.4 AC)
+	if winner_side != 0: # side 1 (the mook/rival/organizer) won — no permadeath, retry the same step (Story 4.4 AC)
 		match_label.text = "Defaite..."
 		await get_tree().create_timer(2.0).timeout
-		CampaignContext.clear()
-		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
+		if CampaignContext.is_organizer_fight:
+			CampaignContext.clear()
+			get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
+		else:
+			get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn")
 		return
 
 	if CampaignContext.is_organizer_fight:
@@ -373,26 +379,24 @@ func _resolve_campaign_result(winner_side: int) -> void:
 		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 		return
 
-	if CampaignContext.encounter.is_mook:
-		CampaignSave.add_currency(character_id, CampaignContext.encounter.reward_currency)
-		match_label.text = "Victoire (+%d)" % CampaignContext.encounter.reward_currency
-		await get_tree().create_timer(1.5).timeout
-		if CampaignContext.advance_within_branch():
-			get_tree().reload_current_scene() # straight into the next fight of the same mini-branch, no trip back to the map
-		else:
-			CampaignContext.clear()
-			get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
-		return
+	var current_encounter := CampaignContext.current_encounter()
+	if current_encounter.is_mook:
+		CampaignSave.add_currency(character_id, current_encounter.reward_currency)
+		match_label.text = "Victoire (+%d)" % current_encounter.reward_currency
+	else:
+		# The "real" rival, defeated.
+		var unlock_id := ""
+		if current_encounter.unlock_reward:
+			unlock_id = current_encounter.unlock_reward.id
+		CampaignSave.mark_branch_completed(character_id, CampaignContext.branch.id, unlock_id)
+		match_label.text = "Rival vaincu !"
 
-	# The "real" rival, defeated.
-	var unlock_id := ""
-	if CampaignContext.encounter.unlock_reward:
-		unlock_id = CampaignContext.encounter.unlock_reward.id
-	CampaignSave.mark_branch_completed(character_id, CampaignContext.branch.id, unlock_id)
-	match_label.text = "Rival vaincu !"
-	await get_tree().create_timer(2.0).timeout
-	CampaignContext.clear()
-	get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
+	await get_tree().create_timer(1.5).timeout
+	if CampaignContext.advance_branch_step():
+		get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn") # visible progress, per Camil's mini-map request — not a silent reload straight into the next fight
+	else:
+		CampaignContext.clear()
+		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 
 ## Round-end cleanup (2026-08-07 bug fix — "à la fin du round 1 les tourelles
 ## restent, elles devraient disparaître"): turrets, in-flight projectiles, and
@@ -421,11 +425,11 @@ func _update_campaign_label() -> void:
 		return
 	var encounter_name := "Organisateur du tournoi"
 	if not CampaignContext.is_organizer_fight:
-		var step := "Rival"
-		if CampaignContext.encounter == CampaignContext.branch.mook_1:
-			step = "Sous-adversaire 1/2"
-		elif CampaignContext.encounter == CampaignContext.branch.mook_2:
-			step = "Sous-adversaire 2/2"
+		# branch_step (2026-08-08 rework) instead of comparing encounter
+		# resource identity against branch.mook_1/mook_2 — unambiguous
+		# regardless of how those two are authored.
+		var step_names := ["Sous-adversaire 1/2", "Sous-adversaire 2/2", "Rival"]
+		var step: String = step_names[clampi(CampaignContext.branch_step, 0, 2)]
 		encounter_name = "%s — %s" % [CampaignContext.branch.display_name, step]
 	var twist_text := ""
 	if active_twist:

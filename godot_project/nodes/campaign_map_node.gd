@@ -116,8 +116,8 @@ func _confirm_selection() -> void:
 		var branch: MiniBranchData = _nodes[_selected_index]
 		if CampaignSave.is_branch_completed(character_id, branch.id):
 			return # re-fighting a completed branch isn't part of this pass's scope
-		CampaignContext.start_branch(CampaignContext.campaign, branch, branch.mook_1)
-		get_tree().change_scene_to_file("res://scenes/MatchArena.tscn")
+		CampaignContext.start_branch(CampaignContext.campaign, branch)
+		get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn") # visible per-branch progress (2026-08-08 UX request) instead of jumping straight into a fight
 	elif _organizer_unlocked():
 		CampaignContext.start_organizer_fight(CampaignContext.campaign)
 		get_tree().change_scene_to_file("res://scenes/MatchArena.tscn")

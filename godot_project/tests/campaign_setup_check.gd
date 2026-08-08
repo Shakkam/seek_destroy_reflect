@@ -12,7 +12,7 @@ func _ready() -> void:
 	var branch: MiniBranchData = vif_campaign.mini_branches[0] # vs_lourd
 
 	# --- Mook fight: reduced HP, no twist ---
-	CampaignContext.start_branch(vif_campaign, branch, branch.mook_1)
+	CampaignContext.start_branch(vif_campaign, branch)
 	var arena_scene := load("res://scenes/MatchArena.tscn") as PackedScene
 	var arena := arena_scene.instantiate() as MatchArenaNode
 	add_child(arena)
@@ -47,7 +47,8 @@ func _ready() -> void:
 	# (2026-08-08 bug: mook_1 and mook_2 were literally the same resource,
 	# so this label always said "1/2" even on the second fight — read by
 	# Camil as "always the same match repeating"). ---
-	CampaignContext.start_branch(vif_campaign, branch, branch.mook_2)
+	CampaignContext.start_branch(vif_campaign, branch)
+	CampaignContext.advance_branch_step() # 0 (mook_1) -> 1 (mook_2)
 	var arena_mook2 := arena_scene.instantiate() as MatchArenaNode
 	add_child(arena_mook2)
 	await get_tree().process_frame
@@ -58,7 +59,9 @@ func _ready() -> void:
 	await get_tree().process_frame
 
 	# --- Rival fight: full HP, twist applied ---
-	CampaignContext.start_branch(vif_campaign, branch, branch.rival)
+	CampaignContext.start_branch(vif_campaign, branch)
+	CampaignContext.advance_branch_step() # 0 -> 1
+	CampaignContext.advance_branch_step() # 1 -> 2 (rival)
 	var arena2 := arena_scene.instantiate() as MatchArenaNode
 	add_child(arena2)
 	await get_tree().process_frame
@@ -126,6 +129,24 @@ func _ready() -> void:
 	CampaignContext.clear()
 	await get_tree().process_frame
 
+	# --- MiniBranchMap (2026-08-08 UX rework): squares should reflect
+	# branch_step, and the rival square should name its twist. ---
+	CampaignContext.start_branch(vif_campaign, branch)
+	var branch_map_scene := load("res://scenes/MiniBranchMap.tscn") as PackedScene
+	var branch_map := branch_map_scene.instantiate() as MiniBranchMapNode
+	add_child(branch_map)
+	var branch_map_guard_ok: bool = branch_map._confirm_prev == true
+	print("PASS: MiniBranchMap seeds _confirm_prev true (carryover guard)" if branch_map_guard_ok else "FAIL: MiniBranchMap's _confirm_prev is not seeded true")
+	var branch_map_step0_ok: bool = branch_map.node1_label.text.contains(">>") and branch_map.node2_label.text.contains("[ ]") and branch_map.node3_label.text.contains(branch.rival.twist.display_name)
+	print("PASS: MiniBranchMap at step 0 marks node 1 current, node 2 unreached, names the rival's twist" if branch_map_step0_ok else "FAIL: MiniBranchMap step-0 labels were '%s' / '%s' / '%s'" % [branch_map.node1_label.text, branch_map.node2_label.text, branch_map.node3_label.text])
+	CampaignContext.advance_branch_step()
+	branch_map._refresh()
+	var branch_map_step1_ok: bool = branch_map.node1_label.text.contains("[X]") and branch_map.node2_label.text.contains(">>")
+	print("PASS: MiniBranchMap at step 1 marks node 1 done, node 2 current" if branch_map_step1_ok else "FAIL: MiniBranchMap step-1 labels were '%s' / '%s'" % [branch_map.node1_label.text, branch_map.node2_label.text])
+	branch_map.queue_free()
+	CampaignContext.clear()
+	await get_tree().process_frame
+
 	var char_select_scene := load("res://scenes/CampaignCharacterSelect.tscn") as PackedScene
 	var char_select := char_select_scene.instantiate() as CampaignCharacterSelectNode
 	add_child(char_select)
@@ -141,5 +162,6 @@ func _ready() -> void:
 	vs_select.queue_free()
 
 	var all_ok := mook_ok and rival_ok and organizer_ok and map_guard_ok and char_select_guard_ok and vs_select_guard_ok \
-		and mook1_label_ok and mook2_label_ok and rival_label_ok and organizer_label_ok and freeze_ok and f1_guard_precondition_ok
+		and mook1_label_ok and mook2_label_ok and rival_label_ok and organizer_label_ok and freeze_ok and f1_guard_precondition_ok \
+		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok
 	get_tree().quit(0 if all_ok else 1)

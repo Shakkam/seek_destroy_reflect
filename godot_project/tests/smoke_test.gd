@@ -392,13 +392,29 @@ func _test_campaign_context_sequencing() -> void:
 	branch.rival = rival
 
 	var campaign := CampaignData.new()
-	context.start_branch(campaign, branch, mook_1)
-	_check("branch starts on mook_1", context.encounter == mook_1)
+	context.start_branch(campaign, branch)
+	_check("branch starts at step 0 (mook_1)", context.branch_step == 0 and context.current_encounter() == mook_1)
 
-	_check("advance from mook_1 moves to mook_2", context.advance_within_branch() and context.encounter == mook_2)
-	_check("advance from mook_2 moves to rival", context.advance_within_branch() and context.encounter == rival)
-	_check("advance from the rival reports no further step", not context.advance_within_branch())
-	_check("encounter stays on the rival after the final advance() call", context.encounter == rival)
+	_check("advance from step 0 moves to mook_2, reports more fights left", context.advance_branch_step() and context.current_encounter() == mook_2)
+	_check("advance from step 1 moves to the rival, reports more fights left", context.advance_branch_step() and context.current_encounter() == rival)
+	_check("advance from the rival reports the branch is complete", not context.advance_branch_step())
+	_check("branch_step reached 3 (complete)", context.branch_step == 3)
+
+	# 2026-08-08 regression: even if mook_1 and mook_2 happened to be
+	# authored as the same resource, step-based sequencing must still tell
+	# them apart (identity-based comparison couldn't).
+	var context2 = context_script.new()
+	var shared_mook := RivalEncounterData.new()
+	shared_mook.is_mook = true
+	var branch2 := MiniBranchData.new()
+	branch2.mook_1 = shared_mook
+	branch2.mook_2 = shared_mook
+	branch2.rival = rival
+	context2.start_branch(campaign, branch2)
+	_check("step 0 reads as mook_1 even when mook_1 == mook_2 by identity", context2.branch_step == 0)
+	context2.advance_branch_step()
+	_check("step 1 reads as mook_2 even when mook_1 == mook_2 by identity", context2.branch_step == 1)
+	context2.free()
 
 	context.free()
 
