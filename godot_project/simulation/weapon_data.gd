@@ -39,3 +39,11 @@ extends Resource
 @export var burst_stagger: float = 0.0 # seconds between each projectile's spawn within a burst — 0 = all at once
 @export var is_boomerang: bool = false # curves outward then arcs back to the shooter instead of flying straight/homing (can hit once on the way out and once on the way back)
 @export var visual_scale_multiplier: float = 1.0 # extra engine-side size multiplier on top of the base projectile scale, per weapon (2026-08-06 playtest: Éventail needed to read bigger)
+
+# Burst limiter (2026-08-08 playtest: "Mitraillette, c'est trop fort. Il
+# faudrait un cooldown de 1s tous les... 6 tirs ?") — an extra, longer
+# cooldown imposed every N shots, on top of the normal per-shot fire_rate
+# cooldown. 0 = disabled (most weapons don't need this; their fire_rate/
+# gauge_cost_per_shot already self-limits).
+@export var burst_shot_limit: int = 0 # fire this many shots, then force burst_cooldown_duration before the next one. 0 = no burst limit.
+@export var burst_cooldown_duration: float = 0.0 # seconds of forced cooldown once burst_shot_limit is reached

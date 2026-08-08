@@ -9,7 +9,27 @@
       "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git commit*)",
       "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git push*)",
       "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git log*)",
-      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git diff*)"
+      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && git diff*)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball/godot_project\" && \"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" --headless --import*)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball/godot_project\" && \"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" --headless --path . -s res://tests/*)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball/godot_project\" && \"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" --headless --path . res://*)",
+      "Bash(\"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" --headless --import*)",
+      "Bash(\"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" --headless --path . -s res://tests/*)",
+      "Bash(\"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" --headless --path . res://*)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball\" && git add -A*)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball\" && git status*)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball\" && git commit*)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball\" && git push*)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball\" && git log*)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball\" && git diff*)",
+      "Bash(git add -A*)",
+      "Bash(git status*)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(cd \"c:\\projets\\apps claude\\seek and destroy and reflect the ball\" && git*)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball\" && git*)"
     ]
   }
 }

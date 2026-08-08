@@ -28,6 +28,7 @@ func _initialize() -> void:
 	_test_campaign_context_sequencing()
 	_test_vif_campaign_authoring()
 	_test_gauges_reset_between_rounds()
+	_test_burst_limiter()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
 	# MatchArenaNode can't be loaded under this harness — this file runs via
 	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
@@ -459,3 +460,40 @@ func _test_gauges_reset_between_rounds() -> void:
 	_check("the kit itself is unchanged (still the same weapon)", ship.weapon_state.kit.size() == 1 and ship.weapon_state.kit[0] == machine_gun)
 
 	ship.queue_free()
+
+func _test_burst_limiter() -> void:
+	# 2026-08-08 playtest: "Mitraillette, c'est trop fort. Il faudrait un
+	# cooldown de 1s tous les... 6 tirs ?" — verify the loaded machine_gun.tres
+	# is configured with a burst limit, and that WeaponSystemState.fired()
+	# actually enforces one.
+	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
+	_check("machine_gun has a burst_shot_limit configured", machine_gun.burst_shot_limit > 0)
+	_check("machine_gun's burst cooldown is around 1s", machine_gun.burst_cooldown_duration == 1.0)
+
+	var weapon := WeaponData.new()
+	weapon.fire_rate = 10.0
+	weapon.gauge_max = 1000.0
+	weapon.gauge_cost_per_shot = 1.0
+	weapon.burst_shot_limit = 6
+	weapon.burst_cooldown_duration = 1.0
+	var state := WeaponSystemState.new([weapon])
+	state = state.with_gauge_added(1000.0)
+
+	for i in 6:
+		var result := state.fired()
+		_check("shot %d fires" % (i + 1), result.fired)
+		state = result.state
+		if i < 5:
+			# fast-forward the normal per-shot cooldown so only the burst
+			# limiter itself could block the next shot.
+			state = state.with_cooldown_ticked(state.cooldown)
+
+	_check("the 6th shot triggers the long burst cooldown, not the normal per-shot one", is_equal_approx(state.cooldown, 1.0))
+	_check("burst counter resets after the burst cooldown fires", state.burst_counts[0] == 0)
+
+	var blocked_result := state.fired()
+	_check("firing during the burst cooldown is blocked", not blocked_result.fired)
+
+	state = state.with_cooldown_ticked(1.0)
+	var resumed_result := state.fired()
+	_check("firing resumes once the burst cooldown elapses", resumed_result.fired)

@@ -15,14 +15,17 @@ const MISS_GAUGE_FILL := 50.0 # Story 1.6 — playtest-tuned down from a "full c
 
 var kit: Array # of WeaponData
 var gauges: Array[float] # parallel array to kit — current charge per weapon
+var burst_counts: Array[int] # parallel array to kit — shots fired since the last burst-limit cooldown (see WeaponData.burst_shot_limit)
 var selected_index: int
 var cooldown: float # seconds remaining before the next shot is allowed
 
 func _init(weapon_kit: Array, start_selected: int = 0) -> void:
 	kit = weapon_kit
 	gauges = []
+	burst_counts = []
 	for weapon in kit:
 		gauges.append(0.0)
+		burst_counts.append(0)
 	selected_index = start_selected
 	cooldown = 0.0
 
@@ -57,7 +60,18 @@ func fired() -> Dictionary:
 
 	var new_state := _clone()
 	new_state.gauges[selected_index] = gauges[selected_index] - weapon.gauge_cost_per_shot
-	new_state.cooldown = 1.0 / weapon.fire_rate
+
+	# Burst limiter (2026-08-08 playtest: "Mitraillette, c'est trop fort. Il
+	# faudrait un cooldown de 1s tous les... 6 tirs ?") — every burst_shot_limit
+	# shots, force burst_cooldown_duration instead of the normal per-shot
+	# cooldown, and reset the counter.
+	var next_burst_count := burst_counts[selected_index] + 1
+	if weapon.burst_shot_limit > 0 and next_burst_count >= weapon.burst_shot_limit:
+		new_state.cooldown = weapon.burst_cooldown_duration
+		new_state.burst_counts[selected_index] = 0
+	else:
+		new_state.cooldown = 1.0 / weapon.fire_rate
+		new_state.burst_counts[selected_index] = next_burst_count
 	return {"state": new_state, "fired": true, "weapon": weapon}
 
 ## Continuous alternative to fired(), for effect_type == "beam" weapons only.
@@ -78,5 +92,6 @@ func beam_tick(delta: float) -> Dictionary:
 func _clone() -> WeaponSystemState:
 	var copy := WeaponSystemState.new(kit, selected_index)
 	copy.gauges = gauges.duplicate()
+	copy.burst_counts = burst_counts.duplicate()
 	copy.cooldown = cooldown
 	return copy

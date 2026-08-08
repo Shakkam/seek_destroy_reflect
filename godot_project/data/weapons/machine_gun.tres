@@ -11,3 +11,5 @@ fire_rate = 9.0
 gauge_max = 100.0
 gauge_cost_per_shot = 4.0
 is_heavy = false
+burst_shot_limit = 6
+burst_cooldown_duration = 1.0
