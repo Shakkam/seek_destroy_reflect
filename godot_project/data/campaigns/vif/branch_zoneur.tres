@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="MiniBranchData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://simulation/mini_branch_data.gd" id="1"]
+[ext_resource type="Resource" path="res://data/campaigns/vif/mook_zoneur.tres" id="2"]
+[ext_resource type="Resource" path="res://data/campaigns/vif/rival_zoneur.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+id = "vs_zoneur"
+display_name = "Contre Zoneur"
+mook_1 = ExtResource("2")
+mook_2 = ExtResource("2")
+rival = ExtResource("3")

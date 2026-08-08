@@ -52,6 +52,12 @@ var _drift_direction := 1.0 # "drifting_neutral_zone" — reverses at +/- drift_
 # Pre-match gate (2026-08-01): nothing moves until a player confirms ready.
 var _match_started := false
 
+# Epic 4, Story 4.4/4.6/4.8 — true when this match was launched from the
+# campaign map via CampaignContext, so _check_round_end() records the
+# result to CampaignSave and returns to the map instead of just sitting on
+# a "Match termine" label like a plain 1v1.
+var _campaign_mode := false
+
 func _ready() -> void:
 	# Story 2.3 — if this scene was reached via CharacterSelect, apply the
 	# picks over whatever character (if any) is hardcoded on the scene node
@@ -62,6 +68,19 @@ func _ready() -> void:
 		ship_1.set_character(MatchSetup.p1_character)
 	if MatchSetup.p2_character:
 		ship_2.set_character(MatchSetup.p2_character)
+
+	# Epic 4 — a campaign encounter (Story 4.4/4.6/4.8) overrides the plain
+	# MatchSetup picks above: the player always plays their campaign
+	# character, side 1 is always the AI-controlled mook/rival/organizer.
+	if CampaignContext.has_pending_encounter():
+		_campaign_mode = true
+		ship_1.set_character(CampaignContext.campaign.character)
+		ship_2.set_character(CampaignContext.encounter.opponent)
+		ship_2.ai_controlled = true
+		if CampaignContext.encounter.is_mook:
+			ship_2.max_hp_override = ShipState.START_HP * CampaignContext.encounter.mook_hp_multiplier
+		if CampaignContext.encounter.twist:
+			active_twist = CampaignContext.encounter.twist
 
 	var bounds := Rect2(arena_origin, arena_size)
 	var frontier_x := arena_origin.x + arena_size.x / 2.0
@@ -102,8 +121,8 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	p1_label.text = _debug_text(ship_1)
 	p2_label.text = _debug_text(ship_2)
-	p1_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_1.state.hp / ShipState.START_HP, 0.0, 1.0)
-	p2_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_2.state.hp / ShipState.START_HP, 0.0, 1.0)
+	p1_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_1.state.hp / ship_1.max_hp_override, 0.0, 1.0)
+	p2_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_2.state.hp / ship_2.max_hp_override, 0.0, 1.0)
 
 	_process_ai_toggle()
 	_process_beams()
@@ -298,7 +317,10 @@ func _check_round_end() -> void:
 		_clear_round_entities() # turrets/projectiles/beams don't survive a round boundary
 
 		if match_state.match_over:
-			match_label.text = "Match termine - Joueur %d gagne !" % (match_state.winner_side + 1)
+			if _campaign_mode:
+				_resolve_campaign_result(match_state.winner_side)
+			else:
+				match_label.text = "Match termine - Joueur %d gagne !" % (match_state.winner_side + 1)
 		else:
 			ship_1.reset_for_new_round()
 			ship_2.reset_for_new_round()
@@ -307,6 +329,50 @@ func _check_round_end() -> void:
 				if is_instance_valid(extra):
 					extra.reset_to_center()
 			_round_active = true
+
+## Epic 4, Story 4.4/4.6/4.8 — records the outcome to CampaignSave (mooks
+## grant currency, the "real" rival grants a branch completion + unlock,
+## the organizer completes the campaign run) and returns to the campaign
+## map. A loss is never punished beyond the retry itself (Story 4.4 AC: no
+## permadeath) — nothing is recorded, the player just goes back to the map.
+func _resolve_campaign_result(winner_side: int) -> void:
+	var character_id: String = CampaignContext.campaign.character.id
+
+	if winner_side != 0: # side 1 (the mook/rival/organizer) won — no permadeath, just retry from the map (Story 4.4 AC)
+		match_label.text = "Defaite..."
+		await get_tree().create_timer(2.0).timeout
+		CampaignContext.clear()
+		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
+		return
+
+	if CampaignContext.is_organizer_fight:
+		CampaignSave.mark_organizer_defeated(character_id)
+		match_label.text = "Tournoi remporte !"
+		await get_tree().create_timer(2.0).timeout
+		CampaignContext.clear()
+		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
+		return
+
+	if CampaignContext.encounter.is_mook:
+		CampaignSave.add_currency(character_id, CampaignContext.encounter.reward_currency)
+		match_label.text = "Victoire (+%d)" % CampaignContext.encounter.reward_currency
+		await get_tree().create_timer(1.5).timeout
+		if CampaignContext.advance_within_branch():
+			get_tree().reload_current_scene() # straight into the next fight of the same mini-branch, no trip back to the map
+		else:
+			CampaignContext.clear()
+			get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
+		return
+
+	# The "real" rival, defeated.
+	var unlock_id := ""
+	if CampaignContext.encounter.unlock_reward:
+		unlock_id = CampaignContext.encounter.unlock_reward.id
+	CampaignSave.mark_branch_completed(character_id, CampaignContext.branch.id, unlock_id)
+	match_label.text = "Rival vaincu !"
+	await get_tree().create_timer(2.0).timeout
+	CampaignContext.clear()
+	get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 
 ## Round-end cleanup (2026-08-07 bug fix — "à la fin du round 1 les tourelles
 ## restent, elles devraient disparaître"): turrets, in-flight projectiles, and

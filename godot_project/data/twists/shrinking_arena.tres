@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="TwistData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://simulation/twist_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "shrinking_arena"
+display_name = "Zone qui retrecit"
+twist_type = "shrinking_arena"
+shrink_interval = 15.0
+shrink_fraction = 0.1
+shrink_animation_duration = 1.5

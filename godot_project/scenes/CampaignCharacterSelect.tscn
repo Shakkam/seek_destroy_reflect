@@ -1,0 +1,43 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://nodes/campaign_character_select_node.gd" id="1"]
+
+[node name="CampaignCharacterSelect" type="Node2D"]
+script = ExtResource("1")
+
+[node name="Background" type="ColorRect" parent="."]
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 1280.0
+offset_bottom = 720.0
+mouse_filter = 2
+color = Color(0.07, 0.09, 0.15, 1)
+
+[node name="Title" type="Label" parent="."]
+offset_left = 0.0
+offset_top = 60.0
+offset_right = 1280.0
+offset_bottom = 110.0
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.95, 0.96, 1, 1)
+theme_override_font_sizes/font_size = 32
+text = "Campagne — choisis ton personnage"
+
+[node name="ListLabel" type="Label" parent="."]
+offset_left = 440.0
+offset_top = 180.0
+offset_right = 840.0
+offset_bottom = 560.0
+theme_override_colors/font_color = Color(0.85, 0.87, 0.95, 1)
+theme_override_font_sizes/font_size = 22
+text = ""
+
+[node name="HintLabel" type="Label" parent="."]
+offset_left = 0.0
+offset_top = 660.0
+offset_right = 1280.0
+offset_bottom = 700.0
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.6, 0.62, 0.7, 0.85)
+theme_override_font_sizes/font_size = 14
+text = "Fleches : changer | Espace/Entree : confirmer"

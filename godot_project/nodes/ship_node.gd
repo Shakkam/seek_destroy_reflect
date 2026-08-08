@@ -42,6 +42,11 @@ var self_fill_locked := false
 var passive_trickle_rate := 0.0 # % of gauge_max per second, applied to the selected weapon only
 var hidden_from_opponent := false # "invisible_opponent" twist — rendering only, simulation untouched
 
+## Epic 4, Story 4.4 — mook fights use a reduced starting HP instead of a
+## new AI system (RivalEncounterData.mook_hp_multiplier). Left at
+## ShipState.START_HP for every non-campaign match.
+var max_hp_override: float = ShipState.START_HP
+
 var state: ShipState
 var arena_bounds: Rect2
 var frontier_x: float
@@ -131,7 +136,7 @@ const GAMEPAD_TRIGGER_THRESHOLD := 0.4
 
 func _ready() -> void:
 	_spawn_position = position
-	state = ShipState.new(position, side, half_extents)
+	state = ShipState.new(position, side, half_extents, max_hp_override)
 	var kit: Array = []
 	if character and character.kit.size() > 0:
 		kit = character.kit
@@ -287,7 +292,7 @@ func _spawn_trail_ghost() -> void:
 ## Story 1.9 (partial) — resets HP and position for a new round.
 func reset_for_new_round() -> void:
 	position = _spawn_position
-	state = ShipState.new(_spawn_position, side, half_extents, ShipState.START_HP)
+	state = ShipState.new(_spawn_position, side, half_extents, max_hp_override)
 	_vulnerability_timer = 0.0
 
 func _process_weapon_selection() -> void:

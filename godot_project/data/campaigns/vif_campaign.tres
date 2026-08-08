@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="CampaignData" load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://simulation/campaign_data.gd" id="1"]
+[ext_resource type="Resource" path="res://data/characters/vif.tres" id="2"]
+[ext_resource type="Resource" path="res://data/campaigns/vif/branch_lourd.tres" id="3"]
+[ext_resource type="Resource" path="res://data/campaigns/vif/branch_mitrailleur.tres" id="4"]
+[ext_resource type="Resource" path="res://data/campaigns/vif/branch_controleur.tres" id="5"]
+[ext_resource type="Resource" path="res://data/campaigns/vif/branch_zoneur.tres" id="6"]
+[ext_resource type="Resource" path="res://data/campaigns/vif/organizer_encounter.tres" id="7"]
+
+[resource]
+script = ExtResource("1")
+character = ExtResource("2")
+mini_branches = [ExtResource("3"), ExtResource("4"), ExtResource("5"), ExtResource("6")]
+required_branch_count = 3
+organizer_encounter = ExtResource("7")

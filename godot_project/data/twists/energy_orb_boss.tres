@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="TwistData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://simulation/twist_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "energy_orb_boss"
+display_name = "Billes d'energie"
+twist_type = "energy_orb_pickup"
+orb_gauge_bonus_percent = 20.0
+orb_spawn_interval = 10.0

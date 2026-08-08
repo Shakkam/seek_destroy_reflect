@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="RivalEncounterData" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://simulation/rival_encounter_data.gd" id="1"]
+[ext_resource type="Resource" path="res://data/characters/zoneur.tres" id="2"]
+[ext_resource type="Resource" path="res://data/twists/invisible_opponent.tres" id="3"]
+[ext_resource type="Resource" path="res://data/weapons/laser.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+opponent = ExtResource("2")
+is_mook = false
+twist = ExtResource("3")
+unlock_reward = ExtResource("4")

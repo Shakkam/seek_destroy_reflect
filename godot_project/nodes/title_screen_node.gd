@@ -15,3 +15,9 @@ func _process(_delta: float) -> void:
 		or Input.get_joy_axis(1, JOY_AXIS_TRIGGER_RIGHT) > 0.4
 	if pressed:
 		get_tree().change_scene_to_file("res://scenes/CharacterSelect.tscn")
+		return
+
+	# Epic 4 — campaign mode entry point, physical "C" so it works regardless
+	# of AZERTY/QWERTY labeling (same convention as the rest of the project).
+	if Input.is_physical_key_pressed(KEY_C):
+		get_tree().change_scene_to_file("res://scenes/CampaignCharacterSelect.tscn")

@@ -25,6 +25,8 @@ func _initialize() -> void:
 	_test_ball_hazard_bounce()
 	_test_campaign_data_resources()
 	_test_campaign_save()
+	_test_campaign_context_sequencing()
+	_test_vif_campaign_authoring()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
 	# MatchArenaNode can't be loaded under this harness — this file runs via
 	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
@@ -367,3 +369,53 @@ func _test_campaign_save() -> void:
 	save.save_to_disk()
 	save.free()
 	reloaded.free()
+
+func _test_campaign_context_sequencing() -> void:
+	# Loaded directly rather than via the CampaignContext autoload — same
+	# rationale as _test_campaign_save(): this script references no other
+	# autoload itself, so instancing it works fine under the -s harness.
+	var context_script := load("res://nodes/campaign_context.gd")
+	var context = context_script.new()
+
+	var mook_1 := RivalEncounterData.new()
+	mook_1.is_mook = true
+	var mook_2 := RivalEncounterData.new()
+	mook_2.is_mook = true
+	var rival := RivalEncounterData.new()
+	rival.is_mook = false
+
+	var branch := MiniBranchData.new()
+	branch.id = "vs_test"
+	branch.mook_1 = mook_1
+	branch.mook_2 = mook_2
+	branch.rival = rival
+
+	var campaign := CampaignData.new()
+	context.start_branch(campaign, branch, mook_1)
+	_check("branch starts on mook_1", context.encounter == mook_1)
+
+	_check("advance from mook_1 moves to mook_2", context.advance_within_branch() and context.encounter == mook_2)
+	_check("advance from mook_2 moves to rival", context.advance_within_branch() and context.encounter == rival)
+	_check("advance from the rival reports no further step", not context.advance_within_branch())
+	_check("encounter stays on the rival after the final advance() call", context.encounter == rival)
+
+	context.free()
+
+func _test_vif_campaign_authoring() -> void:
+	# Sanity-checks the one fully-authored example campaign (content for the
+	# other 7 characters is tracked separately, not an engineering gap).
+	var campaign: CampaignData = load("res://data/campaigns/vif_campaign.tres")
+	var vif: CharacterData = load("res://data/characters/vif.tres")
+
+	_check("Vif campaign is authored for the right character", campaign.character == vif)
+	_check("Vif campaign has at least required_branch_count mini-branches", campaign.mini_branches.size() >= campaign.required_branch_count)
+	_check("required_branch_count is in the brainstorm's 3-4 range", campaign.required_branch_count >= 3 and campaign.required_branch_count <= 4)
+
+	for b in campaign.mini_branches:
+		var branch: MiniBranchData = b
+		_check("branch '%s' has both mooks set" % branch.id, branch.mook_1 != null and branch.mook_2 != null)
+		_check("branch '%s' rival has a twist assigned" % branch.id, branch.rival.twist != null)
+		_check("branch '%s' rival grants an unlock" % branch.id, branch.rival.unlock_reward != null)
+
+	_check("organizer encounter is set", campaign.organizer_encounter != null)
+	_check("organizer encounter has its signature twist", campaign.organizer_encounter.twist != null and campaign.organizer_encounter.twist.twist_type == "energy_orb_pickup")

@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="TwistData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://simulation/twist_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "invisible_opponent"
+display_name = "Invisibilite"
+twist_type = "invisible_opponent"
