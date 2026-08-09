@@ -20,5 +20,5 @@ projectile_spin_speed = 900.0
 charge_fire_duration = 3.0
 charge_fire_slow_multiplier = 0.3
 charged_projectile_count = 10
-charged_burst_spread_deg = 120.0
+charged_burst_spread_deg = 90.0
 charged_stagger = 0.125

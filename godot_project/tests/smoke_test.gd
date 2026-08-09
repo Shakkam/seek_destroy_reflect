@@ -106,7 +106,7 @@ func _test_mini_shot_data() -> void:
 	_check("mini_shot has a charged fire configured", mini.charge_fire_duration > 0.0)
 	_check("mini_shot's charged fire launches 10 shots", mini.charged_projectile_count == 10)
 	_check("mini_shot's charged shots are staggered 1/8s apart", is_equal_approx(mini.charged_stagger, 0.125))
-	_check("mini_shot's charged fire sweeps a wide vertical spread (top to bottom)", mini.charged_burst_spread_deg > 90.0)
+	_check("mini_shot's charged fire sweeps a wide vertical spread (top to bottom)", mini.charged_burst_spread_deg > 45.0)
 
 func _test_boomerang_motion() -> void:
 	var boomerang_data: WeaponData = load("res://data/weapons/stun_boomerang.tres")
