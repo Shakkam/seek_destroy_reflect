@@ -667,6 +667,14 @@ func _test_weapon_exclusivity() -> void:
 	_check("every roster character carries exactly one weapon", all_mono_weapon)
 	_check("no two characters share the same weapon", all_unique)
 
+	# 2026-08-09 (Camil): "seul mitrailleur tire plusieurs fois d'affilee
+	# quand on laisse appuye... pour les autres, il faut appuyer plusieurs
+	# fois pour tirer plusieurs fois."
+	var mitrailleur: CharacterData = load("res://data/characters/mitrailleur.tres")
+	_check("only Mitrailleur is full-auto", mitrailleur.full_auto)
+	var vif: CharacterData = load("res://data/characters/vif.tres")
+	_check("everyone else defaults to semi-auto (e.g. Vif)", not vif.full_auto)
+
 func _test_vortex_weapon() -> void:
 	# 2026-08-09 (Camil): Vif's new signature weapon — "un petit tourbillon
 	# qui tourne sur lui meme en avancant et qui va tres vite. tir charge,
@@ -680,6 +688,8 @@ func _test_vortex_weapon() -> void:
 	_check("Tourbillon loops instead of flying straight", vortex.is_looping and vortex.loop_radius > 0.0 and vortex.loop_angular_speed > 0.0)
 	_check("Tourbillon does not also spin the node (the 3-frame texture cycle already conveys spin)", vortex.projectile_spin_speed == 0.0)
 	_check("Tourbillon has a charged fire configured", vortex.charge_fire_duration > 0.0)
+	_check("Tourbillon's charge duration is 3s (2026-08-09 playtest: 'augmenter le temps de charge : 3 secondes')", is_equal_approx(vortex.charge_fire_duration, 3.0))
+	_check("Tourbillon's cooldown was increased 1.5x (2026-08-09 playtest: 'un peu court')", vortex.fire_rate < 4.0 / 1.4) # fire_rate=4.0/1.5 -> cooldown*1.5; loose upper bound so exact rounding doesn't matter
 	_check("Tourbillon's charged fire launches 3 vortices", vortex.charged_projectile_count == 3)
 	_check("Tourbillon's charged vortices still go straight (no burst spread)", vortex.charged_burst_spread_deg == 0.0)
 

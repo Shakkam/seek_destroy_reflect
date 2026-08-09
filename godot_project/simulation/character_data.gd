@@ -26,3 +26,13 @@ extends Resource
 ## ShipNode.apply_knockback() (2026-08-09, Camil: "il faudrait donc que ca
 ## 'pousse' la balle et que cette derniere pousse le joueur adverse").
 @export_enum("none", "dash_lift", "heavy_push") var special_rule: String = "none"
+
+## 2026-08-09 (Camil: "seul mitrailleur tire plusieurs fois d'affilee quand
+## on laisse appuye... pour les autres, il faut appuyer plusieurs fois pour
+## tirer plusieurs fois") — orthogonal to special_rule (a base firing-input
+## distinction, not a lift/movement rule). false (default, everyone except
+## Mitrailleur) = semi-auto, one shot per discrete press/release, even
+## during a charge-capable weapon's pre-charge grace window. true = full
+## auto, fires repeatedly for as long as Tir is held (gated only by the
+## weapon's own cooldown/gauge, as every weapon originally worked).
+@export var full_auto: bool = false

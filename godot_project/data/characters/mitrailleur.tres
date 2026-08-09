@@ -10,3 +10,4 @@ display_name = "Mitrailleur"
 archetype = "Mitrailleur"
 kit = [ExtResource("2")]
 complexity = "beginner"
+full_auto = true

@@ -102,6 +102,14 @@ const DASH_LIFT_CHARGE := 0.33 # "un leger lift" — fixed, since there's no cha
 var _fire_held_duration := 0.0 # how long the CURRENT press has been held, resets to 0 the instant fire is released
 const NORMAL_FIRE_GRACE := 1.0 # seconds of normal fire before a sustained hold starts charging
 
+# Full-auto vs. semi-auto (2026-08-09, Camil: "seul mitrailleur tire
+# plusieurs fois d'affilee quand on laisse appuye... pour les autres, il
+# faut appuyer plusieurs fois pour tirer plusieurs fois") — see
+# CharacterData.full_auto. Edge-detected for everyone except Mitrailleur:
+# normal fire (including a charge-capable weapon's grace window) only
+# triggers on the rising edge of a press, not every frame it's held.
+var _fire_prev := false
+
 var _spawn_position: Vector2
 
 # Story 1.12 — set by MatchArenaNode when this ship is AI-controlled.
@@ -319,11 +327,14 @@ func _physics_process(delta: float) -> void:
 	else:
 		beam_active = false
 		beam_weapon = null
+		var is_full_auto := character != null and character.full_auto
 		if charge_capable and is_charging:
 			pass # normal fire suspended while actively charging (past the grace window)
-		elif fire_held:
+		elif fire_held and (is_full_auto or not _fire_prev):
 			# Either a non-charge-capable weapon, or a charge-capable one still
 			# within its NORMAL_FIRE_GRACE window — fires exactly like normal.
+			# Full-auto (Mitrailleur only) repeats every held frame; everyone
+			# else only fires on the rising edge of a fresh press.
 			var result := weapon_state.fired()
 			weapon_state = result.state
 			if result.fired:
@@ -350,6 +361,8 @@ func _physics_process(delta: float) -> void:
 					charged_weapon_fired.emit(result.weapon)
 					print("%s CHARGED-fired %s" % [name, result.weapon.display_name])
 			# else: released mid-charge (past the grace window, before full) — the attempt is lost, nothing fires
+
+	_fire_prev = fire_held
 
 	_mobility_boost_timer = maxf(_mobility_boost_timer - delta, 0.0)
 	_mobility_boost_multiplier = _mobility_boost_active_multiplier if _mobility_boost_timer > 0.0 else 1.0
