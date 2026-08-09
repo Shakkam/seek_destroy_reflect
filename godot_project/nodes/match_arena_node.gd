@@ -274,8 +274,8 @@ func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: flo
 	projectile.loop_angular_speed = weapon.loop_angular_speed
 	projectile.flip_h = direction < 0.0
 	if weapon.id == "vortex":
-		projectile.textures = VORTEX_TEXTURES # Vif's Tourbillon — 3-frame spin animation, on top of the node's own continuous rotation
-		projectile.visual_scale = 1.2
+		projectile.textures = VORTEX_TEXTURES # Vif's Tourbillon — 3-frame spin animation (wind1-3), loops via is_looping instead of a node rotation
+		projectile.visual_scale = 2.4 # 2026-08-09 playtest: "tu peux doubler la taille des tourbillons" (was 1.2)
 	elif weapon.is_heavy:
 		projectile.textures = BAZOOKA_TEXTURES
 		# bazook.png's fireball ("front") points LEFT natively — opposite of the
