@@ -6,7 +6,7 @@
 [resource]
 script = ExtResource("1")
 id = "mini"
-display_name = "Mini"
-archetype = "Glass cannon Mini"
+display_name = "Spreader"
+archetype = "Glass cannon Spreader"
 kit = [ExtResource("2")]
 complexity = "advanced"

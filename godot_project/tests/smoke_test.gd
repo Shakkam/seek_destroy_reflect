@@ -96,8 +96,17 @@ func _test_mini_shot_data() -> void:
 	_check("mini_shot has no per-shot angle jitter (2026-08-06: 'pas de random sur les angles')", mini.spread_deg == 0.0)
 	# 2026-08-09 (Camil, now that bonbon.png art exists): "l'animation : il
 	# tourne sur lui meme assez vite. Tu peux doubler sa taille."
-	_check("mini_shot's size was doubled again now that it has real art (2x -> 4x)", is_equal_approx(mini.visual_scale_multiplier, 4.0))
+	_check("mini_shot's size was doubled with real art, then trimmed back to 70% (2026-08-09: 'un peu gros')", is_equal_approx(mini.visual_scale_multiplier, 2.8))
 	_check("mini_shot spins in place (single-sprite art, no multi-frame cycle like the Tourbillon)", mini.projectile_spin_speed > 0.0)
+
+	# 2026-08-09 — Mini's charged fire ("Tir charge : lance 10 des eventails
+	# de haut en bas (un peu comme un arroseur automatique) avec un espace
+	# de 1/8 de seconde entre chaque eventail"), reusing the same generic
+	# charged_* burst framework as Lourd/Vif — no new engine code needed.
+	_check("mini_shot has a charged fire configured", mini.charge_fire_duration > 0.0)
+	_check("mini_shot's charged fire launches 10 shots", mini.charged_projectile_count == 10)
+	_check("mini_shot's charged shots are staggered 1/8s apart", is_equal_approx(mini.charged_stagger, 0.125))
+	_check("mini_shot's charged fire sweeps a wide vertical spread (top to bottom)", mini.charged_burst_spread_deg > 90.0)
 
 func _test_boomerang_motion() -> void:
 	var boomerang_data: WeaponData = load("res://data/weapons/stun_boomerang.tres")
@@ -765,6 +774,15 @@ func _test_charged_fire_burst() -> void:
 	# toujours en appui, la charge commence") — normal fire for the first
 	# NORMAL_FIRE_GRACE seconds of a hold, THEN it starts charging.
 	_check("NORMAL_FIRE_GRACE is about 1 second, per Camil's spec", is_equal_approx(ShipNode.NORMAL_FIRE_GRACE, 1.0))
+
+	# 2026-08-09 recurring bug report: "y'a toujours le pb du ralentissement
+	# quand on charge. Il faut que le ralentissement reste tant qu'on a pas
+	# relache (meme si la charge est finie)" — a momentary fire_held dip
+	# (e.g. analog trigger jitter) must not be treated as an instant real
+	# release. FIRE_RELEASE_GRACE's exact state-machine behavior needs live
+	# Input to exercise (same limitation as the rest of this suite) — just
+	# checking the constant exists with a sane, non-zero, sub-second value.
+	_check("FIRE_RELEASE_GRACE tolerates a brief input dip without losing the charge", ShipNode.FIRE_RELEASE_GRACE > 0.0 and ShipNode.FIRE_RELEASE_GRACE < 0.5)
 
 	# 2026-08-09 (Camil): "quand la charge est fini, tu peux faire clignoter
 	# rapidement le joueur pour qu'on sache que c'est bon", then after

@@ -254,6 +254,19 @@ func _ready() -> void:
 	var charged_burst_ok: bool = spawned_charged_projectile != null \
 		and is_equal_approx(spawned_charged_projectile.velocity.length(), bazooka.projectile_speed * bazooka.charged_speed_multiplier)
 	print("PASS: charged fire spawns a faster shell (Lourd's bazooka)" if charged_burst_ok else "FAIL: no charged projectile found, or speed was wrong")
+
+	# Mini's charged fire: 10 shots swept top-to-bottom, staggered 1/8s
+	# apart — the first fires immediately (i=0, no stagger delay), the rest
+	# are scheduled via get_tree().create_timer(), same pattern as the
+	# missile swarm's burst_stagger.
+	var mini_shot: WeaponData = load("res://data/weapons/mini_shot.tres")
+	var children_before_mini_charge := charge_arena.get_child_count()
+	charge_arena._on_charged_weapon_fired(mini_shot, charge_arena.ship_1)
+	await get_tree().process_frame
+	var immediate_mini_shots := charge_arena.get_child_count() - children_before_mini_charge
+	var mini_charge_ok: bool = immediate_mini_shots == 1 # only the i=0 shot fires this frame; the other 9 are timer-scheduled
+	print("PASS: Eventail's charged fire fires the first (unstaggered) shot immediately" if mini_charge_ok else "FAIL: expected exactly 1 immediate projectile, got %d" % immediate_mini_shots)
+
 	charge_arena.queue_free()
 	await get_tree().process_frame
 
@@ -316,5 +329,5 @@ func _ready() -> void:
 		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
-		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_burst_ok
+		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_burst_ok and mini_charge_ok
 	get_tree().quit(0 if all_ok else 1)

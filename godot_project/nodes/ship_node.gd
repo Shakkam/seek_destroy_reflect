@@ -103,6 +103,16 @@ var _fire_held_duration := 0.0 # how long the CURRENT press has been held, reset
 const CHARGE_READY_BLINK_PERIOD := 0.15 # seconds per full on/off cycle once fully charged (2026-08-09 playtest: "pas mal le clignotement, tu peux le faire beaucoup plus rapide" — was 0.5)
 const NORMAL_FIRE_GRACE := 1.0 # seconds of normal fire before a sustained hold starts charging
 
+# 2026-08-09 bug report (recurring): "y'a toujours le pb du ralentissement
+# quand on charge. Il faut que le ralentissement reste tant qu'on a pas
+# relache (meme si la charge est finie)" — a momentary dip in fire_held
+# (analog trigger axis noise near GAMEPAD_TRIGGER_THRESHOLD, or any other
+# single-frame Input read hiccup) used to be treated as an instant genuine
+# release, zeroing _fire_held_duration and dropping the slow for that
+# frame. This grace absorbs a short dip without losing the charge attempt.
+var _fire_release_grace_timer := 0.0
+const FIRE_RELEASE_GRACE := 0.1 # seconds of tolerance before a fire_held dip counts as a real release
+
 # Full-auto vs. semi-auto (2026-08-09, Camil: "seul mitrailleur tire
 # plusieurs fois d'affilee quand on laisse appuye... pour les autres, il
 # faut appuyer plusieurs fois pour tirer plusieurs fois") — see
@@ -267,6 +277,12 @@ func _physics_process(delta: float) -> void:
 	if charge_capable:
 		if fire_held:
 			_fire_held_duration += delta
+			_fire_release_grace_timer = FIRE_RELEASE_GRACE
+		elif _fire_release_grace_timer > 0.0:
+			# Momentary dip in fire_held (input jitter) — not a real release
+			# yet. Keep the attempt alive as-is (don't accumulate further,
+			# don't reset) while the grace ticks down.
+			_fire_release_grace_timer -= delta
 		elif _fire_held_duration > NORMAL_FIRE_GRACE:
 			# only a release AFTER the grace window is a "charge attempt" —
 			# releasing during/at the grace window just stops normal fire,
@@ -278,6 +294,7 @@ func _physics_process(delta: float) -> void:
 			_fire_held_duration = 0.0
 	else:
 		_fire_held_duration = 0.0
+		_fire_release_grace_timer = 0.0
 	# 2026-08-09 bug report: "parfois pendant la charge, la vitesse n'est pas
 	# diminuee. le joueur DOIT rester a 30% de vitesse tant que le bouton de
 	# tir n'a pas ete relache" — derived from the persisted _fire_held_duration
