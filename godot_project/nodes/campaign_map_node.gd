@@ -36,6 +36,7 @@ var _move_prev := 0.0
 # True means "was already pressed" so the first frame can never (mis)fire;
 # it naturally settles once the button is actually released.
 var _confirm_prev := true
+var _cheat_prev := false # cheat menu hotkey (2026-08-09) — no carryover risk, "T" isn't shared with any other screen's confirm key
 
 func _ready() -> void:
 	if not CampaignContext.campaign:
@@ -70,6 +71,14 @@ func _process(_delta: float) -> void:
 	if confirm and not _confirm_prev:
 		_confirm_selection()
 	_confirm_prev = confirm
+
+	# Cheat menu (2026-08-09, Camil: "tu aurais un sous menu 'cheat' de la
+	# campagne, pour que je puisse tester tous les twists ?") — dev/debug
+	# entry point, physical "T" (Test), same "physical key" convention as
+	# the rest of the project so it's unaffected by AZERTY/QWERTY labeling.
+	if Input.is_physical_key_pressed(KEY_T) and not _cheat_prev:
+		get_tree().change_scene_to_file("res://scenes/CampaignCheatMenu.tscn")
+	_cheat_prev = Input.is_physical_key_pressed(KEY_T)
 
 func _organizer_unlocked() -> bool:
 	var character_id: String = CampaignContext.campaign.character.id
@@ -109,6 +118,7 @@ func _refresh() -> void:
 			CampaignSave.completed_branch_count(character_id),
 			CampaignContext.campaign.required_branch_count,
 		]
+	description_label.text += "\n\n(T : menu cheat — tester un twist)"
 
 func _confirm_selection() -> void:
 	var character_id: String = CampaignContext.campaign.character.id

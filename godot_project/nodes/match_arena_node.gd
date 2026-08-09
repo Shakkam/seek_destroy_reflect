@@ -361,6 +361,16 @@ func _check_round_end() -> void:
 func _resolve_campaign_result(winner_side: int) -> void:
 	var character_id: String = CampaignContext.campaign.character.id
 
+	if CampaignContext.debug_encounter:
+		# Cheat menu (2026-08-09) — no currency/unlock/progression side
+		# effects, just report the result and bounce straight back so the
+		# twist can be swapped and re-tested immediately.
+		match_label.text = "Victoire" if winner_side == 0 else "Defaite"
+		await get_tree().create_timer(1.5).timeout
+		CampaignContext.clear()
+		get_tree().change_scene_to_file("res://scenes/CampaignCheatMenu.tscn")
+		return
+
 	if winner_side != 0: # side 1 (the mook/rival/organizer) won — no permadeath, retry the same step (Story 4.4 AC)
 		match_label.text = "Defaite..."
 		await get_tree().create_timer(2.0).timeout
@@ -424,7 +434,14 @@ func _update_campaign_label() -> void:
 		campaign_label.text = ""
 		return
 	var encounter_name := "Organisateur du tournoi"
-	if not CampaignContext.is_organizer_fight:
+	if CampaignContext.debug_encounter:
+		# Cheat menu (2026-08-09) — neither organizer nor branch is set here,
+		# just a throwaway encounter; branch_step's step-name labeling
+		# doesn't apply (2026-08-09 bug: crashed on CampaignContext.branch
+		# being null, since debug fights are a third case that "not
+		# is_organizer_fight" alone didn't account for).
+		encounter_name = "Cheat menu — vs %s" % CampaignContext.debug_encounter.opponent.display_name
+	elif not CampaignContext.is_organizer_fight:
 		# branch_step (2026-08-08 rework) instead of comparing encounter
 		# resource identity against branch.mook_1/mook_2 — unambiguous
 		# regardless of how those two are authored.
@@ -599,8 +616,22 @@ func _process_energy_orb_spawns(delta: float) -> void:
 	var orb := EnergyOrbNode.new()
 	orb.gauge_bonus_percent = active_twist.orb_gauge_bonus_percent
 	orb.ships = [ship_1, ship_2]
+	# 2026-08-09 bug report (Camil, cheat-menu test): "Billes d'energie...
+	# ca apparait dans le no man's land" — spawning exactly on
+	# _current_frontier_x put the orb inside the neutral strip neither ship
+	# can ever enter (ShipState._clamp_to_half() keeps a NEUTRAL_ZONE_HALF_
+	# WIDTH gap around the frontier), making it permanently unreachable.
+	# Spawn on a random side's actual playable half instead — alternates
+	# fairly between sides over repeated spawns.
+	var side := randi() % 2
+	var margin := ShipState.NEUTRAL_ZONE_HALF_WIDTH + 40.0
+	var x: float
+	if side == 0:
+		x = randf_range(_current_arena_bounds.position.x + 40.0, _current_frontier_x - margin)
+	else:
+		x = randf_range(_current_frontier_x + margin, _current_arena_bounds.position.x + _current_arena_bounds.size.x - 40.0)
 	orb.position = Vector2(
-		_current_frontier_x,
+		x,
 		randf_range(_current_arena_bounds.position.y + 60.0, _current_arena_bounds.position.y + _current_arena_bounds.size.y - 60.0)
 	)
 	add_child(orb)

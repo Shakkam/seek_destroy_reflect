@@ -26,6 +26,8 @@ func _initialize() -> void:
 	_test_campaign_data_resources()
 	_test_campaign_save()
 	_test_campaign_context_sequencing()
+	_test_campaign_context_debug_fight()
+	_test_campaign_save_progress_tracking()
 	_test_vif_campaign_authoring()
 	_test_gauges_reset_between_rounds()
 	_test_burst_limiter()
@@ -418,6 +420,49 @@ func _test_campaign_context_sequencing() -> void:
 	context2.free()
 
 	context.free()
+
+func _test_campaign_context_debug_fight() -> void:
+	# Cheat menu (2026-08-09, Camil: "tu aurais un sous menu 'cheat' de la
+	# campagne, pour que je puisse tester tous les twists ?") — a THIRD case
+	# alongside branch/organizer fights, distinct from both (2026-08-09 bug:
+	# _update_campaign_label() assumed "not organizer" implied "branch is
+	# set", crashing on CampaignContext.branch being null during a debug
+	# fight — this test guards the CampaignContext side of that regression).
+	var context_script := load("res://nodes/campaign_context.gd")
+	var context = context_script.new()
+	var campaign := CampaignData.new()
+	var encounter := RivalEncounterData.new()
+	encounter.is_mook = false
+
+	context.start_debug_fight(campaign, encounter)
+	_check("debug fight registers as a pending encounter", context.has_pending_encounter())
+	_check("debug fight is neither a branch nor the organizer", context.branch == null and not context.is_organizer_fight)
+	_check("current_encounter() returns the debug encounter", context.current_encounter() == encounter)
+
+	context.clear()
+	_check("clear() resets debug_encounter too", context.debug_encounter == null and not context.has_pending_encounter())
+	context.free()
+
+func _test_campaign_save_progress_tracking() -> void:
+	# Title screen (2026-08-09) — "Nouvelle partie" only warns/wipes when
+	# there's real progress to lose; "Continuer la partie" needs to know
+	# which character to resume.
+	var save_script := load("res://nodes/campaign_save.gd")
+	var save = save_script.new()
+	save._data = {} # start from a clean slate, independent of any real save on disk
+
+	const TEST_CHARACTER := "_smoke_test_progress_character"
+
+	_check("no progress on a fresh save", not save.has_any_progress())
+	_check("character_with_progress() is empty with nothing saved", save.character_with_progress() == "")
+
+	save.add_currency(TEST_CHARACTER, 50)
+	_check("has_any_progress() becomes true once currency is earned", save.has_any_progress())
+	_check("character_with_progress() finds the right character", save.character_with_progress() == TEST_CHARACTER)
+
+	save.reset_all()
+	_check("reset_all() wipes progress back to none", not save.has_any_progress())
+	_check("reset_all() clears character_with_progress() too", save.character_with_progress() == "")
 
 func _test_vif_campaign_authoring() -> void:
 	# Sanity-checks the one fully-authored example campaign (content for the

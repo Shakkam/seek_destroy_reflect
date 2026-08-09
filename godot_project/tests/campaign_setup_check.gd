@@ -104,8 +104,97 @@ func _ready() -> void:
 	print("PASS: organizer fight configures ship_2 and the signature twist" if organizer_ok else "FAIL: organizer fight setup incorrect")
 	var organizer_label_ok: bool = arena3.campaign_label.text.contains("Organisateur")
 	print("PASS: campaign_label names the organizer fight" if organizer_label_ok else "FAIL: campaign_label was '%s'" % arena3.campaign_label.text)
+	# 2026-08-09 bug report (Camil, cheat-menu test): "Billes d'energie...
+	# ca apparait dans le no man's land" — the orb must spawn on a ship's
+	# actual playable side, never inside the unreachable neutral strip
+	# around the frontier (ShipState.NEUTRAL_ZONE_HALF_WIDTH).
+	arena3._energy_orb_timer = 0.0
+	var orb_spawn_reachable_ok := true
+	for i in 10: # multiple draws — side is randomized, both sides must land outside the neutral zone
+		arena3._process_energy_orb_spawns(0.0)
+		var spawned_orb: EnergyOrbNode = null
+		for child in arena3.get_children():
+			if child is EnergyOrbNode:
+				spawned_orb = child
+		if not spawned_orb:
+			orb_spawn_reachable_ok = false
+			break
+		var dist_from_frontier := absf(spawned_orb.position.x - arena3._current_frontier_x)
+		if dist_from_frontier < ShipState.NEUTRAL_ZONE_HALF_WIDTH:
+			orb_spawn_reachable_ok = false
+		spawned_orb.queue_free()
+		arena3._energy_orb_timer = 0.0
+	print("PASS: energy orb always spawns outside the unreachable neutral zone" if orb_spawn_reachable_ok else "FAIL: an energy orb spawned inside the neutral zone")
+
 	arena3.queue_free()
 	CampaignContext.clear()
+
+	# --- Cheat menu debug fight (2026-08-09): neither a branch nor the
+	# organizer — a third case _update_campaign_label() initially missed,
+	# crashing on CampaignContext.branch being null ("Invalid access to
+	# property or key 'display_name' on a base object of type 'Nil'"). ---
+	var debug_encounter := RivalEncounterData.new()
+	debug_encounter.opponent = vif_campaign.organizer_encounter.opponent
+	debug_encounter.is_mook = false
+	debug_encounter.twist = load("res://data/twists/hazard_zones.tres")
+	CampaignContext.start_debug_fight(vif_campaign, debug_encounter)
+	var arena4 := arena_scene.instantiate() as MatchArenaNode
+	add_child(arena4)
+	await get_tree().process_frame
+
+	var debug_fight_ok := arena4.ship_2.character == debug_encounter.opponent \
+		and arena4.ship_2.max_hp_override == ShipState.START_HP \
+		and arena4.active_twist == debug_encounter.twist
+	print("PASS: debug fight configures ship_2 (full HP, chosen twist, no branch/organizer needed)" if debug_fight_ok else "FAIL: debug fight setup incorrect")
+	var debug_label_ok: bool = not arena4.campaign_label.text.is_empty() and arena4.campaign_label.text.contains("Cheat menu")
+	print("PASS: campaign_label doesn't crash on a debug fight, names it as such" if debug_label_ok else "FAIL: campaign_label was '%s'" % arena4.campaign_label.text)
+	# NOTE: _resolve_campaign_result()'s debug_encounter branch (routes back
+	# to CampaignCheatMenu.tscn instead of MiniBranchMap/CampaignMap) isn't
+	# exercised end-to-end here — awaiting its real change_scene_to_file()
+	# would replace this test's own scene tree mid-run and crash the checks
+	# still to come below (same reason the mook/rival/organizer sections
+	# above only ever check the freeze/precondition, never await the actual
+	# scene change either).
+	arena4.queue_free()
+	CampaignContext.clear()
+
+	# --- Cheat menu scene (2026-08-09): lists every TwistData under
+	# data/twists/ plus "Aucun twist" at index 0. ---
+	var cheat_scene := load("res://scenes/CampaignCheatMenu.tscn") as PackedScene
+	var cheat_menu := cheat_scene.instantiate() as CampaignCheatMenuNode
+	add_child(cheat_menu)
+	await get_tree().process_frame
+	var twist_dir := DirAccess.open("res://data/twists")
+	var twist_file_count := 0
+	if twist_dir:
+		twist_dir.list_dir_begin()
+		var f := twist_dir.get_next()
+		while f != "":
+			if f.ends_with(".tres"):
+				twist_file_count += 1
+			f = twist_dir.get_next()
+		twist_dir.list_dir_end()
+	var cheat_menu_lists_all_twists_ok: bool = cheat_menu._twists.size() == twist_file_count + 1 and cheat_menu._twists[0] == null
+	print("PASS: cheat menu lists every twist under data/twists/ plus 'Aucun twist'" if cheat_menu_lists_all_twists_ok else "FAIL: cheat menu listed %d entries for %d twist files" % [cheat_menu._twists.size(), twist_file_count])
+	cheat_menu.queue_free()
+	await get_tree().process_frame
+
+	# --- Title screen menu (2026-08-09 rework) ---
+	var title_scene := load("res://scenes/TitleScreen.tscn") as PackedScene
+	var title := title_scene.instantiate() as TitleScreenNode
+	add_child(title)
+	# Checked immediately after add_child(), with NO awaited frame in
+	# between — same pitfall the confirm-key carryover checks below already
+	# guard against: headless input always reads "not pressed", so a single
+	# _process() tick would legitimately overwrite the seeded true back to
+	# false and silently defeat this check.
+	var title_confirm_guard_ok: bool = title._confirm_prev == true
+	print("PASS: TitleScreen seeds _confirm_prev true (carryover guard)" if title_confirm_guard_ok else "FAIL: TitleScreen's _confirm_prev is not seeded true")
+	await get_tree().process_frame
+	var title_menu_has_three_entries_ok: bool = title.MENU_ENTRIES.size() == 3
+	print("PASS: title menu has exactly 3 entries (Nouvelle partie / Continuer / Versus)" if title_menu_has_three_entries_ok else "FAIL: title menu had %d entries" % title.MENU_ENTRIES.size())
+	title.queue_free()
+	await get_tree().process_frame
 
 	# --- Confirm-key carryover guard (2026-08-08 bug report) ---
 	# A player who's still holding Fire (Space) when a match ends and the
@@ -163,5 +252,8 @@ func _ready() -> void:
 
 	var all_ok := mook_ok and rival_ok and organizer_ok and map_guard_ok and char_select_guard_ok and vs_select_guard_ok \
 		and mook1_label_ok and mook2_label_ok and rival_label_ok and organizer_label_ok and freeze_ok and f1_guard_precondition_ok \
-		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok
+		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
+		and debug_fight_ok and debug_label_ok \
+		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
+		and orb_spawn_reachable_ok
 	get_tree().quit(0 if all_ok else 1)

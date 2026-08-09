@@ -77,3 +77,32 @@ func mark_organizer_defeated(character_id: String) -> void:
 	var entry := _character_entry(character_id)
 	entry["organizer_defeated"] = true
 	save_to_disk()
+
+## Title screen (2026-08-09) — true if ANY character has actual progress
+## (not just an auto-created blank entry from _character_entry() being
+## queried, which never itself calls save_to_disk()). Drives whether
+## "Nouvelle partie" needs the "progression sera perdue" warning and
+## whether "Continuer la partie" has anything to resume.
+func has_any_progress() -> bool:
+	for character_id in _data.keys():
+		var entry: Dictionary = _data[character_id]
+		var branches: Array = entry.get("completed_branches", [])
+		if int(entry.get("currency", 0)) > 0 or not branches.is_empty() or entry.get("organizer_defeated", false):
+			return true
+	return false
+
+## The character_id of an in-progress campaign to resume, or "" if none.
+## Only one campaign save slot exists in V1 (project-context.md), so the
+## first character with real progress is the one to resume.
+func character_with_progress() -> String:
+	for character_id in _data.keys():
+		var entry: Dictionary = _data[character_id]
+		var branches: Array = entry.get("completed_branches", [])
+		if int(entry.get("currency", 0)) > 0 or not branches.is_empty() or entry.get("organizer_defeated", false):
+			return character_id
+	return ""
+
+## "Nouvelle partie" after the "progression sera perdue" warning is confirmed.
+func reset_all() -> void:
+	_data = {}
+	save_to_disk()

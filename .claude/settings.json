@@ -29,7 +29,16 @@
       "Bash(git log*)",
       "Bash(git diff*)",
       "Bash(cd \"c:\\projets\\apps claude\\seek and destroy and reflect the ball\" && git*)",
-      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball\" && git*)"
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball\" && git*)",
+      "Edit(c:\\projets\\apps claude\\seek and destroy and reflect the ball\\**)",
+      "Edit(c:/projets/apps claude/seek and destroy and reflect the ball/**)",
+      "Write(c:\\projets\\apps claude\\seek and destroy and reflect the ball\\**)",
+      "Write(c:/projets/apps claude/seek and destroy and reflect the ball/**)",
+      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball/godot_project\" && *)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball/godot_project\" && *)",
+      "Bash(cd \"c:/projets/apps claude/seek and destroy and reflect the ball\" && *)",
+      "Bash(cd \"/c/projets/apps claude/seek and destroy and reflect the ball\" && *)",
+      "Bash(\"/c/Godot/Godot_v4.7.1-stable_win64_console.exe\" *)"
     ]
   }
 }

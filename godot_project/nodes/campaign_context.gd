@@ -20,13 +20,23 @@ var branch: MiniBranchData # null when fighting the organizer
 var branch_step: int = 0 # 0 = next up is mook_1, 1 = mook_2, 2 = rival, 3 = branch complete
 var is_organizer_fight := false
 
+## Cheat menu (2026-08-09, Camil: "tu aurais un sous menu 'cheat' de la
+## campagne, pour que je puisse tester tous les twists ?") — bypasses
+## branch/organizer progression entirely: a throwaway RivalEncounterData
+## built on the fly by CampaignCheatMenuNode, fought with no currency/unlock/
+## branch_step side effects, bounced straight back to the cheat menu after.
+var debug_encounter: RivalEncounterData = null
+
 func has_pending_encounter() -> bool:
-	return campaign != null and (branch != null or is_organizer_fight)
+	return campaign != null and (branch != null or is_organizer_fight or debug_encounter != null)
 
 ## The RivalEncounterData for whatever should be fought right now, given
-## branch_step (or the organizer's encounter). Null once branch_step has
-## already reached 3 (nothing left to fight in this branch).
+## branch_step (or the organizer's encounter, or a cheat-menu debug fight).
+## Null once branch_step has already reached 3 (nothing left to fight in
+## this branch).
 func current_encounter() -> RivalEncounterData:
+	if debug_encounter:
+		return debug_encounter
 	if is_organizer_fight:
 		return campaign.organizer_encounter
 	if not branch:
@@ -46,6 +56,15 @@ func clear() -> void:
 	branch = null
 	branch_step = 0
 	is_organizer_fight = false
+	debug_encounter = null
+
+## Cheat menu — fight a specific opponent with a specific twist (or no
+## twist) active, full HP both sides, no campaign progression touched.
+func start_debug_fight(campaign_data: CampaignData, encounter: RivalEncounterData) -> void:
+	campaign = campaign_data
+	branch = null
+	is_organizer_fight = false
+	debug_encounter = encounter
 
 ## Story 4.3 — begin (or resume) a mini-branch. Called once from the
 ## campaign map; MiniBranchMap re-reads branch_step on every visit rather
