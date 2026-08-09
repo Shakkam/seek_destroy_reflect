@@ -286,6 +286,12 @@ func _sync_beam(shooter: ShipNode, target: ShipNode) -> void:
 			beam.shooter = shooter
 			beam.target = target
 			beam.arena_bounds = Rect2(arena_origin, arena_size)
+			# 2026-08-09 bug report: "Invalid access to property or key
+			# 'beam_range' on a base object of type 'Nil'" — weapon used to be
+			# assigned AFTER add_child(beam) below, but add_child() calls
+			# _ready() synchronously, which already calls _update_shape(),
+			# which reads weapon.beam_range. Must be set before add_child().
+			beam.weapon = shooter.beam_weapon
 			var tint := _weapon_tint(shooter.beam_weapon.id) if shooter.beam_weapon else Color(0.4, 1.0, 0.5)
 			beam.color = Color(tint.r, tint.g, tint.b, 0.7) # translucent — _weapon_tint returns opaque colors
 			add_child(beam)

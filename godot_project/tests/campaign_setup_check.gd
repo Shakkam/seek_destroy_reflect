@@ -216,6 +216,25 @@ func _ready() -> void:
 	visuals_arena.queue_free()
 	await get_tree().process_frame
 
+	# --- Beam spawn doesn't crash on a null weapon (2026-08-09 bug report):
+	# "Invalid access to property or key 'beam_range' on a base object of
+	# type 'Nil'" — BeamNode.weapon used to be assigned AFTER add_child(),
+	# but add_child() calls _ready() synchronously, which already reads
+	# weapon.beam_range via _update_shape(). ---
+	var beam_arena := arena_scene.instantiate() as MatchArenaNode
+	add_child(beam_arena)
+	await get_tree().process_frame
+	var laser: WeaponData = load("res://data/weapons/laser.tres")
+	beam_arena.ship_1.beam_active = true
+	beam_arena.ship_1.beam_weapon = laser
+	var beam_spawn_ok := true
+	beam_arena._sync_beam(beam_arena.ship_1, beam_arena.ship_2) # must not crash, and weapon must already be set
+	if not beam_arena._beams.has(beam_arena.ship_1) or beam_arena._beams[beam_arena.ship_1].weapon != laser:
+		beam_spawn_ok = false
+	print("PASS: spawning a beam never leaves BeamNode.weapon null when _ready() runs" if beam_spawn_ok else "FAIL: beam weapon was not set correctly on spawn")
+	beam_arena.queue_free()
+	await get_tree().process_frame
+
 	# --- Confirm-key carryover guard (2026-08-08 bug report) ---
 	# A player who's still holding Fire (Space) when a match ends and the
 	# scene changes would otherwise insta-confirm frame 1 of the next menu —
@@ -275,5 +294,5 @@ func _ready() -> void:
 		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
-		and orb_spawn_reachable_ok and background_ok and center_line_ok
+		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok
 	get_tree().quit(0 if all_ok else 1)
