@@ -12,9 +12,14 @@ extends Node2D
 ## and is consumed. A turret sits on its owner's side, roughly in the path of
 ## incoming enemy fire toward the owner's ship, so this reads as "shoot the
 ## turret down" without needing dedicated turret-targeting AI/aim.
+##
+## Deflects the ball too (2026-08-09 playtest, Contrôleur: "vu qu'on parle
+## d'un contrôleur, les tourelles pourraient renvoyer la balle aussi !") —
+## see BallNode._resolve_turrets(), a stationary mirror-bounce off
+## HALF_EXTENTS just like a ship's paddle, but with no aim/lift.
 
 const SHOT_SPEED := 480.0
-const HALF_EXTENTS := Vector2(10, 10) # slightly larger than the 8x8 visual — an easier target than a ship
+const HALF_EXTENTS := Vector2(15, 15) # 1.5x (2026-08-09 playtest: "les tourelles soient un peu plus grosses (1.5) histoire de pouvoir les viser")
 
 var weapon: WeaponData
 var target: ShipNode
@@ -32,8 +37,8 @@ func _ready() -> void:
 	_lifetime_left = weapon.turret_lifetime
 	_visual = Polygon2D.new()
 	_visual.polygon = PackedVector2Array([
-		Vector2(-8, -8), Vector2(8, -8), Vector2(8, 8), Vector2(-8, 8),
-	])
+		Vector2(-12, -12), Vector2(12, -12), Vector2(12, 12), Vector2(-12, 12),
+	]) # 1.5x the old 8x8 (2026-08-09 playtest, matches HALF_EXTENTS)
 	_visual.color = Color(0.4, 0.9, 0.4) if owner_side == 0 else Color(0.9, 0.4, 0.9)
 	add_child(_visual)
 	_fire_cooldown = 1.0 / weapon.fire_rate

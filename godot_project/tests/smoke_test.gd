@@ -17,6 +17,7 @@ func _initialize() -> void:
 	_test_boomerang_motion()
 	_test_mini_shot_data()
 	_test_turret_destructible()
+	_test_turret_ball_deflection()
 	_test_turbo_trail()
 	_test_gauge_floor_twist()
 	_test_hazard_zone()
@@ -185,6 +186,35 @@ func _test_turret_destructible() -> void:
 	opponent_ship.queue_free()
 	if is_instance_valid(turret):
 		turret.queue_free()
+
+func _test_turret_ball_deflection() -> void:
+	# 2026-08-09 playtest (Contrôleur): "les tourelles pourraient renvoyer la
+	# balle aussi ! ce serait genial" — a turret now acts like a stationary
+	# paddle, mirror-bouncing the ball just like a ship would.
+	_check("turret HALF_EXTENTS is 1.5x the old 10x10 (2026-08-09 playtest: easier to aim at)", TurretNode.HALF_EXTENTS == Vector2(15, 15))
+
+	var turret_data: WeaponData = load("res://data/weapons/turret.tres")
+	var turret := TurretNode.new()
+	turret.weapon = turret_data
+	turret.owner_side = 0
+	turret.position = Vector2(200, 300)
+	root.add_child(turret)
+
+	var ball := BallNode.new()
+	ball.arena_bounds = Rect2(0, 0, 1280, 720)
+	ball.frontier_x = 640.0
+	ball.state = BallState.new(turret.position, Vector2(-BallState.BASE_SPEED, 0.0)) # heading away from the opponent, into the turret
+	root.add_child(ball)
+
+	ball._resolve_turrets()
+	_check("ball bounces off an overlapping turret (velocity reverses toward the opponent)", ball.state.velocity.x > 0.0)
+
+	var velocity_after_first_bounce := ball.state.velocity
+	ball._resolve_turrets()
+	_check("a turret can't re-bounce the ball within the same cooldown/visit", ball.state.velocity == velocity_after_first_bounce)
+
+	turret.queue_free()
+	ball.queue_free()
 
 func _test_turbo_trail() -> void:
 	var ship := ShipNode.new()

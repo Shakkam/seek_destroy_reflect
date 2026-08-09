@@ -60,6 +60,7 @@ func _physics_process(delta: float) -> void:
 
 	if not _in_neutral_zone():
 		_resolve_ships()
+		_resolve_turrets()
 
 	_resolve_out_of_bounds()
 
@@ -143,3 +144,31 @@ func _resolve_ships() -> void:
 			var fill := lerpf(WeaponSystemState.RETURN_GAUGE_FILL, WeaponSystemState.RETURN_GAUGE_FILL_MAX_LIFT, lift_charge)
 			ship.fill_selected_gauge_from_return(fill)
 			return
+
+## Turrets deflect the ball too (2026-08-09 playtest, Contrôleur: "vu qu'on
+## parle d'un contrôleur, les tourelles pourraient renvoyer la balle aussi !
+## ce serait genial"). No aim input and no lift charge — a stationary
+## mirror-bounce (BallState.returned() with Vector2.ZERO aim falls back to
+## reflecting the incoming angle), same _blocked_side/_return_cooldown
+## gating as ships so a turret can't juggle the ball back and forth forever.
+func _resolve_turrets() -> void:
+	if _return_cooldown > 0.0:
+		return
+	for child in get_parent().get_children():
+		if not (child is TurretNode):
+			continue
+		var turret: TurretNode = child
+		if turret.owner_side == _blocked_side:
+			continue
+		if _turret_rect(turret).has_point(state.position):
+			var outgoing_side := 1 if turret.owner_side == 0 else -1
+			state = state.returned(Vector2.ZERO, 0.0, outgoing_side)
+			_blocked_side = turret.owner_side
+			_return_cooldown = 0.15
+			return
+
+func _turret_rect(turret: TurretNode) -> Rect2:
+	return Rect2(
+		turret.position - TurretNode.HALF_EXTENTS - Vector2(BallState.RADIUS, BallState.RADIUS),
+		TurretNode.HALF_EXTENTS * 2.0 + Vector2(BallState.RADIUS, BallState.RADIUS) * 2.0
+	)
