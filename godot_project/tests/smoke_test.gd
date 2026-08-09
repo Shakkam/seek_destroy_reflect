@@ -685,12 +685,14 @@ func _test_vortex_weapon() -> void:
 	# trois tourbillons qui vont tout droit (toujours en tournant sur eux
 	# meme)." Redesigned after Camil's drawing: "je veux qu'il fasse des
 	# cercles" — small forward-advancing loops, not a straight line, and not
-	# a node rotation either (the 3-frame wind1/2/3 texture cycle already
-	# reads as spinning on its own).
+	# a node rotation either. Then: "vu la vitesse, pour le tourbillon, pas
+	# d'anim : garde uniquement wind1" — the wind1-3 cycle was dropped, too
+	# fast to read once the loop motion was tuned up; the loop itself
+	# carries the "spinning" read now.
 	var vortex: WeaponData = load("res://data/weapons/vortex.tres")
 	_check("Tourbillon travels faster than the shared default projectile speed", vortex.projectile_speed > 620.0)
 	_check("Tourbillon loops instead of flying straight", vortex.is_looping and vortex.loop_radius > 0.0 and vortex.loop_angular_speed > 0.0)
-	_check("Tourbillon does not also spin the node (the 3-frame texture cycle already conveys spin)", vortex.projectile_spin_speed == 0.0)
+	_check("Tourbillon does not also spin the node (the loop motion already conveys spin)", vortex.projectile_spin_speed == 0.0)
 	_check("Tourbillon has a charged fire configured", vortex.charge_fire_duration > 0.0)
 	_check("Tourbillon's charge duration is 3s (2026-08-09 playtest: 'augmenter le temps de charge : 3 secondes')", is_equal_approx(vortex.charge_fire_duration, 3.0))
 	_check("Tourbillon's cooldown was increased 1.5x (2026-08-09 playtest: 'un peu court')", vortex.fire_rate < 4.0 / 1.4) # fire_rate=4.0/1.5 -> cooldown*1.5; loose upper bound so exact rounding doesn't matter
@@ -763,6 +765,26 @@ func _test_charged_fire_burst() -> void:
 	# toujours en appui, la charge commence") — normal fire for the first
 	# NORMAL_FIRE_GRACE seconds of a hold, THEN it starts charging.
 	_check("NORMAL_FIRE_GRACE is about 1 second, per Camil's spec", is_equal_approx(ShipNode.NORMAL_FIRE_GRACE, 1.0))
+
+	# 2026-08-09 (Camil): "quand la charge est fini, tu peux faire clignoter
+	# rapidement le joueur pour qu'on sache que c'est bon", then after
+	# seeing it: "pas mal le clignotement, tu peux le faire beaucoup plus
+	# rapide" (0.5s -> 0.15s). The blink ITSELF (visual.modulate toggling in
+	# _physics_process()) can't be simulated headless — it's gated behind
+	# live fire_held/Input state, same limitation as every other keypress-
+	# driven behavior in this suite — but the formula
+	# (fmod(_fire_held_duration, PERIOD) < PERIOD/2.0) is pure math, checked
+	# here directly with period-relative offsets (not a fixed elapsed time
+	# like 3.0s, which risked landing on a float-precision edge case against
+	# an arbitrary period value).
+	_check("CHARGE_READY_BLINK_PERIOD was made much faster (0.5s -> 0.15s)", is_equal_approx(ShipNode.CHARGE_READY_BLINK_PERIOD, 0.15))
+	# Sampled at the middle of each half (0.25/0.75 of a period), not on the
+	# exact half/full-period boundary — a boundary sample is one float
+	# rounding error away from landing on the wrong side of "< period/2.0".
+	var period := ShipNode.CHARGE_READY_BLINK_PERIOD
+	_check("the blink formula is ON in the first half of a period", fmod(period * 0.25, period) < period / 2.0)
+	_check("the blink formula toggles OFF in the second half", not (fmod(period * 0.75, period) < period / 2.0))
+	_check("the blink formula toggles back ON a full period later", fmod(period + period * 0.25, period) < period / 2.0)
 
 func _test_heavy_push_rule() -> void:
 	# 2026-08-09 (Camil): "Lourd bonne idee le lift a fond, il faudrait donc

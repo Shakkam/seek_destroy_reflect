@@ -200,9 +200,7 @@ const BAZOOKA_TEXTURES := [
 ]
 const VORTEX_TEXTURES := [
 	preload("res://assets/art/vfx/wind1.png"),
-	preload("res://assets/art/vfx/wind2.png"),
-	preload("res://assets/art/vfx/wind3.png"),
-] # Vif's Tourbillon (2026-08-09, Camil: "je t'ai mis wind1 2 et 3 pour illustrer le tir, ca s'anime") — 3-frame cycle ON TOP of the projectile's own continuous rotation (spin_speed), so it reads as a spinning, animated vortex rather than just a spinning static sprite.
+] # Vif's Tourbillon (2026-08-09, Camil: "vu la vitesse, pour le tourbillon, pas d'anim : garde uniquement wind1") — dropped the wind1-3 cycle, too fast to read once the loop motion was tuned up; the looping path itself carries the "spinning" read now.
 const BONBON_TEXTURES := [
 	preload("res://assets/art/vfx/bonbon.png"),
 ] # Mini/Éventail's fan shot (2026-08-09) — single sprite, spins via WeaponData.projectile_spin_speed (mini_shot.tres) since there's no multi-frame cycle for this one, unlike the Tourbillon.

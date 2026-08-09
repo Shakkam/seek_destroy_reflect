@@ -100,6 +100,7 @@ const DASH_LIFT_CHARGE := 0.33 # "un leger lift" — fixed, since there's no cha
 # charge_fire_duration is reached (but past the grace) wastes the charge
 # attempt — releasing at/after it fires the empowered burst instead.
 var _fire_held_duration := 0.0 # how long the CURRENT press has been held, resets to 0 the instant fire is released
+const CHARGE_READY_BLINK_PERIOD := 0.15 # seconds per full on/off cycle once fully charged (2026-08-09 playtest: "pas mal le clignotement, tu peux le faire beaucoup plus rapide" — was 0.5)
 const NORMAL_FIRE_GRACE := 1.0 # seconds of normal fire before a sustained hold starts charging
 
 # Full-auto vs. semi-auto (2026-08-09, Camil: "seul mitrailleur tire
@@ -261,13 +262,11 @@ func _physics_process(delta: float) -> void:
 	# attempt (nothing extra fires) — releasing at/after it fires the
 	# empowered burst instead of a normal shot.
 	var charge_capable := selected.charge_fire_duration > 0.0
-	var is_charging := false
 	var released_charge_attempt := false # true only the exact frame fire is released after having charged past the grace window
 	var charge_duration_at_release := 0.0
 	if charge_capable:
 		if fire_held:
 			_fire_held_duration += delta
-			is_charging = _fire_held_duration > NORMAL_FIRE_GRACE
 		elif _fire_held_duration > NORMAL_FIRE_GRACE:
 			# only a release AFTER the grace window is a "charge attempt" —
 			# releasing during/at the grace window just stops normal fire,
@@ -279,6 +278,13 @@ func _physics_process(delta: float) -> void:
 			_fire_held_duration = 0.0
 	else:
 		_fire_held_duration = 0.0
+	# 2026-08-09 bug report: "parfois pendant la charge, la vitesse n'est pas
+	# diminuee. le joueur DOIT rester a 30% de vitesse tant que le bouton de
+	# tir n'a pas ete relache" — derived from the persisted _fire_held_duration
+	# (the actual state), not re-gated on this frame's live fire_held read, so
+	# it can never desync from the slow for even a single frame while a charge
+	# attempt is genuinely still in progress.
+	var is_charging := charge_capable and _fire_held_duration > NORMAL_FIRE_GRACE
 
 	# Charging the lift freezes movement entirely — that's the risk/reward trade
 	# (dash characters never freeze this way; the dash burst below replaces it).
@@ -387,6 +393,13 @@ func _physics_process(delta: float) -> void:
 			visual.modulate = Color(1.0, 0.45, 0.45) # reddish tint while vulnerable
 		elif dashing:
 			visual.modulate = Color(0.4, 0.75, 1.0) # electric blue burst — distinct from Turbo's cyan and the charge tint's gold
+		elif charge_capable and is_charging and _fire_held_duration >= selected.charge_fire_duration:
+			# Fully charged and ready to release (2026-08-09, Camil: "quand la
+			# charge est fini, tu peux faire clignoter rapidement (1/2s) le
+			# joueur pour qu'on sache que c'est bon") — a fast blink instead of
+			# just holding the gradient's end color, so "ready" is unmistakable.
+			var blink_on := fmod(_fire_held_duration, CHARGE_READY_BLINK_PERIOD) < CHARGE_READY_BLINK_PERIOD / 2.0
+			visual.modulate = Color(1.7, 1.7, 1.7) if blink_on else Color(1.0, 0.35, 0.1)
 		elif is_charging:
 			var fire_charge_fraction := clampf(_fire_held_duration / maxf(selected.charge_fire_duration, 0.001), 0.0, 1.0)
 			visual.modulate = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.35, 0.1), fire_charge_fraction) # builds toward orange-red — distinct from the lift charge's gold
