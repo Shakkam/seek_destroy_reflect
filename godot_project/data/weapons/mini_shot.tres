@@ -15,4 +15,5 @@ spread_deg = 0.0
 projectile_count = 5
 burst_spread_deg = 35.0
 burst_stagger = 0.0
-visual_scale_multiplier = 2.0
+visual_scale_multiplier = 4.0
+projectile_spin_speed = 900.0

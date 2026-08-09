@@ -94,6 +94,10 @@ func _test_mini_shot_data() -> void:
 	_check("mini_shot fan fires simultaneously, not staggered like the missile swarm", mini.burst_stagger == 0.0)
 	_check("mini_shot projectiles read 2x bigger (2026-08-06 playtest)", mini.visual_scale_multiplier >= 2.0)
 	_check("mini_shot has no per-shot angle jitter (2026-08-06: 'pas de random sur les angles')", mini.spread_deg == 0.0)
+	# 2026-08-09 (Camil, now that bonbon.png art exists): "l'animation : il
+	# tourne sur lui meme assez vite. Tu peux doubler sa taille."
+	_check("mini_shot's size was doubled again now that it has real art (2x -> 4x)", is_equal_approx(mini.visual_scale_multiplier, 4.0))
+	_check("mini_shot spins in place (single-sprite art, no multi-frame cycle like the Tourbillon)", mini.projectile_spin_speed > 0.0)
 
 func _test_boomerang_motion() -> void:
 	var boomerang_data: WeaponData = load("res://data/weapons/stun_boomerang.tres")
