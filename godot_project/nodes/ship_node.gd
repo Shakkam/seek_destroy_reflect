@@ -6,6 +6,7 @@ extends CharacterBody2D
 ## itself (see project-context.md, Regle absolue n1).
 
 signal weapon_fired(weapon: WeaponData) # carries the full weapon so callers can branch on effect_type
+signal charged_weapon_fired(weapon: WeaponData) # 2026-08-09 "tir charge" — released at full charge, MatchArenaNode spawns the weapon's bespoke charged burst instead of a normal shot
 signal gauge_filled(amount: float)
 
 @export var player_index: int = 1 # 1 or 2 — selects which local input scheme to read
@@ -88,6 +89,14 @@ const DASH_DURATION := 0.15 # seconds the burst itself lasts
 const DASH_SPEED_MULTIPLIER := 3.0
 const DASH_COOLDOWN := 0.5 # can't chain dashes back to back
 const DASH_LIFT_CHARGE := 0.33 # "un leger lift" — fixed, since there's no charging to reach higher
+
+# Charged fire (2026-08-09, per-weapon — see WeaponData.charge_fire_duration).
+# A quick tap fires normally; holding past the weapon's charge_fire_duration
+# suppresses normal fire entirely (nothing fires while charging) and slows
+# movement, releasing early wastes the attempt, releasing at full charge
+# fires the empowered burst instead of a normal shot.
+var _fire_held_duration := 0.0 # how long the CURRENT press has been held, resets to 0 the instant fire is released
+const CHARGE_FIRE_TAP_THRESHOLD := 0.15 # below this, a release is a "tap" (normal shot) rather than an abandoned charge attempt
 
 var _spawn_position: Vector2
 
@@ -229,6 +238,29 @@ func _physics_process(delta: float) -> void:
 
 	var fire_held := _read_fire_pressed() and _stun_timer <= 0.0 # Story 2.6 — stunned ships can't fire
 	var dashing := is_dash_character and _dash_timer > 0.0
+	var selected := weapon_state.selected_weapon()
+
+	# Charged fire (2026-08-09) — tracked before movement, since a weapon's
+	# charge_fire_slow_multiplier needs to factor into this frame's speed.
+	# A quick tap still fires normally; holding past charge_fire_duration
+	# suppresses normal fire entirely while the gauge builds, releasing
+	# early wastes the attempt (nothing fires), releasing at full charge
+	# fires the empowered variant instead (Camil's explicit call: "charge =
+	# rien ne part" over "charge en parallele du tir normal").
+	var charge_capable := selected.charge_fire_duration > 0.0
+	var is_charging := false
+	var released_charge_attempt := false # true only the exact frame fire is released after having been held at all
+	var charge_duration_at_release := 0.0
+	if charge_capable:
+		if fire_held:
+			_fire_held_duration += delta
+			is_charging = _fire_held_duration >= CHARGE_FIRE_TAP_THRESHOLD
+		elif _fire_held_duration > 0.0:
+			released_charge_attempt = true
+			charge_duration_at_release = _fire_held_duration
+			_fire_held_duration = 0.0
+	else:
+		_fire_held_duration = 0.0
 
 	# Charging the lift freezes movement entirely — that's the risk/reward trade
 	# (dash characters never freeze this way; the dash burst below replaces it).
@@ -247,10 +279,12 @@ func _physics_process(delta: float) -> void:
 	var speed_multiplier := _mobility_boost_multiplier
 	if dashing:
 		speed_multiplier = maxf(speed_multiplier, DASH_SPEED_MULTIPLIER)
+	if is_charging:
+		speed_multiplier = minf(speed_multiplier, selected.charge_fire_slow_multiplier)
 	if _vulnerability_timer > 0.0:
 		speed_multiplier = minf(speed_multiplier, VULNERABILITY_SPEED_MULTIPLIER)
-	if fire_held:
-		speed_multiplier = minf(speed_multiplier, FIRE_HOLD_SPEED_MULTIPLIER)
+	if fire_held and not charge_capable:
+		speed_multiplier = minf(speed_multiplier, FIRE_HOLD_SPEED_MULTIPLIER) # charge-capable weapons already get their own slow via charge_fire_slow_multiplier while charging, and fire nothing on a normal hold otherwise
 	state = state.update(input_direction, delta, arena_bounds, frontier_x, speed_multiplier)
 	position = state.position
 	_dash_timer = maxf(_dash_timer - delta, 0.0)
@@ -259,7 +293,6 @@ func _physics_process(delta: float) -> void:
 	_ai_pulse_select = false # consumed for this frame, whether or not it was set
 	weapon_state = weapon_state.with_cooldown_ticked(delta)
 	weapon_state = weapon_state.with_heat_ticked(delta, fire_held)
-	var selected := weapon_state.selected_weapon()
 	if selected.effect_type == "beam":
 		# "Shmup juice pass" — continuous channel instead of a discrete shot;
 		# see WeaponSystemState.beam_tick() and MatchArenaNode._sync_beam().
@@ -276,7 +309,29 @@ func _physics_process(delta: float) -> void:
 	else:
 		beam_active = false
 		beam_weapon = null
-		if fire_held:
+		if charge_capable:
+			if released_charge_attempt:
+				if charge_duration_at_release >= selected.charge_fire_duration:
+					var result := weapon_state.fired()
+					weapon_state = result.state
+					if result.fired:
+						_flash_timer = FLASH_DURATION
+						charged_weapon_fired.emit(result.weapon)
+						print("%s CHARGED-fired %s" % [name, result.weapon.display_name])
+				elif charge_duration_at_release < CHARGE_FIRE_TAP_THRESHOLD:
+					var result := weapon_state.fired()
+					weapon_state = result.state
+					if result.fired:
+						var weapon: WeaponData = result.weapon
+						_flash_timer = FLASH_DURATION
+						if weapon.is_heavy:
+							_vulnerability_timer = VULNERABILITY_DURATION # Story 1.8
+						weapon_fired.emit(weapon)
+						print("%s fired %s (gauge left: %.0f)" % [
+							name, weapon.display_name, weapon_state.gauges[weapon_state.selected_index]
+						])
+				# else: released between the tap threshold and full charge — the attempt is lost, nothing fires
+		elif fire_held:
 			var result := weapon_state.fired()
 			weapon_state = result.state
 			if result.fired:
@@ -317,6 +372,9 @@ func _physics_process(delta: float) -> void:
 			visual.modulate = Color(1.0, 0.45, 0.45) # reddish tint while vulnerable
 		elif dashing:
 			visual.modulate = Color(0.4, 0.75, 1.0) # electric blue burst — distinct from Turbo's cyan and the charge tint's gold
+		elif is_charging:
+			var fire_charge_fraction := clampf(_fire_held_duration / maxf(selected.charge_fire_duration, 0.001), 0.0, 1.0)
+			visual.modulate = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.35, 0.1), fire_charge_fraction) # builds toward orange-red — distinct from the lift charge's gold
 		elif lift_held and not is_dash_character:
 			var charge_fraction := clampf(_lift_charge_timer / LIFT_CHARGE_CAP, 0.0, 1.0)
 			visual.modulate = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.84, 0.29), charge_fraction) # builds toward gold

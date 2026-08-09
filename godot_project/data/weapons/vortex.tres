@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="WeaponData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://simulation/weapon_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "vortex"
+display_name = "Tourbillon"
+damage = 2
+fire_rate = 4.0
+gauge_max = 100.0
+gauge_cost_per_shot = 8.0
+is_heavy = false
+projectile_speed = 900.0
+projectile_spin_speed = 720.0
+charge_fire_duration = 1.2
+charged_projectile_count = 3
+charged_stagger = 0.1

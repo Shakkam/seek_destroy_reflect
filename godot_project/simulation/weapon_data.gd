@@ -52,3 +52,24 @@ extends Resource
 @export var heat_max: float = 0.0 # 0 = no heat limit at all
 @export var heat_per_shot: float = 0.0
 @export var heat_cooldown_rate: float = 0.0 # heat drained per second while not firing
+
+# Per-weapon projectile speed/spin (2026-08-09, Vif's "Tourbillon" — "un
+# petit tourbillon qui tourne sur lui meme en avancant et qui va tres
+# vite"). Previously every projectile shared one hardcoded 620 px/s speed
+# with no spin at all; both are now data-driven so any weapon can opt in.
+@export var projectile_speed: float = 620.0 # matches the old hardcoded default — unset means "unchanged"
+@export var projectile_spin_speed: float = 0.0 # deg/sec — 0 = no visual spin
+
+# Charged fire (2026-08-09, Camil's per-character "tir charge" pass —
+# "chaque perso devrait avoir une regle bien a lui"). A quick tap still
+# fires normally; holding past charge_fire_duration suppresses normal fire
+# entirely while the gauge builds (charge_fire_slow_multiplier applies to
+# movement meanwhile) — releasing early wastes the attempt (nothing
+# fires), releasing at full charge fires the empowered variant instead.
+# 0 duration = this weapon has no charged fire at all (most won't).
+@export var charge_fire_duration: float = 0.0 # seconds held before charged fire is ready
+@export var charge_fire_slow_multiplier: float = 1.0 # movement multiplier while charging (1.0 = no penalty)
+@export var charged_projectile_count: int = 1 # how many shots the charged release fires, spread across charged_burst_spread_deg/charged_stagger
+@export var charged_burst_spread_deg: float = 0.0
+@export var charged_stagger: float = 0.0 # seconds between each shot in the charged burst — 0 = simultaneous
+@export var charged_speed_multiplier: float = 1.0 # multiplies projectile_speed for the charged release only

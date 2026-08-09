@@ -121,6 +121,8 @@ func _ready() -> void:
 
 	ship_1.weapon_fired.connect(_on_weapon_fired.bind(ship_1))
 	ship_2.weapon_fired.connect(_on_weapon_fired.bind(ship_2))
+	ship_1.charged_weapon_fired.connect(_on_charged_weapon_fired.bind(ship_1))
+	ship_2.charged_weapon_fired.connect(_on_charged_weapon_fired.bind(ship_2))
 	ship_1.gauge_filled.connect(_on_gauge_filled.bind(ship_1))
 	ship_2.gauge_filled.connect(_on_gauge_filled.bind(ship_2))
 
@@ -224,7 +226,27 @@ func _on_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 		else:
 			_spawn_projectile(weapon, ship, angle_offset)
 
-func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: float) -> void:
+## Charged fire (2026-08-09) — the empowered variant released after holding
+## Tir past WeaponData.charge_fire_duration, per Camil's per-character "tir
+## charge" pass. Mirrors _on_weapon_fired()'s burst-spawning shape but reads
+## the charged_* fields instead, so any weapon's charged release can be a
+## different pattern (a straight staggered burst, a wide fan, a single
+## empowered shot, ...) purely via data.
+func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
+	if weapon.charged_projectile_count <= 1:
+		_spawn_projectile(weapon, ship, 0.0, weapon.charged_speed_multiplier)
+		return
+	for i in weapon.charged_projectile_count:
+		var t := float(i) / float(maxi(weapon.charged_projectile_count - 1, 1))
+		var angle_offset := lerpf(-weapon.charged_burst_spread_deg / 2.0, weapon.charged_burst_spread_deg / 2.0, t)
+		if weapon.charged_stagger > 0.0 and i > 0:
+			get_tree().create_timer(i * weapon.charged_stagger).timeout.connect(
+				_spawn_projectile.bind(weapon, ship, angle_offset, weapon.charged_speed_multiplier)
+			)
+		else:
+			_spawn_projectile(weapon, ship, angle_offset, weapon.charged_speed_multiplier)
+
+func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: float, speed_multiplier: float = 1.0) -> void:
 	if not is_instance_valid(ship):
 		return # round may have reset mid-burst-stagger
 
@@ -239,8 +261,9 @@ func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: flo
 	# "pas de random sur les angles" for the Éventail fan).
 	if not weapon.is_heavy and weapon.projectile_count <= 1:
 		spread_deg += randf_range(-weapon.spread_deg, weapon.spread_deg)
-	var shot_velocity := Vector2(direction * 620.0, 0.0).rotated(deg_to_rad(spread_deg))
+	var shot_velocity := Vector2(direction * weapon.projectile_speed * speed_multiplier, 0.0).rotated(deg_to_rad(spread_deg))
 	projectile.velocity = shot_velocity
+	projectile.spin_speed = weapon.projectile_spin_speed
 	projectile.flip_h = direction < 0.0
 	if weapon.is_heavy:
 		projectile.textures = BAZOOKA_TEXTURES

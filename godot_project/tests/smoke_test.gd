@@ -34,6 +34,9 @@ func _initialize() -> void:
 	_test_gauges_reset_between_rounds()
 	_test_weapon_heat_gauge()
 	_test_vif_dash_lift_rule()
+	_test_weapon_exclusivity()
+	_test_vortex_weapon()
+	_test_charged_fire_burst()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
 	# MatchArenaNode can't be loaded under this harness — this file runs via
 	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
@@ -620,7 +623,7 @@ func _test_vif_dash_lift_rule() -> void:
 	# leger lift."
 	var vif: CharacterData = load("res://data/characters/vif.tres")
 	_check("Vif's special_rule is dash_lift", vif.special_rule == "dash_lift")
-	_check("Vif's kit is just the machine gun (2026-08-09 redesign: 'juste la mitraillette pour l'instant')", vif.kit.size() == 1 and vif.kit[0].id == "machine_gun")
+	_check("Vif's kit is just his Tourbillon (2026-08-09: weapons became per-character exclusive, mitraillette went to Mitrailleur)", vif.kit.size() == 1 and vif.kit[0].id == "vortex")
 
 	var ship := ShipNode.new()
 	ship.character = vif
@@ -641,3 +644,56 @@ func _test_vif_dash_lift_rule() -> void:
 
 	ship.queue_free()
 	lourd_ship.queue_free()
+
+func _test_weapon_exclusivity() -> void:
+	# 2026-08-09 (Camil): "je pense que la mitraillette devrait etre
+	# reservee a mitrailleur. Pour eviter de se prendre la tete avec des
+	# changements d'arme, chaque joueur a sa propre arme." Every roster
+	# character now carries exactly one weapon, and no two characters share
+	# the same one.
+	var character_ids := ["lourd", "controleur", "mitrailleur", "vif", "zoneur", "perturbateur", "missiles", "mini"]
+	var seen_weapon_ids := {}
+	var all_mono_weapon := true
+	var all_unique := true
+	for character_id in character_ids:
+		var character: CharacterData = load("res://data/characters/%s.tres" % character_id)
+		if character.kit.size() != 1:
+			all_mono_weapon = false
+		var weapon: WeaponData = character.kit[0]
+		if seen_weapon_ids.has(weapon.id):
+			all_unique = false
+		seen_weapon_ids[weapon.id] = character_id
+	_check("every roster character carries exactly one weapon", all_mono_weapon)
+	_check("no two characters share the same weapon", all_unique)
+
+func _test_vortex_weapon() -> void:
+	# 2026-08-09 (Camil): Vif's new signature weapon — "un petit tourbillon
+	# qui tourne sur lui meme en avancant et qui va tres vite. tir charge,
+	# trois tourbillons qui vont tout droit (toujours en tournant sur eux
+	# meme)."
+	var vortex: WeaponData = load("res://data/weapons/vortex.tres")
+	_check("Tourbillon travels faster than the shared default projectile speed", vortex.projectile_speed > 620.0)
+	_check("Tourbillon visually spins while traveling", vortex.projectile_spin_speed > 0.0)
+	_check("Tourbillon has a charged fire configured", vortex.charge_fire_duration > 0.0)
+	_check("Tourbillon's charged fire launches 3 vortices", vortex.charged_projectile_count == 3)
+	_check("Tourbillon's charged vortices still go straight (no burst spread)", vortex.charged_burst_spread_deg == 0.0)
+
+	var projectile := ProjectileNode.new()
+	projectile.spin_speed = vortex.projectile_spin_speed
+	var rotation_before := projectile.rotation
+	projectile._physics_process(0.5)
+	_check("a spinning projectile's rotation actually changes over time", projectile.rotation != rotation_before)
+	projectile.queue_free()
+
+func _test_charged_fire_burst() -> void:
+	# 2026-08-09 — WeaponData.charged_* fields feeding
+	# MatchArenaNode._on_charged_weapon_fired()/_spawn_projectile(): the
+	# framework is generic, proven here with Lourd's bazooka (2 faster
+	# shells) rather than re-deriving ship_node.gd's Input-driven charge
+	# state machine, which can't be simulated headless (same limitation as
+	# every other keypress-driven behavior in this suite).
+	var bazooka: WeaponData = load("res://data/weapons/bazooka.tres")
+	_check("bazooka has a charged fire configured (Lourd's 3s charge)", is_equal_approx(bazooka.charge_fire_duration, 3.0))
+	_check("bazooka's charge slows movement by 70%", is_equal_approx(bazooka.charge_fire_slow_multiplier, 0.3))
+	_check("bazooka's charged release fires 2 shells", bazooka.charged_projectile_count == 2)
+	_check("bazooka's charged shells are faster than normal", bazooka.charged_speed_multiplier > 1.0)

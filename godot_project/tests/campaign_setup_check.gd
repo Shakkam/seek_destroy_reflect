@@ -5,7 +5,11 @@ extends Node2D
 ## match_arena_node.gd depends on autoloads (MatchSetup, CampaignContext,
 ## CampaignSave) that the -s harness (smoke_test.gd) doesn't initialize.
 ## Run with:
-##   Godot --headless --path godot_project res://tests/campaign_setup_check.tscn --quit-after 10
+##   Godot --headless --path godot_project res://tests/campaign_setup_check.tscn --quit-after 60
+## 2026-08-09: --quit-after counts FRAMES, and this file keeps growing —
+## too low a value silently truncates the run before its own quit(0/1),
+## and Godot's default clean-exit code (0) then masquerades as a pass. If
+## new checks stop appearing in the output, raise this number first.
 
 func _ready() -> void:
 	var vif_campaign: CampaignData = load("res://data/campaigns/vif_campaign.tres")
@@ -235,6 +239,24 @@ func _ready() -> void:
 	beam_arena.queue_free()
 	await get_tree().process_frame
 
+	# --- Charged fire spawns the right burst (2026-08-09) — proven with
+	# Lourd's bazooka: 2 shells, faster than a normal shot. ---
+	var charge_arena := arena_scene.instantiate() as MatchArenaNode
+	add_child(charge_arena)
+	await get_tree().process_frame
+	var bazooka: WeaponData = load("res://data/weapons/bazooka.tres")
+	charge_arena._on_charged_weapon_fired(bazooka, charge_arena.ship_1)
+	await get_tree().process_frame
+	var spawned_charged_projectile: ProjectileNode = null
+	for child in charge_arena.get_children():
+		if child is ProjectileNode:
+			spawned_charged_projectile = child
+	var charged_burst_ok: bool = spawned_charged_projectile != null \
+		and is_equal_approx(spawned_charged_projectile.velocity.length(), bazooka.projectile_speed * bazooka.charged_speed_multiplier)
+	print("PASS: charged fire spawns a faster shell (Lourd's bazooka)" if charged_burst_ok else "FAIL: no charged projectile found, or speed was wrong")
+	charge_arena.queue_free()
+	await get_tree().process_frame
+
 	# --- Confirm-key carryover guard (2026-08-08 bug report) ---
 	# A player who's still holding Fire (Space) when a match ends and the
 	# scene changes would otherwise insta-confirm frame 1 of the next menu —
@@ -294,5 +316,5 @@ func _ready() -> void:
 		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
-		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok
+		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_burst_ok
 	get_tree().quit(0 if all_ok else 1)

@@ -15,6 +15,7 @@ var target: ShipNode = null
 var homing_strength: float = 0.0 # 0 = straight line; >0 = gently steers toward target (bazooka only)
 var effect_type: String = "damage" # Epic 2 — "damage" (default) or "stun"
 var effect_duration: float = 0.0 # Epic 2 — stun length applied on hit when effect_type == "stun"
+var spin_speed: float = 0.0 # deg/sec — Vif's Tourbillon: visually spins in place while traveling (2026-08-09)
 
 # "Shmup juice pass" (2026-08-05) — boomerang motion: curves outward for
 # BOOMERANG_OUT_DURATION, then arcs back toward `shooter`. Mutually exclusive
@@ -72,6 +73,8 @@ func _physics_process(delta: float) -> void:
 
 	position += velocity * delta
 	lifetime -= delta
+	if spin_speed != 0.0:
+		rotation += deg_to_rad(spin_speed) * delta
 
 	if target:
 		var target_rect := Rect2(target.position - target.half_extents, target.half_extents * 2.0)
