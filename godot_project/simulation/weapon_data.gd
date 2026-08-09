@@ -77,5 +77,6 @@ extends Resource
 @export var charge_fire_slow_multiplier: float = 1.0 # movement multiplier while charging (1.0 = no penalty)
 @export var charged_projectile_count: int = 1 # how many shots the charged release fires, spread across charged_burst_spread_deg/charged_stagger
 @export var charged_burst_spread_deg: float = 0.0
+@export var charged_burst_ping_pong: bool = false # 2026-08-09, Spreader: sweep from -spread/2 to +spread/2 and back within the SAME burst (a triangle wave), instead of one-way linear — "balayer de haut en bas puis remonter de bas en haut"
 @export var charged_stagger: float = 0.0 # seconds between each shot in the charged burst — 0 = simultaneous
 @export var charged_speed_multiplier: float = 1.0 # multiplies projectile_speed for the charged release only

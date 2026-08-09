@@ -243,7 +243,12 @@ func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 		_spawn_projectile(weapon, ship, 0.0, weapon.charged_speed_multiplier)
 		return
 	for i in weapon.charged_projectile_count:
-		var t := float(i) / float(maxi(weapon.charged_projectile_count - 1, 1))
+		var p := float(i) / float(maxi(weapon.charged_projectile_count - 1, 1))
+		# Spreader (2026-08-09): "balayer de haut en bas puis remonter de bas
+		# en haut" — a triangle wave (0 -> 1 -> 0 as p goes 0 -> 0.5 -> 1)
+		# instead of the usual one-way linear sweep, so the burst goes out to
+		# one extreme and back within the same charge release.
+		var t := (1.0 - absf(2.0 * p - 1.0)) if weapon.charged_burst_ping_pong else p
 		var angle_offset := lerpf(-weapon.charged_burst_spread_deg / 2.0, weapon.charged_burst_spread_deg / 2.0, t)
 		if weapon.charged_stagger > 0.0 and i > 0:
 			get_tree().create_timer(i * weapon.charged_stagger).timeout.connect(

@@ -35,6 +35,7 @@ func _initialize() -> void:
 	_test_weapon_heat_gauge()
 	_test_vif_dash_lift_rule()
 	_test_weapon_exclusivity()
+	_test_every_charge_capable_weapon_actually_slows()
 	_test_vortex_weapon()
 	_test_charged_fire_burst()
 	_test_heavy_push_rule()
@@ -107,6 +108,23 @@ func _test_mini_shot_data() -> void:
 	_check("mini_shot's charged fire launches 10 shots", mini.charged_projectile_count == 10)
 	_check("mini_shot's charged shots are staggered 1/8s apart", is_equal_approx(mini.charged_stagger, 0.125))
 	_check("mini_shot's charged fire sweeps a wide vertical spread (top to bottom)", mini.charged_burst_spread_deg > 45.0)
+
+	# 2026-08-09: "il faudrait resserer encore l'angle: 60, par contre
+	# balayer de haut en bas puis remonter de bas en haut. ce serait bien
+	# plus fun" — a triangle-wave sweep instead of one-way linear. The
+	# actual burst spawn loop lives in MatchArenaNode (needs a scene/
+	# autoloads), so just the formula is checked here directly, same
+	# approach as the blink-period math above.
+	_check("mini_shot's charged spread was narrowed to 60 deg", is_equal_approx(mini.charged_burst_spread_deg, 60.0))
+	_check("mini_shot's charged sweep is a ping-pong (out and back), not one-way", mini.charged_burst_ping_pong)
+	var count := mini.charged_projectile_count
+	var mid := int(float(count - 1) / 2.0)
+	var t_first := 1.0 - absf(2.0 * (0.0 / float(count - 1)) - 1.0)
+	var t_mid := 1.0 - absf(2.0 * (float(mid) / float(count - 1)) - 1.0)
+	var t_last := 1.0 - absf(2.0 * (float(count - 1) / float(count - 1)) - 1.0)
+	_check("the ping-pong sweep starts at one extreme (t=0)", is_zero_approx(t_first))
+	_check("the ping-pong sweep reaches near the other extreme around the middle shot", t_mid > 0.8) # an even shot count never lands exactly on the peak index
+	_check("the ping-pong sweep returns to the start extreme by the last shot (t=0)", is_zero_approx(t_last))
 
 func _test_boomerang_motion() -> void:
 	var boomerang_data: WeaponData = load("res://data/weapons/stun_boomerang.tres")
@@ -659,6 +677,27 @@ func _test_vif_dash_lift_rule() -> void:
 	ship.queue_free()
 	lourd_ship.queue_free()
 
+func _test_every_charge_capable_weapon_actually_slows() -> void:
+	# 2026-08-09 — a general invariant, added after vortex.tres shipped with
+	# charge_fire_duration set but no charge_fire_slow_multiplier (silently
+	# defaulting to 1.0 = no slow at all), which read as an intermittent
+	# "sometimes not slowed" bug through several rounds of ship_node.gd
+	# fixes that were actually solving a different problem. Scans every
+	# weapon under data/weapons/ so this can never silently regress again.
+	var dir := DirAccess.open("res://data/weapons")
+	var all_ok := true
+	dir.list_dir_begin()
+	var f := dir.get_next()
+	while f != "":
+		if f.ends_with(".tres"):
+			var weapon: WeaponData = load("res://data/weapons/%s" % f)
+			if weapon.charge_fire_duration > 0.0 and weapon.charge_fire_slow_multiplier >= 1.0:
+				all_ok = false
+				print("FAIL: %s has charge_fire_duration but charge_fire_slow_multiplier is %s (no slow)" % [f, weapon.charge_fire_slow_multiplier])
+		f = dir.get_next()
+	dir.list_dir_end()
+	_check("every charge-capable weapon actually slows movement while charging", all_ok)
+
 func _test_weapon_exclusivity() -> void:
 	# 2026-08-09 (Camil): "je pense que la mitraillette devrait etre
 	# reservee a mitrailleur. Pour eviter de se prendre la tete avec des
@@ -704,6 +743,11 @@ func _test_vortex_weapon() -> void:
 	_check("Tourbillon does not also spin the node (the loop motion already conveys spin)", vortex.projectile_spin_speed == 0.0)
 	_check("Tourbillon has a charged fire configured", vortex.charge_fire_duration > 0.0)
 	_check("Tourbillon's charge duration is 3s (2026-08-09 playtest: 'augmenter le temps de charge : 3 secondes')", is_equal_approx(vortex.charge_fire_duration, 3.0))
+	# 2026-08-09 bug (the REAL root cause of the recurring "ralentissement"
+	# reports for Vif): charge_fire_slow_multiplier was never set on
+	# vortex.tres at all, silently defaulting to 1.0 (no slowdown) — every
+	# ship_node.gd fix attempt was solving a different, hypothetical problem.
+	_check("Tourbillon's charge actually slows movement (was silently defaulting to 1.0 = no slow)", vortex.charge_fire_slow_multiplier < 1.0 and vortex.charge_fire_slow_multiplier > 0.0)
 	_check("Tourbillon's cooldown was increased 1.5x (2026-08-09 playtest: 'un peu court')", vortex.fire_rate < 4.0 / 1.4) # fire_rate=4.0/1.5 -> cooldown*1.5; loose upper bound so exact rounding doesn't matter
 	_check("Tourbillon's charged fire launches 3 vortices", vortex.charged_projectile_count == 3)
 	_check("Tourbillon's charged vortices still go straight (no burst spread)", vortex.charged_burst_spread_deg == 0.0)
