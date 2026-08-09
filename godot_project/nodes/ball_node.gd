@@ -15,6 +15,16 @@ var _return_cooldown := 0.0 # avoids re-triggering a return within the same fram
 var _last_half := -1 # -1 = unset, 0 = left half, 1 = right half — which side the ball currently occupies
 var _blocked_side := -1 # side that already touched the ball during its current visit to a half; -1 = none
 
+# Lourd's "heavy_push" rule (2026-08-09, Camil: "il faudrait donc que ca
+# 'pousse' la balle et que cette derniere pousse le joueur adverse") — armed
+# by a fully-charged (100%) lift return from a heavy_push character, consumed
+# (knocks the ship back, then clears) the next time ANY ship's rect is hit —
+# normally the opponent reaching for it, whether they successfully return it
+# or not. Cleared on a fresh rally (reset_to_center()) so a stale arm from a
+# ball that went out of bounds untouched can never carry into the next point.
+var _push_pending := false
+const HEAVY_PUSH_DISTANCE := 40.0 # px, instantaneous shove on contact
+
 # Bugfix 2026-08-01 (v4): a ship parked at the frontier could trigger an
 # instant "return" the moment the ball (re)spawns at center (ball appears to
 # shoot backward immediately). Fixed with a "net" — a neutral zone straddling
@@ -111,6 +121,7 @@ func reset_to_center() -> void:
 	_blocked_side = -1
 	_last_half = -1
 	_return_cooldown = 0.0
+	_push_pending = false # a heavy_push ball that went out of bounds untouched must not carry into the next rally
 
 func _resolve_walls() -> void:
 	var min_y := arena_bounds.position.y + BallState.RADIUS
@@ -131,6 +142,13 @@ func _resolve_ships() -> void:
 		if ship.side == _blocked_side:
 			continue
 		if _ship_rect(ship).has_point(state.position):
+			# Lourd's "heavy_push" rule (2026-08-09) — an empowered ball (armed
+			# by a previous 100%-charged lift return) shoves whichever ship it
+			# reaches next, whether or not they go on to return it too.
+			if _push_pending:
+				ship.apply_knockback(Vector2(signf(state.velocity.x) * HEAVY_PUSH_DISTANCE, 0.0))
+				_push_pending = false
+
 			var outgoing_side := 1 if ship.side == 0 else -1
 			var lift_charge := ship.get_lift_charge()
 			state = state.returned(ship.get_aim_input(), lift_charge, outgoing_side)
@@ -143,6 +161,10 @@ func _resolve_ships() -> void:
 			# above always goes through the ungated fill_selected_gauge().
 			var fill := lerpf(WeaponSystemState.RETURN_GAUGE_FILL, WeaponSystemState.RETURN_GAUGE_FILL_MAX_LIFT, lift_charge)
 			ship.fill_selected_gauge_from_return(fill)
+
+			# Arm the push for the NEXT contact if this return was itself a
+			# fully-charged lift from a heavy_push character.
+			_push_pending = ship.character != null and ship.character.special_rule == "heavy_push" and lift_charge >= 1.0
 			return
 
 ## Turrets deflect the ball too (2026-08-09 playtest, Contrôleur: "vu qu'on

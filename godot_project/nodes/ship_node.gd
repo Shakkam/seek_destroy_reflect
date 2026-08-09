@@ -91,12 +91,16 @@ const DASH_COOLDOWN := 0.5 # can't chain dashes back to back
 const DASH_LIFT_CHARGE := 0.33 # "un leger lift" — fixed, since there's no charging to reach higher
 
 # Charged fire (2026-08-09, per-weapon — see WeaponData.charge_fire_duration).
-# A quick tap fires normally; holding past the weapon's charge_fire_duration
-# suppresses normal fire entirely (nothing fires while charging) and slows
-# movement, releasing early wastes the attempt, releasing at full charge
-# fires the empowered burst instead of a normal shot.
+# Redesigned after playtesting the first version (Camil: "je laisse appuye,
+# ca tire normalement. si au bout d'une seconde je suis toujours en appui,
+# la charge commence") — holding fires NORMALLY for the first
+# NORMAL_FIRE_GRACE seconds, exactly like any other weapon; only past that
+# grace window does normal fire suspend and the charge gauge start building
+# (with charge_fire_slow_multiplier kicking in). Releasing before
+# charge_fire_duration is reached (but past the grace) wastes the charge
+# attempt — releasing at/after it fires the empowered burst instead.
 var _fire_held_duration := 0.0 # how long the CURRENT press has been held, resets to 0 the instant fire is released
-const CHARGE_FIRE_TAP_THRESHOLD := 0.15 # below this, a release is a "tap" (normal shot) rather than an abandoned charge attempt
+const NORMAL_FIRE_GRACE := 1.0 # seconds of normal fire before a sustained hold starts charging
 
 var _spawn_position: Vector2
 
@@ -242,22 +246,28 @@ func _physics_process(delta: float) -> void:
 
 	# Charged fire (2026-08-09) — tracked before movement, since a weapon's
 	# charge_fire_slow_multiplier needs to factor into this frame's speed.
-	# A quick tap still fires normally; holding past charge_fire_duration
-	# suppresses normal fire entirely while the gauge builds, releasing
-	# early wastes the attempt (nothing fires), releasing at full charge
-	# fires the empowered variant instead (Camil's explicit call: "charge =
-	# rien ne part" over "charge en parallele du tir normal").
+	# Holding fires NORMALLY for the first NORMAL_FIRE_GRACE seconds, exactly
+	# like any other weapon; only past that grace window does normal fire
+	# suspend and the charge gauge start building. Releasing before
+	# charge_fire_duration is reached (but past the grace) wastes the charge
+	# attempt (nothing extra fires) — releasing at/after it fires the
+	# empowered burst instead of a normal shot.
 	var charge_capable := selected.charge_fire_duration > 0.0
 	var is_charging := false
-	var released_charge_attempt := false # true only the exact frame fire is released after having been held at all
+	var released_charge_attempt := false # true only the exact frame fire is released after having charged past the grace window
 	var charge_duration_at_release := 0.0
 	if charge_capable:
 		if fire_held:
 			_fire_held_duration += delta
-			is_charging = _fire_held_duration >= CHARGE_FIRE_TAP_THRESHOLD
-		elif _fire_held_duration > 0.0:
+			is_charging = _fire_held_duration > NORMAL_FIRE_GRACE
+		elif _fire_held_duration > NORMAL_FIRE_GRACE:
+			# only a release AFTER the grace window is a "charge attempt" —
+			# releasing during/at the grace window just stops normal fire,
+			# already handled frame-by-frame below like any other weapon.
 			released_charge_attempt = true
 			charge_duration_at_release = _fire_held_duration
+			_fire_held_duration = 0.0
+		else:
 			_fire_held_duration = 0.0
 	else:
 		_fire_held_duration = 0.0
@@ -283,8 +293,8 @@ func _physics_process(delta: float) -> void:
 		speed_multiplier = minf(speed_multiplier, selected.charge_fire_slow_multiplier)
 	if _vulnerability_timer > 0.0:
 		speed_multiplier = minf(speed_multiplier, VULNERABILITY_SPEED_MULTIPLIER)
-	if fire_held and not charge_capable:
-		speed_multiplier = minf(speed_multiplier, FIRE_HOLD_SPEED_MULTIPLIER) # charge-capable weapons already get their own slow via charge_fire_slow_multiplier while charging, and fire nothing on a normal hold otherwise
+	if fire_held and not is_charging:
+		speed_multiplier = minf(speed_multiplier, FIRE_HOLD_SPEED_MULTIPLIER) # normal firing (including a charge-capable weapon's grace window) always carries this slow; charge_fire_slow_multiplier takes over once actually charging
 	state = state.update(input_direction, delta, arena_bounds, frontier_x, speed_multiplier)
 	position = state.position
 	_dash_timer = maxf(_dash_timer - delta, 0.0)
@@ -309,29 +319,11 @@ func _physics_process(delta: float) -> void:
 	else:
 		beam_active = false
 		beam_weapon = null
-		if charge_capable:
-			if released_charge_attempt:
-				if charge_duration_at_release >= selected.charge_fire_duration:
-					var result := weapon_state.fired()
-					weapon_state = result.state
-					if result.fired:
-						_flash_timer = FLASH_DURATION
-						charged_weapon_fired.emit(result.weapon)
-						print("%s CHARGED-fired %s" % [name, result.weapon.display_name])
-				elif charge_duration_at_release < CHARGE_FIRE_TAP_THRESHOLD:
-					var result := weapon_state.fired()
-					weapon_state = result.state
-					if result.fired:
-						var weapon: WeaponData = result.weapon
-						_flash_timer = FLASH_DURATION
-						if weapon.is_heavy:
-							_vulnerability_timer = VULNERABILITY_DURATION # Story 1.8
-						weapon_fired.emit(weapon)
-						print("%s fired %s (gauge left: %.0f)" % [
-							name, weapon.display_name, weapon_state.gauges[weapon_state.selected_index]
-						])
-				# else: released between the tap threshold and full charge — the attempt is lost, nothing fires
+		if charge_capable and is_charging:
+			pass # normal fire suspended while actively charging (past the grace window)
 		elif fire_held:
+			# Either a non-charge-capable weapon, or a charge-capable one still
+			# within its NORMAL_FIRE_GRACE window — fires exactly like normal.
 			var result := weapon_state.fired()
 			weapon_state = result.state
 			if result.fired:
@@ -348,6 +340,16 @@ func _physics_process(delta: float) -> void:
 				print("%s fired %s (gauge left: %.0f)" % [
 					name, weapon.display_name, weapon_state.gauges[weapon_state.selected_index]
 				])
+
+		if charge_capable and released_charge_attempt:
+			if charge_duration_at_release >= selected.charge_fire_duration:
+				var result := weapon_state.fired()
+				weapon_state = result.state
+				if result.fired:
+					_flash_timer = FLASH_DURATION
+					charged_weapon_fired.emit(result.weapon)
+					print("%s CHARGED-fired %s" % [name, result.weapon.display_name])
+			# else: released mid-charge (past the grace window, before full) — the attempt is lost, nothing fires
 
 	_mobility_boost_timer = maxf(_mobility_boost_timer - delta, 0.0)
 	_mobility_boost_multiplier = _mobility_boost_active_multiplier if _mobility_boost_timer > 0.0 else 1.0
@@ -636,6 +638,11 @@ func apply_damage(amount: float) -> void:
 ## HP and gauges are untouched: a stun removes agency, it is not damage.
 func apply_stun(duration: float) -> void:
 	_stun_timer = maxf(_stun_timer, duration)
+
+## Lourd's "heavy_push" rule (2026-08-09) — see BallNode._resolve_ships().
+func apply_knockback(offset: Vector2) -> void:
+	state = state.knocked_back(offset, arena_bounds, frontier_x)
+	position = state.position
 
 ## Epic 4, Story 4.5 — "gauge_floor" twist's regen guarantee: a small
 ## trickle to the selected weapon's gauge, independent of self_fill_locked

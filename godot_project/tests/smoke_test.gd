@@ -37,6 +37,7 @@ func _initialize() -> void:
 	_test_weapon_exclusivity()
 	_test_vortex_weapon()
 	_test_charged_fire_burst()
+	_test_heavy_push_rule()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
 	# MatchArenaNode can't be loaded under this harness — this file runs via
 	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
@@ -713,3 +714,66 @@ func _test_charged_fire_burst() -> void:
 	_check("bazooka's charge slows movement by 70%", is_equal_approx(bazooka.charge_fire_slow_multiplier, 0.3))
 	_check("bazooka's charged release fires 2 shells", bazooka.charged_projectile_count == 2)
 	_check("bazooka's charged shells are faster than normal", bazooka.charged_speed_multiplier > 1.0)
+
+	# 2026-08-09 redesign after playtesting the first version (Camil: "je
+	# laisse appuye, ca tire normalement. si au bout d'une seconde je suis
+	# toujours en appui, la charge commence") — normal fire for the first
+	# NORMAL_FIRE_GRACE seconds of a hold, THEN it starts charging.
+	_check("NORMAL_FIRE_GRACE is about 1 second, per Camil's spec", is_equal_approx(ShipNode.NORMAL_FIRE_GRACE, 1.0))
+
+func _test_heavy_push_rule() -> void:
+	# 2026-08-09 (Camil): "Lourd bonne idee le lift a fond, il faudrait donc
+	# que ca 'pousse' la balle et que cette derniere pousse le joueur
+	# adverse." A fully-charged (100%) lift return arms the ball; the NEXT
+	# ship it reaches gets shoved back.
+	var lourd: CharacterData = load("res://data/characters/lourd.tres")
+	_check("Lourd's special_rule is heavy_push", lourd.special_rule == "heavy_push")
+
+	# Pure ShipState.knocked_back() — offset applied and clamped like normal movement.
+	var bounds := Rect2(0, 0, 1280, 720)
+	var state := ShipState.new(Vector2(200, 300), 0, Vector2(14, 28))
+	var pushed_state := state.knocked_back(Vector2(40.0, 0.0), bounds, 640.0)
+	_check("knocked_back() moves the ship by the offset", is_equal_approx(pushed_state.position.x, 240.0))
+	var pushed_into_wall := state.knocked_back(Vector2(-1000.0, 0.0), bounds, 640.0)
+	_check("knocked_back() is clamped, can't push a ship out of bounds", pushed_into_wall.position.x >= bounds.position.x)
+
+	# End-to-end: arm on a 100%-charge return, consume on the next ship contact.
+	var pusher := ShipNode.new()
+	pusher.side = 0
+	pusher.character = lourd
+	pusher.position = Vector2(200, 300)
+	pusher.state = ShipState.new(pusher.position, pusher.side, pusher.half_extents)
+	pusher.weapon_state = WeaponSystemState.new(lourd.kit) # normally built in _ready(), which this harness never calls
+	pusher._lift_charge_timer = ShipNode.LIFT_CHARGE_CAP # forces get_lift_charge() == 1.0
+	root.add_child(pusher)
+
+	var opponent := ShipNode.new()
+	opponent.side = 1
+	opponent.position = Vector2(1000, 300)
+	opponent.arena_bounds = Rect2(0, 0, 1280, 720)
+	opponent.frontier_x = 640.0
+	opponent.state = ShipState.new(opponent.position, opponent.side, opponent.half_extents)
+	opponent.weapon_state = WeaponSystemState.new([load("res://data/weapons/machine_gun.tres")])
+	root.add_child(opponent)
+
+	var ball := BallNode.new()
+	ball.arena_bounds = Rect2(0, 0, 1280, 720)
+	ball.frontier_x = 640.0
+	ball.ships = [pusher, opponent]
+	ball.state = BallState.new(pusher.position, Vector2(-1.0, 0.0)) # overlapping pusher, heading further left (a "return" reverses this)
+	root.add_child(ball)
+
+	ball._resolve_ships()
+	_check("a 100%-charge heavy_push return arms the ball", ball._push_pending)
+
+	# Move the (now rightward-traveling, post-return) ball onto the opponent and resolve again.
+	ball._return_cooldown = 0.0
+	ball.state = BallState.new(opponent.position, Vector2(500.0, 0.0))
+	var opponent_x_before := opponent.position.x
+	ball._resolve_ships()
+	_check("the armed push knocks the opponent back on the next contact", opponent.position.x > opponent_x_before)
+	_check("the push is consumed (single-use), not reusable", not ball._push_pending)
+
+	pusher.queue_free()
+	opponent.queue_free()
+	ball.queue_free()

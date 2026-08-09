@@ -44,6 +44,15 @@ func update(input_direction: Vector2, delta: float, bounds: Rect2, frontier_x: f
 func damaged(amount: float) -> ShipState:
 	return ShipState.new(position, side, half_extents, maxf(hp - amount, 0.0))
 
+## Lourd's "heavy_push" rule (2026-08-09) — an instantaneous positional shove
+## (e.g. from a fully-charged lift return reaching the opponent), clamped to
+## the same movement bounds as normal movement so it can never push a ship
+## out of the arena or across the neutral zone.
+func knocked_back(offset: Vector2, bounds: Rect2, frontier_x: float) -> ShipState:
+	var new_state := ShipState.new(position, side, half_extents, hp)
+	new_state.position = _clamp_to_half(position + offset, bounds, frontier_x)
+	return new_state
+
 func _clamp_to_half(pos: Vector2, bounds: Rect2, frontier_x: float) -> Vector2:
 	var min_x := bounds.position.x + half_extents.x
 	var max_x := bounds.position.x + bounds.size.x - half_extents.x

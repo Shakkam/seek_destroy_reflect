@@ -10,3 +10,4 @@ display_name = "Lourd"
 archetype = "Lourd"
 kit = [ExtResource("2")]
 complexity = "beginner"
+special_rule = "heavy_push"
