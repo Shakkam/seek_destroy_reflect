@@ -198,6 +198,11 @@ const MACHINE_GUN_TEX_P2 := preload("res://assets/art/vfx/mitraillette_shot_rose
 const BAZOOKA_TEXTURES := [
 	preload("res://assets/art/vfx/bazook.png"), # single custom sprite, replaced the extracted 2-frame R-Type version
 ]
+const VORTEX_TEXTURES := [
+	preload("res://assets/art/vfx/wind1.png"),
+	preload("res://assets/art/vfx/wind2.png"),
+	preload("res://assets/art/vfx/wind3.png"),
+] # Vif's Tourbillon (2026-08-09, Camil: "je t'ai mis wind1 2 et 3 pour illustrer le tir, ca s'anime") — 3-frame cycle ON TOP of the projectile's own continuous rotation (spin_speed), so it reads as a spinning, animated vortex rather than just a spinning static sprite.
 
 ## Epic 2 — the signal carries the full WeaponData resource so this handler
 ## can branch on effect_type instead of a bare damage/is_heavy pair.
@@ -264,8 +269,14 @@ func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: flo
 	var shot_velocity := Vector2(direction * weapon.projectile_speed * speed_multiplier, 0.0).rotated(deg_to_rad(spread_deg))
 	projectile.velocity = shot_velocity
 	projectile.spin_speed = weapon.projectile_spin_speed
+	projectile.is_looping = weapon.is_looping
+	projectile.loop_radius = weapon.loop_radius
+	projectile.loop_angular_speed = weapon.loop_angular_speed
 	projectile.flip_h = direction < 0.0
-	if weapon.is_heavy:
+	if weapon.id == "vortex":
+		projectile.textures = VORTEX_TEXTURES # Vif's Tourbillon — 3-frame spin animation, on top of the node's own continuous rotation
+		projectile.visual_scale = 1.2
+	elif weapon.is_heavy:
 		projectile.textures = BAZOOKA_TEXTURES
 		# bazook.png's fireball ("front") points LEFT natively — opposite of the
 		# machine-gun sprites — so it needs the inverse of the shared flip_h set

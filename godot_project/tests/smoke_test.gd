@@ -670,19 +670,35 @@ func _test_vortex_weapon() -> void:
 	# 2026-08-09 (Camil): Vif's new signature weapon — "un petit tourbillon
 	# qui tourne sur lui meme en avancant et qui va tres vite. tir charge,
 	# trois tourbillons qui vont tout droit (toujours en tournant sur eux
-	# meme)."
+	# meme)." Redesigned after Camil's drawing: "je veux qu'il fasse des
+	# cercles" — small forward-advancing loops, not a straight line, and not
+	# a node rotation either (the 3-frame wind1/2/3 texture cycle already
+	# reads as spinning on its own).
 	var vortex: WeaponData = load("res://data/weapons/vortex.tres")
 	_check("Tourbillon travels faster than the shared default projectile speed", vortex.projectile_speed > 620.0)
-	_check("Tourbillon visually spins while traveling", vortex.projectile_spin_speed > 0.0)
+	_check("Tourbillon loops instead of flying straight", vortex.is_looping and vortex.loop_radius > 0.0 and vortex.loop_angular_speed > 0.0)
+	_check("Tourbillon does not also spin the node (the 3-frame texture cycle already conveys spin)", vortex.projectile_spin_speed == 0.0)
 	_check("Tourbillon has a charged fire configured", vortex.charge_fire_duration > 0.0)
 	_check("Tourbillon's charged fire launches 3 vortices", vortex.charged_projectile_count == 3)
 	_check("Tourbillon's charged vortices still go straight (no burst spread)", vortex.charged_burst_spread_deg == 0.0)
 
 	var projectile := ProjectileNode.new()
-	projectile.spin_speed = vortex.projectile_spin_speed
-	var rotation_before := projectile.rotation
-	projectile._physics_process(0.5)
-	_check("a spinning projectile's rotation actually changes over time", projectile.rotation != rotation_before)
+	projectile.velocity = Vector2(vortex.projectile_speed, 0.0)
+	projectile.is_looping = true
+	projectile.loop_radius = vortex.loop_radius
+	projectile.loop_angular_speed = vortex.loop_angular_speed
+	projectile._ready() # captures _drift_velocity — never called automatically by .new() under this harness
+	var start_position := projectile.position
+	var off_the_straight_line := false
+	var net_forward_progress := false
+	for i in 20: # ~0.33s at a 60fps-equivalent step
+		projectile._physics_process(1.0 / 60.0)
+		if absf(projectile.position.y - start_position.y) > 2.0:
+			off_the_straight_line = true
+		if projectile.position.x - start_position.x > 20.0:
+			net_forward_progress = true
+	_check("a looping projectile deviates off the straight line (traces circles)", off_the_straight_line)
+	_check("a looping projectile still makes real net forward progress (drifts, doesn't just spin in place)", net_forward_progress)
 	projectile.queue_free()
 
 func _test_charged_fire_burst() -> void:

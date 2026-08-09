@@ -58,7 +58,13 @@ extends Resource
 # vite"). Previously every projectile shared one hardcoded 620 px/s speed
 # with no spin at all; both are now data-driven so any weapon can opt in.
 @export var projectile_speed: float = 620.0 # matches the old hardcoded default — unset means "unchanged"
-@export var projectile_spin_speed: float = 0.0 # deg/sec — 0 = no visual spin
+@export var projectile_spin_speed: float = 0.0 # deg/sec — rotates the whole projectile node; 0 = no visual spin (the Tourbillon doesn't use this — its 3-frame texture cycle already reads as spinning)
+
+# Vif's Tourbillon (2026-08-09, Camil's drawing): traces small forward-
+# advancing loops instead of a straight line. See ProjectileNode.is_looping.
+@export var is_looping: bool = false
+@export var loop_radius: float = 18.0 # px
+@export var loop_angular_speed: float = 1080.0 # deg/sec — how fast/tight each loop is
 
 # Charged fire (2026-08-09, Camil's per-character "tir charge" pass —
 # "chaque perso devrait avoir une regle bien a lui"). A quick tap still

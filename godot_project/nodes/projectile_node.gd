@@ -15,7 +15,19 @@ var target: ShipNode = null
 var homing_strength: float = 0.0 # 0 = straight line; >0 = gently steers toward target (bazooka only)
 var effect_type: String = "damage" # Epic 2 — "damage" (default) or "stun"
 var effect_duration: float = 0.0 # Epic 2 — stun length applied on hit when effect_type == "stun"
-var spin_speed: float = 0.0 # deg/sec — Vif's Tourbillon: visually spins in place while traveling (2026-08-09)
+var spin_speed: float = 0.0 # deg/sec — rotates the whole node; unused by the Tourbillon (its 3-frame texture cycle already reads as spinning) but left generic for any future weapon that wants it
+
+# Vif's Tourbillon (2026-08-09) — Camil's drawing: not a straight line, small
+# forward-advancing loops the whole way. A trochoid: constant drift velocity
+# (captured once at spawn) plus a constant-radius circular velocity added on
+# top each frame, so position integrates into tight repeating loops instead
+# of a spiral (which a naively-rotating velocity with no drift reference
+# would produce). Mutually exclusive with is_boomerang/homing_strength.
+var is_looping := false
+var loop_radius: float = 18.0 # px
+var loop_angular_speed: float = 1080.0 # deg/sec — how fast/tight each loop is
+var _loop_elapsed := 0.0
+var _drift_velocity := Vector2.ZERO # the straight-line velocity captured at spawn; the loop orbits this drifting reference
 
 # "Shmup juice pass" (2026-08-05) — boomerang motion: curves outward for
 # BOOMERANG_OUT_DURATION, then arcs back toward `shooter`. Mutually exclusive
@@ -45,6 +57,8 @@ var _anim_index := 0
 const ANIM_FRAME_DURATION := 0.1
 
 func _ready() -> void:
+	if is_looping:
+		_drift_velocity = velocity
 	if textures.is_empty():
 		# Epic 2 weapons without dedicated art yet (e.g. turret shots) still
 		# need to be visible — a small colored square beats an invisible hit.
@@ -66,6 +80,11 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if is_boomerang:
 		_update_boomerang(delta)
+	elif is_looping:
+		_loop_elapsed += delta
+		var loop_angle := deg_to_rad(loop_angular_speed) * _loop_elapsed
+		var tangential_speed := loop_radius * deg_to_rad(loop_angular_speed) # |d/dt of R*(cos,sin)(w*t)| = R*w
+		velocity = _drift_velocity + Vector2(-sin(loop_angle), cos(loop_angle)) * tangential_speed
 	elif target and homing_strength > 0.0:
 		# Only steer vertically — horizontal (left/right) speed stays constant.
 		var desired_vy := clampf((target.position.y - position.y) * 2.0, -260.0, 260.0)
