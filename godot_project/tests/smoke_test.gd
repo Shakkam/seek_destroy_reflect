@@ -33,6 +33,7 @@ func _initialize() -> void:
 	_test_vif_campaign_authoring()
 	_test_gauges_reset_between_rounds()
 	_test_weapon_heat_gauge()
+	_test_vif_dash_lift_rule()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
 	# MatchArenaNode can't be loaded under this harness — this file runs via
 	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
@@ -610,3 +611,33 @@ func _test_weapon_heat_gauge() -> void:
 	still_firing_state = still_firing_state.fired().state
 	still_firing_state = still_firing_state.with_heat_ticked(1.0, true)
 	_check("heat does not drain while is_firing is true", is_equal_approx(still_firing_state.heats[0], 1.0))
+
+func _test_vif_dash_lift_rule() -> void:
+	# 2026-08-09 (Camil): "vif est pas interessant... chaque perso devrait
+	# avoir une regle bien a lui. un + et un -. Proposition pour vif: il ne
+	# peut pas charger pour faire des lift. en revanche, le bouton lift lui
+	# permet de faire un petit dash... s'il tape en dashant, ca fait un
+	# leger lift."
+	var vif: CharacterData = load("res://data/characters/vif.tres")
+	_check("Vif's special_rule is dash_lift", vif.special_rule == "dash_lift")
+	_check("Vif's kit is just the machine gun (2026-08-09 redesign: 'juste la mitraillette pour l'instant')", vif.kit.size() == 1 and vif.kit[0].id == "machine_gun")
+
+	var ship := ShipNode.new()
+	ship.character = vif
+	_check("get_lift_charge() reads 0% for a dash character with no dash active (the MINUS: no charging at all)", ship.get_lift_charge() == 0.0)
+
+	ship._dash_timer = 0.1
+	_check("get_lift_charge() reads a fixed 'leger lift' while a dash is active (the PLUS)", ship.get_lift_charge() == ShipNode.DASH_LIFT_CHARGE)
+
+	ship._dash_timer = 0.0
+	_check("get_lift_charge() drops back to 0% once the dash window ends", ship.get_lift_charge() == 0.0)
+
+	# A normal (non-dash) character is completely untouched by this rewrite.
+	var lourd: CharacterData = load("res://data/characters/lourd.tres")
+	var lourd_ship := ShipNode.new()
+	lourd_ship.character = lourd
+	lourd_ship._lift_charge_timer = 1.5 # full charge
+	_check("a normal character still uses the hold-to-charge tiers unaffected", lourd_ship.get_lift_charge() == 1.0)
+
+	ship.queue_free()
+	lourd_ship.queue_free()

@@ -66,8 +66,28 @@ const FIRE_HOLD_SPEED_MULTIPLIER := 0.5 # -50% while the fire button is held (20
 # Lift/spin charge (redesigned 2026-08-01): holding the lift key freezes
 # movement entirely and charges the lift over time, in tiers:
 # <0.3s = 0%, 0.3-0.6s = 33%, 0.6-1.5s = 66%, >=1.5s = 100%.
+# Only applies when character.special_rule != "dash_lift" — see the dash
+# fields right below for Vif's replacement mechanic.
 var _lift_charge_timer := 0.0
 const LIFT_CHARGE_CAP := 1.5
+
+# Vif's rewrite (2026-08-09, Camil): "il ne peut pas charger pour faire des
+# lift. en revanche, le bouton 'lift' lui permet de faire un petit dash
+# dans une direction choisie. s'il tape en dashant, ca fait un leger lift."
+# The MINUS: get_lift_charge() always reads 0% outside a dash for this
+# character — no hold-to-charge at all. The PLUS: tapping Lift fires a
+# short, fast burst in the currently-held movement direction (or the last
+# one held, or straight ahead if none) instead of freezing in place; a ball
+# return connecting during that burst carries a small fixed lift charge.
+var _dash_timer := 0.0
+var _dash_cooldown_timer := 0.0
+var _dash_direction := Vector2.ZERO
+var _lift_prev := false # edge-detects the Lift press for dash characters (charge characters read it as a held state instead)
+var _last_nonzero_move_dir := Vector2.ZERO
+const DASH_DURATION := 0.15 # seconds the burst itself lasts
+const DASH_SPEED_MULTIPLIER := 3.0
+const DASH_COOLDOWN := 0.5 # can't chain dashes back to back
+const DASH_LIFT_CHARGE := 0.33 # "un leger lift" — fixed, since there's no charging to reach higher
 
 var _spawn_position: Vector2
 
@@ -185,24 +205,55 @@ func _physics_process(delta: float) -> void:
 		_ai_update_lift_attempt(delta)
 
 	var lift_held := _read_lift_held()
-	if lift_held:
+	var is_dash_character := character != null and character.special_rule == "dash_lift"
+
+	if is_dash_character:
+		# Vif's rewrite: never charges (the MINUS) — Lift is edge-triggered
+		# into a short dash instead (the PLUS). See field comments above.
+		_lift_charge_timer = 0.0
+		_dash_cooldown_timer = maxf(_dash_cooldown_timer - delta, 0.0)
+		if lift_held and not _lift_prev and _dash_timer <= 0.0 and _dash_cooldown_timer <= 0.0:
+			var chosen_dir := _read_input()
+			if chosen_dir.length() < 0.01:
+				chosen_dir = _last_nonzero_move_dir
+			if chosen_dir.length() < 0.01:
+				chosen_dir = Vector2(1.0 if side == 0 else -1.0, 0.0) # default: push toward the frontier
+			_dash_direction = chosen_dir.normalized()
+			_dash_timer = DASH_DURATION
+			_dash_cooldown_timer = DASH_COOLDOWN
+	elif lift_held:
 		_lift_charge_timer = minf(_lift_charge_timer + delta, LIFT_CHARGE_CAP)
 	else:
 		_lift_charge_timer = 0.0
+	_lift_prev = lift_held
 
 	var fire_held := _read_fire_pressed() and _stun_timer <= 0.0 # Story 2.6 — stunned ships can't fire
+	var dashing := is_dash_character and _dash_timer > 0.0
 
-	# Charging the lift freezes movement entirely — that's the risk/reward trade.
+	# Charging the lift freezes movement entirely — that's the risk/reward trade
+	# (dash characters never freeze this way; the dash burst below replaces it).
 	# Holding the fire button ("je balance la sauce") also slows movement —
 	# spraying continuously has a real positioning cost, not just ammo cost.
-	var input_direction := Vector2.ZERO if (lift_held or _stun_timer > 0.0) else _read_input()
+	var input_direction: Vector2
+	if dashing:
+		input_direction = _dash_direction # steer-locked for the burst's duration
+	elif (lift_held and not is_dash_character) or _stun_timer > 0.0:
+		input_direction = Vector2.ZERO
+	else:
+		input_direction = _read_input()
+		if input_direction.length() > 0.01:
+			_last_nonzero_move_dir = input_direction.normalized()
+
 	var speed_multiplier := _mobility_boost_multiplier
+	if dashing:
+		speed_multiplier = maxf(speed_multiplier, DASH_SPEED_MULTIPLIER)
 	if _vulnerability_timer > 0.0:
 		speed_multiplier = minf(speed_multiplier, VULNERABILITY_SPEED_MULTIPLIER)
 	if fire_held:
 		speed_multiplier = minf(speed_multiplier, FIRE_HOLD_SPEED_MULTIPLIER)
 	state = state.update(input_direction, delta, arena_bounds, frontier_x, speed_multiplier)
 	position = state.position
+	_dash_timer = maxf(_dash_timer - delta, 0.0)
 
 	_process_weapon_selection()
 	_ai_pulse_select = false # consumed for this frame, whether or not it was set
@@ -264,7 +315,9 @@ func _physics_process(delta: float) -> void:
 			visual.modulate = Color(0.75, 0.75, 1.0) # pale blue-white — distinct from vulnerability/lift tints
 		elif _vulnerability_timer > 0.0:
 			visual.modulate = Color(1.0, 0.45, 0.45) # reddish tint while vulnerable
-		elif lift_held:
+		elif dashing:
+			visual.modulate = Color(0.4, 0.75, 1.0) # electric blue burst — distinct from Turbo's cyan and the charge tint's gold
+		elif lift_held and not is_dash_character:
 			var charge_fraction := clampf(_lift_charge_timer / LIFT_CHARGE_CAP, 0.0, 1.0)
 			visual.modulate = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.84, 0.29), charge_fraction) # builds toward gold
 		elif _flash_timer > 0.0:
@@ -389,7 +442,12 @@ func _read_lift_held() -> bool:
 
 ## Returns the charge tier reached: <0.3s=0%, 0.3-0.6s=33%, 0.6-1.5s=66%, >=1.5s=100%.
 ## AI included — it now attempts occasional lifts (_ai_lift_timer -> _read_lift_held()).
+## Vif's rewrite (special_rule == "dash_lift"): never charges — always 0%
+## except during the dash window, where a connecting return gets a fixed
+## "leger lift" (DASH_LIFT_CHARGE) instead.
 func get_lift_charge() -> float:
+	if character != null and character.special_rule == "dash_lift":
+		return DASH_LIFT_CHARGE if _dash_timer > 0.0 else 0.0
 	if _lift_charge_timer < 0.3:
 		return 0.0
 	elif _lift_charge_timer < 0.6:
