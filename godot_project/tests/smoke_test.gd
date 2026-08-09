@@ -710,6 +710,35 @@ func _test_vortex_weapon() -> void:
 			net_forward_progress = true
 	_check("a looping projectile deviates off the straight line (traces circles)", off_the_straight_line)
 	_check("a looping projectile still makes real net forward progress (drifts, doesn't just spin in place)", net_forward_progress)
+
+	# 2026-08-09 (Camil: "attention quand il tourne, sa zone de contact
+	# tourne avec lui !") — the hit check uses the same `position` the loop
+	# actually moves through (no separate visual-only offset), so a target
+	# placed only in the loop's swept path — off the straight drift line —
+	# must still register a hit.
+	var off_line_target := ShipNode.new()
+	off_line_target.position = start_position + Vector2(10.0, vortex.loop_radius) # well off the straight (dy=0) line, but within the loop's sweep
+	off_line_target.half_extents = Vector2(14, 28)
+	off_line_target.state = ShipState.new(off_line_target.position, 0, off_line_target.half_extents) # apply_damage() needs this — normally built in _ready(), never called by this harness
+	var probe := ProjectileNode.new()
+	probe.velocity = Vector2(vortex.projectile_speed, 0.0)
+	probe.is_looping = true
+	probe.loop_radius = vortex.loop_radius
+	probe.loop_angular_speed = vortex.loop_angular_speed
+	probe.damage = 2
+	probe.target = off_line_target
+	probe.position = start_position
+	probe._ready()
+	var hit_off_line_target := false
+	for i in 60: # ~1s — long enough to sweep through a full loop
+		probe._physics_process(1.0 / 60.0)
+		if not is_instance_valid(probe) or probe.is_queued_for_deletion():
+			hit_off_line_target = true
+			break
+	_check("the loop's hit detection actually follows the curved path (an off-line target still gets hit)", hit_off_line_target)
+	off_line_target.queue_free()
+	if is_instance_valid(probe) and not probe.is_queued_for_deletion():
+		probe.queue_free()
 	projectile.queue_free()
 
 func _test_charged_fire_burst() -> void:
