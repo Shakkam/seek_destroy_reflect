@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="TwistData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://simulation/twist_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "multi_ball"
+display_name = "Double balle"
+twist_type = "multi_ball"
+ball_count = 2

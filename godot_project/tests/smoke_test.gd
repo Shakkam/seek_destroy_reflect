@@ -24,6 +24,7 @@ func _initialize() -> void:
 	_test_decoy_wander()
 	_test_energy_orb_pickup()
 	_test_ball_hazard_bounce()
+	_test_twist_pool_authoring()
 	_test_campaign_data_resources()
 	_test_campaign_save()
 	_test_campaign_context_sequencing()
@@ -31,7 +32,7 @@ func _initialize() -> void:
 	_test_campaign_save_progress_tracking()
 	_test_vif_campaign_authoring()
 	_test_gauges_reset_between_rounds()
-	_test_burst_limiter()
+	_test_weapon_heat_gauge()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
 	# MatchArenaNode can't be loaded under this harness — this file runs via
 	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
@@ -327,6 +328,32 @@ func _test_ball_hazard_bounce() -> void:
 	_check("hazard bounce reverses velocity on a head-on hit", bounced.velocity.x < 0.0)
 	_check("hazard bounce preserves speed", is_equal_approx(bounced.velocity.length(), state.velocity.length()))
 
+func _test_twist_pool_authoring() -> void:
+	# 2026-08-09 bug report (Camil, cheat-menu testing): "Le twist zone du
+	# milieu bouge n'existe pas" — drifting_neutral_zone (and visual_decoy,
+	# multi_ball) had full engine support in match_arena_node.gd but no
+	# authored .tres, so the cheat menu (which lists whatever's actually on
+	# disk under data/twists/) never offered them. Every twist_type in
+	# TwistData's enum except "none" and the boss-exclusive
+	# "energy_orb_pickup" (data/twists/energy_orb_boss.tres) should now have
+	# exactly one authored resource here.
+	var expected_types := ["multi_ball", "gauge_floor", "shrinking_arena", "invisible_opponent", "hazard_zones", "drifting_neutral_zone", "visual_decoy"]
+	var dir := DirAccess.open("res://data/twists")
+	var found_types := {}
+	dir.list_dir_begin()
+	var f := dir.get_next()
+	while f != "":
+		if f.ends_with(".tres"):
+			var twist: TwistData = load("res://data/twists/%s" % f)
+			found_types[twist.twist_type] = true
+		f = dir.get_next()
+	dir.list_dir_end()
+	for expected in expected_types:
+		_check("twist pool has an authored .tres for '%s'" % expected, found_types.has(expected))
+
+	var drift: TwistData = load("res://data/twists/drifting_neutral_zone.tres")
+	_check("drifting_neutral_zone has a positive drift_speed and drift_range", drift.drift_speed > 0.0 and drift.drift_range > 0.0)
+
 func _test_campaign_data_resources() -> void:
 	var mook_data: WeaponData = load("res://data/weapons/machine_gun.tres")
 	var lourd: CharacterData = load("res://data/characters/lourd.tres")
@@ -536,21 +563,25 @@ func _test_gauges_reset_between_rounds() -> void:
 
 	ship.queue_free()
 
-func _test_burst_limiter() -> void:
+func _test_weapon_heat_gauge() -> void:
 	# 2026-08-08 playtest: "Mitraillette, c'est trop fort. Il faudrait un
-	# cooldown de 1s tous les... 6 tirs ?" — verify the loaded machine_gun.tres
-	# is configured with a burst limit, and that WeaponSystemState.fired()
-	# actually enforces one.
+	# cooldown de 1s tous les... 6 tirs ?" — then 2026-08-09, after the
+	# first (hard burst-limit) version: "je tire 4 balles, j'attends 3
+	# secondes, et je ne peux tirer que 2 balles => frustrant". Redesigned
+	# as a continuous heat gauge instead: any pause drains it a little,
+	# rather than a flat shot counter that only ever resets after a full
+	# lockout.
 	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
-	_check("machine_gun has a burst_shot_limit configured", machine_gun.burst_shot_limit > 0)
-	_check("machine_gun's burst cooldown is around 1s", machine_gun.burst_cooldown_duration == 1.0)
+	_check("machine_gun has a heat limit configured", machine_gun.heat_max > 0.0)
+	_check("machine_gun's heat drains at 1 full cooldown's worth per second", is_equal_approx(machine_gun.heat_cooldown_rate, machine_gun.heat_max))
 
 	var weapon := WeaponData.new()
 	weapon.fire_rate = 10.0
 	weapon.gauge_max = 1000.0
 	weapon.gauge_cost_per_shot = 1.0
-	weapon.burst_shot_limit = 6
-	weapon.burst_cooldown_duration = 1.0
+	weapon.heat_max = 6.0
+	weapon.heat_per_shot = 1.0
+	weapon.heat_cooldown_rate = 6.0 # full cool from max in 1s
 	var state := WeaponSystemState.new([weapon])
 	state = state.with_gauge_added(1000.0)
 
@@ -558,17 +589,24 @@ func _test_burst_limiter() -> void:
 		var result := state.fired()
 		_check("shot %d fires" % (i + 1), result.fired)
 		state = result.state
-		if i < 5:
-			# fast-forward the normal per-shot cooldown so only the burst
-			# limiter itself could block the next shot.
-			state = state.with_cooldown_ticked(state.cooldown)
+		state = state.with_cooldown_ticked(state.cooldown) # fast-forward the normal per-shot cooldown; heat is the only remaining gate
+		state = state.with_heat_ticked(0.1, true) # is_firing=true — heat must NOT drain mid-burst
 
-	_check("the 6th shot triggers the long burst cooldown, not the normal per-shot one", is_equal_approx(state.cooldown, 1.0))
-	_check("burst counter resets after the burst cooldown fires", state.burst_counts[0] == 0)
-
+	_check("after 6 shots the gauge is fully heated", is_equal_approx(state.heats[0], 6.0))
 	var blocked_result := state.fired()
-	_check("firing during the burst cooldown is blocked", not blocked_result.fired)
+	_check("firing while fully heated is blocked", not blocked_result.fired)
 
-	state = state.with_cooldown_ticked(1.0)
+	# 2026-08-09 regression: a SHORT pause (well under the full 1s cooldown)
+	# must still measurably help, not be wasted like the old hard-lockout
+	# counter — the exact "4 shots, wait 3s, still only 2 left" complaint.
+	state = state.with_heat_ticked(0.5, false) # released fire for half a second
+	_check("a partial pause drains heat proportionally, not all-or-nothing", is_equal_approx(state.heats[0], 3.0))
 	var resumed_result := state.fired()
-	_check("firing resumes once the burst cooldown elapses", resumed_result.fired)
+	_check("firing resumes as soon as heat drops below max, not only after a full cooldown", resumed_result.fired)
+
+	# Heat must never drain while the trigger is still held.
+	var still_firing_state := WeaponSystemState.new([weapon])
+	still_firing_state = still_firing_state.with_gauge_added(1000.0)
+	still_firing_state = still_firing_state.fired().state
+	still_firing_state = still_firing_state.with_heat_ticked(1.0, true)
+	_check("heat does not drain while is_firing is true", is_equal_approx(still_firing_state.heats[0], 1.0))

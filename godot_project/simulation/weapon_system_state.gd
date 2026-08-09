@@ -15,17 +15,17 @@ const MISS_GAUGE_FILL := 50.0 # Story 1.6 — playtest-tuned down from a "full c
 
 var kit: Array # of WeaponData
 var gauges: Array[float] # parallel array to kit — current charge per weapon
-var burst_counts: Array[int] # parallel array to kit — shots fired since the last burst-limit cooldown (see WeaponData.burst_shot_limit)
+var heats: Array[float] # parallel array to kit — current "barrel heat" per weapon (see WeaponData.heat_max)
 var selected_index: int
 var cooldown: float # seconds remaining before the next shot is allowed
 
 func _init(weapon_kit: Array, start_selected: int = 0) -> void:
 	kit = weapon_kit
 	gauges = []
-	burst_counts = []
+	heats = []
 	for weapon in kit:
 		gauges.append(0.0)
-		burst_counts.append(0)
+		heats.append(0.0)
 	selected_index = start_selected
 	cooldown = 0.0
 
@@ -51,27 +51,37 @@ func with_cooldown_ticked(delta: float) -> WeaponSystemState:
 	new_state.cooldown = maxf(cooldown - delta, 0.0)
 	return new_state
 
+## Heat gauge (2026-08-09 playtest, replacing the earlier hard burst-limit:
+## "je tire 4 balles, j'attends 3 secondes, et je ne peux tirer que 2 balles
+## => frustrant" — a flat "N shots then a fixed 1s lockout" counter never
+## decayed on a partial pause, so stopping early bought nothing). Only
+## drains while NOT actively firing ("des qu'on relache le bouton de tir la
+## jauge remonte progressivement"), so any pause — however short — always
+## helps a little instead of being wasted.
+func with_heat_ticked(delta: float, is_firing: bool) -> WeaponSystemState:
+	if is_firing:
+		return self # heat only changes via fired()'s own increment while actively shooting
+	var weapon := selected_weapon()
+	if weapon.heat_cooldown_rate <= 0.0 or heats[selected_index] <= 0.0:
+		return self
+	var new_state := _clone()
+	new_state.heats[selected_index] = maxf(heats[selected_index] - weapon.heat_cooldown_rate * delta, 0.0)
+	return new_state
+
 ## Attempts to fire the currently selected weapon.
 ## Returns {"state": WeaponSystemState, "fired": bool, "weapon": WeaponData}
 func fired() -> Dictionary:
 	var weapon := selected_weapon()
 	if cooldown > 0.0 or gauges[selected_index] < weapon.gauge_cost_per_shot:
 		return {"state": self, "fired": false, "weapon": null}
+	if weapon.heat_max > 0.0 and heats[selected_index] >= weapon.heat_max:
+		return {"state": self, "fired": false, "weapon": null} # overheated — release fire and let it cool
 
 	var new_state := _clone()
 	new_state.gauges[selected_index] = gauges[selected_index] - weapon.gauge_cost_per_shot
-
-	# Burst limiter (2026-08-08 playtest: "Mitraillette, c'est trop fort. Il
-	# faudrait un cooldown de 1s tous les... 6 tirs ?") — every burst_shot_limit
-	# shots, force burst_cooldown_duration instead of the normal per-shot
-	# cooldown, and reset the counter.
-	var next_burst_count := burst_counts[selected_index] + 1
-	if weapon.burst_shot_limit > 0 and next_burst_count >= weapon.burst_shot_limit:
-		new_state.cooldown = weapon.burst_cooldown_duration
-		new_state.burst_counts[selected_index] = 0
-	else:
-		new_state.cooldown = 1.0 / weapon.fire_rate
-		new_state.burst_counts[selected_index] = next_burst_count
+	new_state.cooldown = 1.0 / weapon.fire_rate
+	if weapon.heat_max > 0.0:
+		new_state.heats[selected_index] = minf(heats[selected_index] + weapon.heat_per_shot, weapon.heat_max)
 	return {"state": new_state, "fired": true, "weapon": weapon}
 
 ## Continuous alternative to fired(), for effect_type == "beam" weapons only.
@@ -92,6 +102,6 @@ func beam_tick(delta: float) -> Dictionary:
 func _clone() -> WeaponSystemState:
 	var copy := WeaponSystemState.new(kit, selected_index)
 	copy.gauges = gauges.duplicate()
-	copy.burst_counts = burst_counts.duplicate()
+	copy.heats = heats.duplicate()
 	copy.cooldown = cooldown
 	return copy

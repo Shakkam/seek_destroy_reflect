@@ -40,10 +40,15 @@ extends Resource
 @export var is_boomerang: bool = false # curves outward then arcs back to the shooter instead of flying straight/homing (can hit once on the way out and once on the way back)
 @export var visual_scale_multiplier: float = 1.0 # extra engine-side size multiplier on top of the base projectile scale, per weapon (2026-08-06 playtest: Éventail needed to read bigger)
 
-# Burst limiter (2026-08-08 playtest: "Mitraillette, c'est trop fort. Il
-# faudrait un cooldown de 1s tous les... 6 tirs ?") — an extra, longer
-# cooldown imposed every N shots, on top of the normal per-shot fire_rate
-# cooldown. 0 = disabled (most weapons don't need this; their fire_rate/
-# gauge_cost_per_shot already self-limits).
-@export var burst_shot_limit: int = 0 # fire this many shots, then force burst_cooldown_duration before the next one. 0 = no burst limit.
-@export var burst_cooldown_duration: float = 0.0 # seconds of forced cooldown once burst_shot_limit is reached
+# Heat gauge (2026-08-08 playtest: "Mitraillette, c'est trop fort. Il
+# faudrait un cooldown de 1s tous les... 6 tirs ?"; redesigned 2026-08-09
+# after "je tire 4 balles, j'attends 3 secondes, et je ne peux tirer que 2
+# balles => frustrant" — a flat shot-count-then-hard-lockout counter never
+# decayed on a partial pause). A continuous gauge instead: each shot adds
+# heat_per_shot, heat drains at heat_cooldown_rate/sec whenever NOT firing,
+# and firing is blocked once heat reaches heat_max — so ANY pause helps a
+# little, not just a full stop-and-wait. 0 = disabled (most weapons don't
+# need this; their fire_rate/gauge_cost_per_shot already self-limits).
+@export var heat_max: float = 0.0 # 0 = no heat limit at all
+@export var heat_per_shot: float = 0.0
+@export var heat_cooldown_rate: float = 0.0 # heat drained per second while not firing

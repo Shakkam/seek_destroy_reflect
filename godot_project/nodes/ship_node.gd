@@ -207,6 +207,7 @@ func _physics_process(delta: float) -> void:
 	_process_weapon_selection()
 	_ai_pulse_select = false # consumed for this frame, whether or not it was set
 	weapon_state = weapon_state.with_cooldown_ticked(delta)
+	weapon_state = weapon_state.with_heat_ticked(delta, fire_held)
 	var selected := weapon_state.selected_weapon()
 	if selected.effect_type == "beam":
 		# "Shmup juice pass" — continuous channel instead of a discrete shot;

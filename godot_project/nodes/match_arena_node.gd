@@ -21,6 +21,9 @@ extends Node2D
 @onready var p2_hp_fill: ColorRect = $DebugHUD/P2HPBarFill
 @onready var ready_label: Label = $DebugHUD/ReadyLabel
 @onready var campaign_label: Label = $DebugHUD/CampaignLabel
+@onready var background: ColorRect = $Background
+@onready var neutral_zone_visual: ColorRect = $NeutralZone
+@onready var center_line: Line2D = $CenterLine
 
 const HP_BAR_WIDTH := 240.0
 
@@ -136,6 +139,7 @@ func _process(_delta: float) -> void:
 
 	_process_ai_toggle()
 	_process_beams()
+	_sync_twist_visuals()
 
 	if not _match_started:
 		_process_ready_gate()
@@ -168,7 +172,13 @@ func _debug_text(ship: ShipNode) -> String:
 		var weapon: WeaponData = ship.weapon_state.kit[i]
 		var gauge := ship.weapon_state.gauges[i]
 		var marker := "> " if i == ship.weapon_state.selected_index else "  "
-		lines.append("%s%s: %d / %d" % [marker, weapon.display_name, int(gauge), int(weapon.gauge_max)])
+		var line := "%s%s: %d / %d" % [marker, weapon.display_name, int(gauge), int(weapon.gauge_max)]
+		# 2026-08-09 (Camil: "il faudrait une petite jauge de cooldown qui
+		# descend des qu'on tire") — visible heat readout, weapons without
+		# heat_max (most of them) never show it.
+		if weapon.heat_max > 0.0:
+			line += " [chauffe %d/%d]" % [int(ship.weapon_state.heats[i]), int(weapon.heat_max)]
+		lines.append(line)
 	return "\n".join(lines)
 
 func _on_gauge_filled(amount: float, ship: ShipNode) -> void:
@@ -560,6 +570,34 @@ func _start_next_shrink_step() -> void:
 	)
 	_shrink_anim_elapsed = 0.0
 	_shrink_animating = true
+
+## 2026-08-09 bug report (Camil, cheat-menu testing): "Le twist zone qui
+## retrecit ne marche pas" — _sync_arena_bounds_to_entities()/
+## _sync_frontier_x_to_entities() below were correctly updating the
+## COLLISION bounds every twist tick, but nothing ever moved the
+## Background/NeutralZone/CenterLine visuals, which stayed at their
+## scene-authored full-size positions forever — the shrink/drift was real
+## but completely invisible, indistinguishable from "not working". Called
+## every frame from _process() so it stays correct for shrinking_arena AND
+## drifting_neutral_zone (and is a harmless no-op the rest of the time,
+## since _current_arena_bounds/_current_frontier_x already default to the
+## untwisted values).
+func _sync_twist_visuals() -> void:
+	background.offset_left = _current_arena_bounds.position.x
+	background.offset_top = _current_arena_bounds.position.y
+	background.offset_right = _current_arena_bounds.position.x + _current_arena_bounds.size.x
+	background.offset_bottom = _current_arena_bounds.position.y + _current_arena_bounds.size.y
+
+	var half_width := ShipState.NEUTRAL_ZONE_HALF_WIDTH
+	neutral_zone_visual.offset_left = _current_frontier_x - half_width
+	neutral_zone_visual.offset_right = _current_frontier_x + half_width
+	neutral_zone_visual.offset_top = _current_arena_bounds.position.y
+	neutral_zone_visual.offset_bottom = _current_arena_bounds.position.y + _current_arena_bounds.size.y
+
+	center_line.points = PackedVector2Array([
+		Vector2(_current_frontier_x, _current_arena_bounds.position.y),
+		Vector2(_current_frontier_x, _current_arena_bounds.position.y + _current_arena_bounds.size.y),
+	])
 
 func _sync_arena_bounds_to_entities() -> void:
 	ship_1.arena_bounds = _current_arena_bounds
