@@ -19,6 +19,7 @@ config/features=PackedStringArray("4.7")
 MatchSetup="*res://nodes/match_setup.gd"
 CampaignSave="*res://nodes/campaign_save.gd"
 CampaignContext="*res://nodes/campaign_context.gd"
+DebugOverlay="*res://nodes/debug_overlay.gd"
 
 [display]
 

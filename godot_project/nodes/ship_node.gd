@@ -444,6 +444,35 @@ func _physics_process(delta: float) -> void:
 			visual.modulate = Color(0.5, 1.0, 1.0) # cyan glow — Turbo had zero visual feedback before (2026-08-05: "le turbo n'est pas fait ?"), it was working but untinted
 		else:
 			visual.modulate = Color(1.0, 1.0, 1.0)
+	queue_redraw() # cheap even when DebugOverlay.show_hitboxes is false — _draw() below just no-ops
+
+## 2026-08-10, Camil: "les hitbox autour de TOUTES les armes, activables en
+## appuyant sur la touche TAB... pour comprendre pourquoi certaines fois je
+## ne touche pas" — draws the EXACT rect ProjectileNode._segment_crosses_
+## rect() checks a weapon's shot against (see its `target_rect`), so what's
+## drawn is provably what determines a hit, not an approximation of it.
+## Local space, so no need to track position separately — Node2D draws
+## relative to its own transform. Ship's Visual (a Polygon2D child, drawn
+## AFTER this node's own _draw()) exactly matches half_extents in size, so
+## a thin stroke here would sit entirely under it and never be seen; an
+## unfilled draw_rect's stroke straddles the boundary (half in, half out —
+## same as any vector-graphics stroke), so a wide-enough stroke's OUTER half
+## still pokes past Visual's edge and stays visible regardless of draw
+## order, with no need to touch Visual's z_index (which would have real
+## side effects on cross-ship/ball render ordering, not just this overlay).
+##
+## Looked up via get_node_or_null("/root/DebugOverlay") rather than a
+## direct `DebugOverlay.show_hitboxes` reference — smoke_test.gd builds
+## ShipNode instances outside any scene/autoload context (a project-wide
+## constraint: autoloads must never be referenced anywhere reachable from
+## smoke_test.gd), and a static reference to an autoload's global class
+## name fails class registration entirely in that context, not just at
+## this call site — every ShipNode.new() in the whole test suite would
+## silently degrade to an uncallable raw GDScript object.
+func _draw() -> void:
+	var debug := get_node_or_null("/root/DebugOverlay")
+	if debug and debug.show_hitboxes:
+		draw_rect(Rect2(-half_extents, half_extents * 2.0), Color(1.0, 0.15, 0.15, 0.9), false, 4.0)
 
 ## Turbo afterimage — a faint, fading copy of this ship's own Visual shape
 ## left behind at the current position, purely cosmetic (no gameplay effect).

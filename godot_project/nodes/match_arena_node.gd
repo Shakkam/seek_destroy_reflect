@@ -408,7 +408,15 @@ func _spawn_timed_beam(weapon: WeaponData, ship: ShipNode, duration: float, thic
 func _weapon_tint(weapon_id: String) -> Color:
 	match weapon_id:
 		"stun_boomerang":
-			return Color(0.6, 0.8, 1.0) # matches the pale-blue stun tint used on the hit ship
+			# 2026-08-10, Camil: "enlever le freeze quand perturbateur touche
+			# => c'est trop puissant. On verra pour le mettre sur un autre
+			# joueur" — stun_boomerang.tres switched effect_type from "stun"
+			# to "damage" (pure chip damage now, no more freeze). Kept the
+			# resource id/filename and this pale-blue tint as-is — renaming
+			# would touch every match_arena_node.gd id string match below
+			# for a purely cosmetic mismatch, and the stun idea itself isn't
+			# dead, just parked for a different character.
+			return Color(0.6, 0.8, 1.0)
 		"homing_missile":
 			return Color(1.0, 0.6, 0.2) # orange
 		"laser":

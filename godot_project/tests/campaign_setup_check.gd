@@ -281,6 +281,21 @@ func _ready() -> void:
 	var immediate_mini_shots := charge_arena.get_child_count() - children_before_mini_charge
 	var mini_charge_ok: bool = immediate_mini_shots == 1 # only the i=0 shot fires this frame; the other 9 are timer-scheduled
 	print("PASS: Eventail's charged fire fires the first (unstaggered) shot immediately" if mini_charge_ok else "FAIL: expected exactly 1 immediate projectile, got %d" % immediate_mini_shots)
+	# mini_shot's charged burst leaves 9 REAL get_tree().create_timer() calls
+	# still pending (up to i=9 * 0.125s = 1.125s out) — if any later test
+	# samples charge_arena's child count while those are still in flight,
+	# they can fire mid-await and leak into an unrelated delta (2026-08-10
+	# bug: this actually happened to the Mitrailleur double-fire check once
+	# enough tests were added in between). Rather than wait out the real
+	# 1.125s (slow, and needs an ever-growing --quit-after budget as more
+	# tests get added later), just swap in a fresh arena — orphaned timers
+	# still fire, but call into a queue_free()'d _spawn_projectile they can
+	# no longer affect.
+	charge_arena.queue_free()
+	await get_tree().process_frame
+	charge_arena = arena_scene.instantiate() as MatchArenaNode
+	add_child(charge_arena)
+	await get_tree().process_frame
 
 	# Perturbateur's charged boomerang (2026-08-10): "plus on charge, plus le
 	# boomerang va loin, jusqu'au fond du camp adverse" — the charged release
@@ -320,6 +335,14 @@ func _ready() -> void:
 	var immediate_boomerangs := charge_arena.get_child_count() - children_before_boomerang_burst
 	var boomerang_burst_ok: bool = immediate_boomerangs == 1 and stun_boomerang.projectile_count == 3
 	print("PASS: Perturbateur's normal throw fires 3 boomerangs (1 immediate + 2 staggered) before cooldown" if boomerang_burst_ok else "FAIL: expected 1 immediate projectile + projectile_count 3, got %d immediate, count=%d" % [immediate_boomerangs, stun_boomerang.projectile_count])
+	# 2 more still-pending staggered shots (real timers at 0.08s/0.16s) —
+	# see the mini_shot fresh-arena note above for why this swaps the arena
+	# instead of waiting them out.
+	charge_arena.queue_free()
+	await get_tree().process_frame
+	charge_arena = arena_scene.instantiate() as MatchArenaNode
+	add_child(charge_arena)
+	await get_tree().process_frame
 
 	# Controleur's charged turret (2026-08-10): "il manque le tir charge de
 	# controleur. idee: pose une tourelle ephemere, qui tire 4x plus vite,

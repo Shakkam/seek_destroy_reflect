@@ -66,6 +66,16 @@ func _physics_process(delta: float) -> void:
 	_flash_timer = maxf(_flash_timer - delta, 0.0)
 	if _visual:
 		_visual.modulate = Color(1.7, 1.7, 1.7) if _flash_timer > 0.0 else Color(1.0, 1.0, 1.0)
+	queue_redraw() # cheap even when DebugOverlay.show_hitboxes is false — _draw() below just no-ops
+
+## 2026-08-10 (see ShipNode._draw() for the full note on why the stroke is
+## wide, not thin, and why this is a get_node_or_null() lookup rather than
+## a direct DebugOverlay reference) — draws the EXACT rect ProjectileNode's
+## swept hit-check tests against.
+func _draw() -> void:
+	var debug := get_node_or_null("/root/DebugOverlay")
+	if debug and debug.show_hitboxes:
+		draw_rect(Rect2(-HALF_EXTENTS, HALF_EXTENTS * 2.0), Color(1.0, 0.15, 0.15, 0.9), false, 4.0)
 
 ## 2026-08-10: hit detection moved to ProjectileNode's own physics step (see
 ## its swept _segment_crosses_rect() check) so it can never race this node's
