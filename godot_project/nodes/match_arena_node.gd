@@ -259,6 +259,12 @@ func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 	if weapon.effect_type == "beam":
 		var duration := weapon.charged_beam_duration if weapon.charged_beam_duration > 0.0 else weapon.beam_duration
 		_spawn_timed_beam(weapon, ship, duration, weapon.charged_beam_thickness_multiplier)
+		# 2026-08-10, Camil: "le gros laser est TRES puissant... reduire la
+		# vitesse a 60% le temps du gros laser, histoire que l'adversaire
+		# puisse un peu s'echapper" — shooter self-slow for the beam's whole
+		# lifetime, so Zoneur can't keep perfectly tracking a dodging target.
+		if weapon.charged_beam_shooter_slow_multiplier < 1.0:
+			ship.apply_charged_beam_slow(duration, weapon.charged_beam_shooter_slow_multiplier)
 		return
 	if weapon.charged_double_fire_shots > 0:
 		# Mitrailleur (2026-08-09) — a pure self-buff, no projectile at all;

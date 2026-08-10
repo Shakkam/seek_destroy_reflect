@@ -151,9 +151,7 @@ func _resolve_ships() -> void:
 
 			var outgoing_side := 1 if ship.side == 0 else -1
 			var lift_charge := ship.get_lift_charge()
-			# Zoneur's "aim_reticle" rule (2026-08-09) — a return connecting
-			# after holding Lift long enough carries a ball speed boost.
-			state = state.returned(ship.get_aim_input(), lift_charge, outgoing_side, ship.get_return_speed_boost())
+			state = state.returned(ship.get_aim_input(), lift_charge, outgoing_side)
 			_blocked_side = ship.side
 			_return_cooldown = 0.15
 

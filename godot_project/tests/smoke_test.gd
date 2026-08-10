@@ -35,8 +35,6 @@ func _initialize() -> void:
 	_test_weapon_heat_gauge()
 	_test_mitrailleur_double_fire_rule()
 	_test_vif_dash_lift_rule()
-	_test_zoneur_aim_reticle_rule()
-	_test_ball_speed_boost()
 	_test_weapon_exclusivity()
 	_test_every_charge_capable_weapon_actually_slows()
 	_test_vortex_weapon()
@@ -707,46 +705,6 @@ func _test_vif_dash_lift_rule() -> void:
 	ship.queue_free()
 	lourd_ship.queue_free()
 
-func _test_zoneur_aim_reticle_rule() -> void:
-	# 2026-08-09 (Camil): "je remplacerais son lift par l'apparition d'une
-	# cible et rapidement zoneur peut choisir ou part la balle. S'il reussit
-	# avec un chargement de 2 secondes, ca donne en + un boost de vitesse a
-	# la balle."
-	var zoneur: CharacterData = load("res://data/characters/zoneur.tres")
-	_check("Zoneur's special_rule is aim_reticle", zoneur.special_rule == "aim_reticle")
-
-	var ship := ShipNode.new()
-	ship.character = zoneur
-	_check("get_lift_charge() always reads 0% for an aim_reticle character (the MINUS: no spin ever)", ship.get_lift_charge() == 0.0)
-	_check("get_return_speed_boost() is 1.0 (no boost) before holding long enough", ship.get_return_speed_boost() == 1.0)
-
-	ship._aim_hold_duration = ShipNode.AIM_BOOST_HOLD_THRESHOLD
-	_check("get_return_speed_boost() kicks in once held for the threshold (the PLUS)", ship.get_return_speed_boost() == ShipNode.AIM_BOOST_SPEED_MULTIPLIER)
-
-	ship._aim_hold_duration = ShipNode.AIM_BOOST_HOLD_THRESHOLD - 0.1
-	_check("get_return_speed_boost() is still 1.0 just short of the threshold", ship.get_return_speed_boost() == 1.0)
-
-	# A normal character is completely untouched by this rewrite.
-	var lourd: CharacterData = load("res://data/characters/lourd.tres")
-	var lourd_ship := ShipNode.new()
-	lourd_ship.character = lourd
-	lourd_ship._lift_charge_timer = 1.5 # full charge
-	_check("a normal character still uses the hold-to-charge tiers unaffected", lourd_ship.get_lift_charge() == 1.0)
-	_check("a normal character never gets the aim speed boost", lourd_ship.get_return_speed_boost() == 1.0)
-
-	ship.queue_free()
-	lourd_ship.queue_free()
-
-func _test_ball_speed_boost() -> void:
-	# BallState.returned()'s speed_boost_multiplier — pure math, checked
-	# directly (the full return-flow wiring is smoke_test's
-	# _test_zoneur_aim_reticle_rule() + ball_node.gd's own review).
-	var state := BallState.new(Vector2(500, 300), Vector2(-BallState.BASE_SPEED, 0.0))
-	var normal_return := state.returned(Vector2.ZERO, 0.0, 1, 1.0)
-	var boosted_return := state.returned(Vector2.ZERO, 0.0, 1, ShipNode.AIM_BOOST_SPEED_MULTIPLIER)
-	_check("a boosted return travels faster than a normal one", boosted_return.velocity.length() > normal_return.velocity.length())
-	_check("the boost applies the exact configured multiplier", is_equal_approx(boosted_return.velocity.length(), normal_return.velocity.length() * ShipNode.AIM_BOOST_SPEED_MULTIPLIER))
-
 func _test_every_charge_capable_weapon_actually_slows() -> void:
 	# 2026-08-09 — a general invariant, added after vortex.tres shipped with
 	# charge_fire_duration set but no charge_fire_slow_multiplier (silently
@@ -926,15 +884,6 @@ func _test_charged_fire_burst() -> void:
 	# toujours en appui, la charge commence") — normal fire for the first
 	# NORMAL_FIRE_GRACE seconds of a hold, THEN it starts charging.
 	_check("NORMAL_FIRE_GRACE is about 1 second, per Camil's spec", is_equal_approx(ShipNode.NORMAL_FIRE_GRACE, 1.0))
-
-	# 2026-08-09 recurring bug report: "y'a toujours le pb du ralentissement
-	# quand on charge. Il faut que le ralentissement reste tant qu'on a pas
-	# relache (meme si la charge est finie)" — a momentary fire_held dip
-	# (e.g. analog trigger jitter) must not be treated as an instant real
-	# release. FIRE_RELEASE_GRACE's exact state-machine behavior needs live
-	# Input to exercise (same limitation as the rest of this suite) — just
-	# checking the constant exists with a sane, non-zero, sub-second value.
-	_check("FIRE_RELEASE_GRACE tolerates a brief input dip without losing the charge", ShipNode.FIRE_RELEASE_GRACE > 0.0 and ShipNode.FIRE_RELEASE_GRACE < 0.5)
 
 	# 2026-08-09 (Camil): "quand la charge est fini, tu peux faire clignoter
 	# rapidement le joueur pour qu'on sache que c'est bon", then after

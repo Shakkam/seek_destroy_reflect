@@ -35,6 +35,7 @@ extends Resource
 @export var beam_duration: float = 0.5 # effect_type == "beam" only: seconds the normal-fire pulse persists, with a quick fade in/out (2026-08-09)
 @export var beam_thickness_multiplier: float = 1.0 # effect_type == "beam" only
 @export var charged_beam_duration: float = 0.0 # effect_type == "beam" only: seconds the CHARGED pulse persists — 0 falls back to beam_duration
+@export var charged_beam_shooter_slow_multiplier: float = 1.0 # effect_type == "beam" only: 2026-08-10, Camil: "le gros laser est TRES puissant... faudrait un petit nerf. Je pense reduire la vitesse a 60% le temps du gros laser, histoire que l'adversaire puisse un peu s'echapper" — shooter's OWN move speed while the charged beam is alive, so a slowed Zoneur can't keep tracking a dodging opponent
 @export var charged_beam_thickness_multiplier: float = 1.0 # effect_type == "beam" only
 @export var turret_hp: float = 22.0 # effect_type == "turret" only: destroyed by opponent fire once its HP runs out (2026-08-05 playtest: "faudrait qu'elle soit destructible (20/25 PV)")
 @export var turret_lifetime: float = 25.0 # effect_type == "turret" only: seconds before it expires on its own if not destroyed first (2026-08-05 playtest: was a flat 6s, "devraient durer bien plus longtemps, au moins 20-30 secondes")

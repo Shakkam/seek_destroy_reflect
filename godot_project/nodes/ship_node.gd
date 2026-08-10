@@ -63,6 +63,20 @@ var _vulnerability_timer := 0.0
 const VULNERABILITY_DURATION := 0.7 # Story 1.8 — heavy weapons expose the shooter briefly (doubled 2026-08-01)
 const VULNERABILITY_SPEED_MULTIPLIER := 0.35
 
+# 2026-08-10, Camil: "le gros laser est TRES puissant... faudrait un petit
+# nerf. Je pense reduire la vitesse a 60% le temps du gros laser, histoire
+# que l'adversaire puisse un peu s'echapper" — Zoneur's own move speed drops
+# while their charged beam is alive, so a slowed shooter can't keep tracking
+# a dodging opponent. Armed by MatchArenaNode when it spawns the charged
+# pulse (see _on_charged_weapon_fired()); multiplier comes from
+# weapon.charged_beam_shooter_slow_multiplier so it stays data-driven.
+var _charged_beam_slow_timer := 0.0
+var _charged_beam_slow_multiplier := 1.0
+
+func apply_charged_beam_slow(duration: float, multiplier: float) -> void:
+	_charged_beam_slow_timer = duration
+	_charged_beam_slow_multiplier = multiplier
+
 const FIRE_HOLD_SPEED_MULTIPLIER := 0.5 # -50% while the fire button is held (2026-08-01 — "balance la sauce", was -40%)
 
 # Lift/spin charge (redesigned 2026-08-01): holding the lift key freezes
@@ -91,20 +105,6 @@ const DASH_SPEED_MULTIPLIER := 3.0
 const DASH_COOLDOWN := 0.5 # can't chain dashes back to back
 const DASH_LIFT_CHARGE := 0.33 # "un leger lift" — fixed, since there's no charging to reach higher
 
-# Zoneur's rewrite (2026-08-09, Camil): "je remplacerais son lift par
-# l'apparition d'une cible et rapidement zoneur peut choisir ou part la
-# balle. S'il reussit avec un chargement de 2 secondes, ca donne en + un
-# boost de vitesse a la balle." The MINUS: no spin/curve from lift at all
-# (get_lift_charge() always reads 0% — pure precision, no wobble). The
-# PLUS: a visible aim reticle appears while Lift is held, tracking the
-# current aim direction; a return connecting after holding for at least
-# AIM_BOOST_HOLD_THRESHOLD carries a ball speed boost.
-var _aim_hold_duration := 0.0 # how long Lift has been held this press, for aim_reticle characters
-var _aim_reticle: Polygon2D = null
-const AIM_BOOST_HOLD_THRESHOLD := 2.0 # seconds
-const AIM_BOOST_SPEED_MULTIPLIER := 1.4
-const AIM_RETICLE_DISTANCE := 100.0 # px ahead of the ship, along the aim direction
-
 # Charged fire (2026-08-09, per-weapon — see WeaponData.charge_fire_duration).
 # Redesigned after playtesting the first version (Camil: "je laisse appuye,
 # ca tire normalement. si au bout d'une seconde je suis toujours en appui,
@@ -117,16 +117,15 @@ const AIM_RETICLE_DISTANCE := 100.0 # px ahead of the ship, along the aim direct
 var _fire_held_duration := 0.0 # how long the CURRENT press has been held, resets to 0 the instant fire is released
 const CHARGE_READY_BLINK_PERIOD := 0.15 # seconds per full on/off cycle once fully charged (2026-08-09 playtest: "pas mal le clignotement, tu peux le faire beaucoup plus rapide" — was 0.5)
 const NORMAL_FIRE_GRACE := 1.0 # seconds of normal fire before a sustained hold starts charging
-
-# 2026-08-09 bug report (recurring): "y'a toujours le pb du ralentissement
-# quand on charge. Il faut que le ralentissement reste tant qu'on a pas
-# relache (meme si la charge est finie)" — a momentary dip in fire_held
-# (analog trigger axis noise near GAMEPAD_TRIGGER_THRESHOLD, or any other
-# single-frame Input read hiccup) used to be treated as an instant genuine
-# release, zeroing _fire_held_duration and dropping the slow for that
-# frame. This grace absorbs a short dip without losing the charge attempt.
-var _fire_release_grace_timer := 0.0
-const FIRE_RELEASE_GRACE := 0.1 # seconds of tolerance before a fire_held dip counts as a real release
+# 2026-08-09: a "release grace" (forgiving a brief fire_held dip so a charge
+# attempt wouldn't lose its slow for one frame) was tried here and reverted
+# — it caused a WORSE bug ("dès fois quand je relache pendant la charge, la
+# charge continue"): releasing and quickly re-pressing within the grace
+# window read as one unbroken hold, so the charge never actually reset. The
+# real slow-down bug (see charge_fire_slow_multiplier below) had a
+# different root cause entirely (a missing field on vortex.tres), so this
+# workaround was never needed — release now always ends the attempt
+# immediately, no forgiveness window.
 
 # Full-auto vs. semi-auto (2026-08-09, Camil: "seul mitrailleur tire
 # plusieurs fois d'affilee quand on laisse appuye... pour les autres, il
@@ -253,7 +252,6 @@ func _physics_process(delta: float) -> void:
 
 	var lift_held := _read_lift_held()
 	var is_dash_character := character != null and character.special_rule == "dash_lift"
-	var is_aim_reticle_character := character != null and character.special_rule == "aim_reticle"
 
 	if is_dash_character:
 		# Vif's rewrite: never charges (the MINUS) — Lift is edge-triggered
@@ -269,17 +267,6 @@ func _physics_process(delta: float) -> void:
 			_dash_direction = chosen_dir.normalized()
 			_dash_timer = DASH_DURATION
 			_dash_cooldown_timer = DASH_COOLDOWN
-	elif is_aim_reticle_character:
-		# Zoneur's rewrite: never charges spin either (the MINUS) — Lift
-		# instead shows an aim reticle and tracks hold duration toward the
-		# speed-boost threshold (the PLUS). See field comments above.
-		_lift_charge_timer = 0.0
-		if lift_held:
-			_aim_hold_duration += delta
-			_update_aim_reticle(true)
-		else:
-			_aim_hold_duration = 0.0
-			_update_aim_reticle(false)
 	elif lift_held:
 		_lift_charge_timer = minf(_lift_charge_timer + delta, LIFT_CHARGE_CAP)
 	else:
@@ -304,12 +291,6 @@ func _physics_process(delta: float) -> void:
 	if charge_capable:
 		if fire_held:
 			_fire_held_duration += delta
-			_fire_release_grace_timer = FIRE_RELEASE_GRACE
-		elif _fire_release_grace_timer > 0.0:
-			# Momentary dip in fire_held (input jitter) — not a real release
-			# yet. Keep the attempt alive as-is (don't accumulate further,
-			# don't reset) while the grace ticks down.
-			_fire_release_grace_timer -= delta
 		elif _fire_held_duration > NORMAL_FIRE_GRACE:
 			# only a release AFTER the grace window is a "charge attempt" —
 			# releasing during/at the grace window just stops normal fire,
@@ -321,7 +302,6 @@ func _physics_process(delta: float) -> void:
 			_fire_held_duration = 0.0
 	else:
 		_fire_held_duration = 0.0
-		_fire_release_grace_timer = 0.0
 	# 2026-08-09 bug report: "parfois pendant la charge, la vitesse n'est pas
 	# diminuee. le joueur DOIT rester a 30% de vitesse tant que le bouton de
 	# tir n'a pas ete relache" — derived from the persisted _fire_held_duration
@@ -351,6 +331,8 @@ func _physics_process(delta: float) -> void:
 		speed_multiplier = minf(speed_multiplier, selected.charge_fire_slow_multiplier)
 	if _vulnerability_timer > 0.0:
 		speed_multiplier = minf(speed_multiplier, VULNERABILITY_SPEED_MULTIPLIER)
+	if _charged_beam_slow_timer > 0.0:
+		speed_multiplier = minf(speed_multiplier, _charged_beam_slow_multiplier)
 	if fire_held and not is_charging:
 		speed_multiplier = minf(speed_multiplier, FIRE_HOLD_SPEED_MULTIPLIER) # normal firing (including a charge-capable weapon's grace window) always carries this slow; charge_fire_slow_multiplier takes over once actually charging
 	state = state.update(input_direction, delta, arena_bounds, frontier_x, speed_multiplier)
@@ -415,6 +397,7 @@ func _physics_process(delta: float) -> void:
 	_apply_passive_trickle(delta)
 	_stun_timer = maxf(_stun_timer - delta, 0.0)
 	_vulnerability_timer = maxf(_vulnerability_timer - delta, 0.0)
+	_charged_beam_slow_timer = maxf(_charged_beam_slow_timer - delta, 0.0)
 	_flash_timer = maxf(_flash_timer - delta, 0.0)
 	var visual := get_node_or_null("Visual") as Polygon2D
 	if visual:
@@ -469,6 +452,7 @@ func reset_for_new_round() -> void:
 	position = _spawn_position
 	state = ShipState.new(_spawn_position, side, half_extents, max_hp_override)
 	_vulnerability_timer = 0.0
+	_charged_beam_slow_timer = 0.0
 	# 2026-08-08 bug report: weapon gauges carried over between rounds
 	# (a maxed gauge from round 1's rally could open round 2 with a free
 	# shot). Rebuild fresh — same kit, gauges/cooldown back to 0 — keeping
@@ -569,8 +553,6 @@ func _read_lift_held() -> bool:
 func get_lift_charge() -> float:
 	if character != null and character.special_rule == "dash_lift":
 		return DASH_LIFT_CHARGE if _dash_timer > 0.0 else 0.0
-	if character != null and character.special_rule == "aim_reticle":
-		return 0.0 # Zoneur's rewrite: no spin/curve ever — precision, not power (the speed boost lives in get_return_speed_boost() instead)
 	if _lift_charge_timer < 0.3:
 		return 0.0
 	elif _lift_charge_timer < 0.6:
@@ -578,37 +560,6 @@ func get_lift_charge() -> float:
 	elif _lift_charge_timer < 1.5:
 		return 0.66
 	return 1.0
-
-## Zoneur's rewrite (2026-08-09) — see AIM_BOOST_HOLD_THRESHOLD field
-## comment. 1.0 = no boost (everyone else, or Zoneur without holding long
-## enough); AIM_BOOST_SPEED_MULTIPLIER once Lift has been held long enough.
-func get_return_speed_boost() -> float:
-	if character != null and character.special_rule == "aim_reticle" and _aim_hold_duration >= AIM_BOOST_HOLD_THRESHOLD:
-		return AIM_BOOST_SPEED_MULTIPLIER
-	return 1.0
-
-## Zoneur's rewrite (2026-08-09) — a small visible marker along the current
-## aim direction while Lift is held, so "where the ball will go" is no
-## longer invisible. Purely cosmetic (rendering only); the actual return
-## direction still comes from get_aim_input() as always.
-func _update_aim_reticle(visible_now: bool) -> void:
-	if not visible_now:
-		if _aim_reticle:
-			_aim_reticle.queue_free()
-			_aim_reticle = null
-		return
-	if not _aim_reticle:
-		_aim_reticle = Polygon2D.new()
-		var pts := PackedVector2Array()
-		for i in 8:
-			var angle := TAU * i / 8.0
-			pts.append(Vector2(cos(angle), sin(angle)) * 6.0)
-		_aim_reticle.polygon = pts
-		_aim_reticle.color = Color(1.0, 0.9, 0.2, 0.85)
-		add_child(_aim_reticle)
-	var aim_dir := get_aim_input()
-	var dir := aim_dir.normalized() if aim_dir.length() > 0.01 else Vector2(1.0 if side == 0 else -1.0, 0.0)
-	_aim_reticle.position = dir * AIM_RETICLE_DISTANCE
 
 ## Story 1.12 — heuristic AI (still deliberately unskilled per AC, no
 ## reflex-tier precision): anticipates the ball's vertical trajectory with a

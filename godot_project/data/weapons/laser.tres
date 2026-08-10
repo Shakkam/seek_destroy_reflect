@@ -19,3 +19,4 @@ charge_fire_duration = 3.0
 charge_fire_slow_multiplier = 0.3
 charged_beam_duration = 3.0
 charged_beam_thickness_multiplier = 2.0
+charged_beam_shooter_slow_multiplier = 0.6

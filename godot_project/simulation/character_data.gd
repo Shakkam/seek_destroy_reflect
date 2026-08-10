@@ -25,14 +25,13 @@ extends Resource
 ## opponent back on contact — see BallNode._resolve_ships()/
 ## ShipNode.apply_knockback() (2026-08-09, Camil: "il faudrait donc que ca
 ## 'pousse' la balle et que cette derniere pousse le joueur adverse").
-## "aim_reticle" (Zoneur): "je remplacerais son lift par l'apparition d'une
-## cible et rapidement zoneur peut choisir ou part la balle. S'il reussit
-## avec un chargement de 2 secondes, ca donne en + un boost de vitesse a la
-## balle." The MINUS: no spin/curve from lift at all (always reads as an
-## unboosted return otherwise — pure precision, no wobble). The PLUS: a
-## visible aim reticle while Lift is held, and a return connecting after
-## holding >= ShipNode.AIM_BOOST_HOLD_THRESHOLD carries a ball speed boost.
-@export_enum("none", "dash_lift", "heavy_push", "aim_reticle") var special_rule: String = "none"
+## "aim_reticle" (Zoneur) was tried and reverted 2026-08-09 — Camil: "du
+## coup pour zoneur, la visee a la place du lift ne sert plus a rien. On
+## repasse au lift." (the aim itself was always available to everyone via
+## get_aim_input(), lift-gated or not — visualizing it added nothing new).
+## Zoneur is back on the shared hold-to-charge lift like everyone without a
+## special_rule.
+@export_enum("none", "dash_lift", "heavy_push") var special_rule: String = "none"
 
 ## 2026-08-09 (Camil: "seul mitrailleur tire plusieurs fois d'affilee quand
 ## on laisse appuye... pour les autres, il faut appuyer plusieurs fois pour
