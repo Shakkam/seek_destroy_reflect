@@ -168,11 +168,16 @@ func _test_boomerang_motion() -> void:
 	var shooter := ShipNode.new()
 	shooter.position = Vector2(200, 300)
 
-	# 2026-08-10 bug report: "boomerang ne marche pas du tout, c'est pas
-	# interessant" — the outbound leg used to curve a FIXED direction no
-	# matter where the target was. Place the target BELOW the shooter and
-	# confirm the outbound arc actually bends that way (velocity.y > 0,
-	# Godot's y-down convention) instead of some arbitrary fixed direction.
+	# 2026-08-10 bug reports, in order:
+	# 1) "boomerang ne marche pas du tout" — the outbound leg used to curve a
+	#    fixed direction no matter where the target was.
+	# 2) "les boomerangs ne doivent pas etre teleguides !" — the fix for #1
+	#    (chasing the target's live position every frame) read as a homing
+	#    missile instead.
+	# Landed design: the curve direction is captured ONCE at _ready() (from
+	# the target's position at throw time), then frozen — still biased
+	# toward the opponent (fixes #1) but can't re-track them afterward
+	# (fixes #2). Place the target BELOW the shooter at spawn.
 	var target := ShipNode.new()
 	target.position = Vector2(900, 500)
 
@@ -190,12 +195,22 @@ func _test_boomerang_motion() -> void:
 	root.add_child(projectile)
 	# _ready() only fires once the node is inside the tree and processes a
 	# frame; manually invoke the physics step instead of waiting on real
-	# engine ticks so this stays a synchronous, deterministic test.
+	# engine ticks so this stays a synchronous, deterministic test. _ready()
+	# already fired on add_child() above, so the curve sign is captured now.
 	var outbound_start := projectile.position
-	for i in 10: # ~0.33s in — still inside the default 0.45s outbound window
+	for i in 5: # ~0.17s in — still inside the default 0.45s outbound window
 		projectile._physics_process(1.0 / 30.0)
-	_check("boomerang's outbound arc bends toward the target instead of a fixed direction", projectile.velocity.y > 0.0)
+	_check("boomerang's outbound arc bends toward where the target was at throw time", projectile.velocity.y > 0.0)
 	_check("boomerang left its spawn point", projectile.position.distance_to(outbound_start) > 1.0)
+
+	# Move the target to the OPPOSITE side mid-flight — a homing boomerang
+	# would bend the other way; this one must keep curving the SAME way,
+	# since the direction was already frozen at throw time.
+	target.position = Vector2(900, 50)
+	for i in 5: # remaining frames up to ~0.33s, still inside the 0.45s outbound window
+		projectile._physics_process(1.0 / 30.0)
+	_check("boomerang does NOT re-track a target that moves after the throw (not teleguide)", projectile.velocity.y > 0.0)
+
 	for i in 10: # push on past the 0.45s outbound window
 		projectile._physics_process(1.0 / 30.0)
 	_check("boomerang has entered the return phase after 0.67s", projectile._boomerang_returning)
@@ -252,6 +267,33 @@ func _test_turret_destructible() -> void:
 	var turret_data: WeaponData = load("res://data/weapons/turret.tres")
 	_check("turret has HP defined", turret_data.turret_hp > 0.0)
 	_check("turret lifetime is 20-30s (2026-08-05 playtest: was a flat 6s)", turret_data.turret_lifetime >= 20.0 and turret_data.turret_lifetime <= 30.0)
+	# Controleur's charged turret (2026-08-10): "il manque le tir charge de
+	# controleur. idee: pose une tourelle ephemere, qui tire 4x plus vite,
+	# mais ne dure que 5 secondes".
+	_check("Controleur's charged fire is configured", turret_data.charge_fire_duration > 0.0)
+	_check("Controleur's charge actually slows movement", turret_data.charge_fire_slow_multiplier < 1.0)
+	_check("the charged turret fires 4x faster", is_equal_approx(turret_data.charged_turret_fire_rate_multiplier, 4.0))
+	_check("the charged turret only lasts 5 seconds", is_equal_approx(turret_data.charged_turret_lifetime, 5.0))
+
+	# The override fields must actually reach TurretNode's own timers, not
+	# just sit on the WeaponData resource.
+	var charged_turret := TurretNode.new()
+	charged_turret.weapon = turret_data
+	charged_turret.owner_side = 0
+	charged_turret.fire_rate_multiplier = turret_data.charged_turret_fire_rate_multiplier
+	charged_turret.lifetime_override = turret_data.charged_turret_lifetime
+	var normal_turret := TurretNode.new()
+	normal_turret.weapon = turret_data
+	normal_turret.owner_side = 0
+	root.add_child(charged_turret)
+	root.add_child(normal_turret)
+	charged_turret._ready() # this harness never calls _ready() on its own (see turret.hp comment above) — invoke it manually, same convention used elsewhere in this file
+	normal_turret._ready()
+	_check("a charged turret's fire cooldown is 4x shorter than a normal turret's", is_equal_approx(charged_turret._fire_cooldown, normal_turret._fire_cooldown / 4.0))
+	_check("a charged turret's lifetime is overridden to 5s, not the normal 20-30s", is_equal_approx(charged_turret._lifetime_left, 5.0))
+	_check("a normal turret keeps its full lifetime unaffected", is_equal_approx(normal_turret._lifetime_left, turret_data.turret_lifetime))
+	charged_turret.queue_free()
+	normal_turret.queue_free()
 
 	var enemy_ship := ShipNode.new()
 	enemy_ship.side = 0 # the turret below defends side 0, against fire aimed at a side-0 ship

@@ -14,3 +14,7 @@ is_heavy = false
 effect_type = "turret"
 turret_hp = 22.0
 turret_lifetime = 25.0
+charge_fire_duration = 3.0
+charge_fire_slow_multiplier = 0.3
+charged_turret_fire_rate_multiplier = 4.0
+charged_turret_lifetime = 5.0

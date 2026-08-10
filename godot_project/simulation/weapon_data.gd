@@ -40,6 +40,12 @@ extends Resource
 @export var turret_hp: float = 22.0 # effect_type == "turret" only: destroyed by opponent fire once its HP runs out (2026-08-05 playtest: "faudrait qu'elle soit destructible (20/25 PV)")
 @export var turret_lifetime: float = 25.0 # effect_type == "turret" only: seconds before it expires on its own if not destroyed first (2026-08-05 playtest: was a flat 6s, "devraient durer bien plus longtemps, au moins 20-30 secondes")
 
+# Controleur's charged turret (2026-08-10, Camil: "il manque le tir charge
+# de controleur. idee: pose une tourelle ephemere, qui tire 4x plus vite,
+# mais ne dure que 5 secondes") — effect_type == "turret" only.
+@export var charged_turret_fire_rate_multiplier: float = 1.0 # multiplies weapon.fire_rate for the charged turret only
+@export var charged_turret_lifetime: float = 0.0 # 0 = fall back to turret_lifetime (i.e. behaves like a normal turret)
+
 # "Shmup juice pass" (2026-08-05 feedback: "réveiller l'esprit shoot'em up") —
 # data-driven so tuning any of this is authoring a .tres, never a code change.
 @export var spread_deg: float = 2.0 # random angle jitter per shot, non-heavy weapons only (heavy stays true to its aim)

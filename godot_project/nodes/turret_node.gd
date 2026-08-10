@@ -26,6 +26,13 @@ var target: ShipNode
 var owner_side: int = 0
 var hp: float = 0.0
 
+# Controleur's charged turret (2026-08-10): "pose une tourelle ephemere, qui
+# tire 4x plus vite, mais ne dure que 5 secondes" — set by MatchArenaNode._
+# spawn_turret() before add_child() when this is the CHARGED release; a
+# normal turret leaves both at their defaults (1.0 / 0.0, i.e. no override).
+var fire_rate_multiplier: float = 1.0
+var lifetime_override: float = 0.0 # 0 = use weapon.turret_lifetime unmodified
+
 var _visual: Polygon2D
 var _lifetime_left := 0.0 # set from weapon.turret_lifetime in _ready() — weapon isn't assigned yet at field-init time
 var _fire_cooldown := 0.0
@@ -34,14 +41,16 @@ const FLASH_DURATION := 0.08
 
 func _ready() -> void:
 	hp = weapon.turret_hp
-	_lifetime_left = weapon.turret_lifetime
+	_lifetime_left = lifetime_override if lifetime_override > 0.0 else weapon.turret_lifetime
 	_visual = Polygon2D.new()
 	_visual.polygon = PackedVector2Array([
 		Vector2(-12, -12), Vector2(12, -12), Vector2(12, 12), Vector2(-12, 12),
 	]) # 1.5x the old 8x8 (2026-08-09 playtest, matches HALF_EXTENTS)
 	_visual.color = Color(0.4, 0.9, 0.4) if owner_side == 0 else Color(0.9, 0.4, 0.9)
+	if fire_rate_multiplier > 1.0:
+		_visual.color = _visual.color.lightened(0.4) # visibly distinct from a normal turret — "tire 4x plus vite" should read as different at a glance
 	add_child(_visual)
-	_fire_cooldown = 1.0 / weapon.fire_rate
+	_fire_cooldown = 1.0 / (weapon.fire_rate * fire_rate_multiplier)
 
 func _physics_process(delta: float) -> void:
 	_lifetime_left -= delta
@@ -51,7 +60,7 @@ func _physics_process(delta: float) -> void:
 
 	_fire_cooldown -= delta
 	if _fire_cooldown <= 0.0:
-		_fire_cooldown = 1.0 / weapon.fire_rate
+		_fire_cooldown = 1.0 / (weapon.fire_rate * fire_rate_multiplier)
 		_fire_at_target()
 
 	_flash_timer = maxf(_flash_timer - delta, 0.0)

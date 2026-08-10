@@ -259,6 +259,11 @@ func _on_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 ## different pattern (a straight staggered burst, a wide fan, a single
 ## empowered shot, ...) purely via data.
 func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
+	if weapon.effect_type == "turret":
+		# Controleur (2026-08-10): "pose une tourelle ephemere, qui tire 4x
+		# plus vite, mais ne dure que 5 secondes".
+		_spawn_turret(weapon, ship, true)
+		return
 	if weapon.effect_type == "beam":
 		var duration := weapon.charged_beam_duration if weapon.charged_beam_duration > 0.0 else weapon.beam_duration
 		_spawn_timed_beam(weapon, ship, duration, weapon.charged_beam_thickness_multiplier)
@@ -411,12 +416,17 @@ func _weapon_tint(weapon_id: String) -> Color:
 
 ## Story 2.4 — turret weapons spawn a persistent autonomous-firing node at
 ## the shooter's position instead of a traveling projectile.
-func _spawn_turret(weapon: WeaponData, ship: ShipNode) -> void:
+func _spawn_turret(weapon: WeaponData, ship: ShipNode, is_charged: bool = false) -> void:
 	var turret := TurretNode.new()
 	turret.position = ship.position
 	turret.weapon = weapon
 	turret.target = ship_2 if ship == ship_1 else ship_1
 	turret.owner_side = ship.side
+	if is_charged:
+		# Controleur (2026-08-10): "pose une tourelle ephemere, qui tire 4x
+		# plus vite, mais ne dure que 5 secondes".
+		turret.fire_rate_multiplier = weapon.charged_turret_fire_rate_multiplier
+		turret.lifetime_override = weapon.charged_turret_lifetime
 	add_child(turret)
 
 ## Story 1.9 — a round ends when a ship's HP reaches 0; award the round,

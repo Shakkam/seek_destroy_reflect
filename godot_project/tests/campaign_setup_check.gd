@@ -321,6 +321,25 @@ func _ready() -> void:
 	var boomerang_burst_ok: bool = immediate_boomerangs == 1 and stun_boomerang.projectile_count == 3
 	print("PASS: Perturbateur's normal throw fires 3 boomerangs (1 immediate + 2 staggered) before cooldown" if boomerang_burst_ok else "FAIL: expected 1 immediate projectile + projectile_count 3, got %d immediate, count=%d" % [immediate_boomerangs, stun_boomerang.projectile_count])
 
+	# Controleur's charged turret (2026-08-10): "il manque le tir charge de
+	# controleur. idee: pose une tourelle ephemere, qui tire 4x plus vite,
+	# mais ne dure que 5 secondes".
+	var turret_weapon: WeaponData = load("res://data/weapons/turret.tres")
+	var children_before_turret_charge := charge_arena.get_child_count()
+	charge_arena._on_charged_weapon_fired(turret_weapon, charge_arena.ship_1)
+	await get_tree().process_frame
+	var spawned_charged_turret: TurretNode = null
+	for child in charge_arena.get_children():
+		if child is TurretNode:
+			spawned_charged_turret = child
+	var turret_charge_ok: bool = spawned_charged_turret != null \
+		and is_equal_approx(spawned_charged_turret.fire_rate_multiplier, turret_weapon.charged_turret_fire_rate_multiplier) \
+		and is_equal_approx(spawned_charged_turret.lifetime_override, turret_weapon.charged_turret_lifetime)
+	print("PASS: Controleur's charged fire spawns a faster, shorter-lived turret" if turret_charge_ok else "FAIL: expected fire_rate_multiplier=%.1f lifetime_override=%.1f, got %s" % [turret_weapon.charged_turret_fire_rate_multiplier, turret_weapon.charged_turret_lifetime, spawned_charged_turret])
+	if spawned_charged_turret:
+		spawned_charged_turret.queue_free()
+	await get_tree().process_frame
+
 	# Traqueur's charged missile burst (2026-08-10): "le tir charge de
 	# missiles teleguides ne marche plus" (it never existed) — doubles the
 	# normal swarm count (3 -> 6), staggered like a rafale. Only the first
@@ -415,5 +434,5 @@ func _ready() -> void:
 		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
-		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and boomerang_charge_ok and boomerang_giant_ok and boomerang_burst_ok and missile_charge_ok and mg_charge_ok and double_fire_ok
+		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and boomerang_charge_ok and boomerang_giant_ok and boomerang_burst_ok and missile_charge_ok and turret_charge_ok and mg_charge_ok and double_fire_ok
 	get_tree().quit(0 if all_ok else 1)
