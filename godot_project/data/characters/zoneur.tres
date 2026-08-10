@@ -10,3 +10,4 @@ display_name = "Zoneur"
 archetype = "Zoneur/Precision"
 kit = [ExtResource("2")]
 complexity = "intermediate"
+special_rule = "aim_reticle"

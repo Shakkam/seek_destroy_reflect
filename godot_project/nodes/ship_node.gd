@@ -91,6 +91,20 @@ const DASH_SPEED_MULTIPLIER := 3.0
 const DASH_COOLDOWN := 0.5 # can't chain dashes back to back
 const DASH_LIFT_CHARGE := 0.33 # "un leger lift" — fixed, since there's no charging to reach higher
 
+# Zoneur's rewrite (2026-08-09, Camil): "je remplacerais son lift par
+# l'apparition d'une cible et rapidement zoneur peut choisir ou part la
+# balle. S'il reussit avec un chargement de 2 secondes, ca donne en + un
+# boost de vitesse a la balle." The MINUS: no spin/curve from lift at all
+# (get_lift_charge() always reads 0% — pure precision, no wobble). The
+# PLUS: a visible aim reticle appears while Lift is held, tracking the
+# current aim direction; a return connecting after holding for at least
+# AIM_BOOST_HOLD_THRESHOLD carries a ball speed boost.
+var _aim_hold_duration := 0.0 # how long Lift has been held this press, for aim_reticle characters
+var _aim_reticle: Polygon2D = null
+const AIM_BOOST_HOLD_THRESHOLD := 2.0 # seconds
+const AIM_BOOST_SPEED_MULTIPLIER := 1.4
+const AIM_RETICLE_DISTANCE := 100.0 # px ahead of the ship, along the aim direction
+
 # Charged fire (2026-08-09, per-weapon — see WeaponData.charge_fire_duration).
 # Redesigned after playtesting the first version (Camil: "je laisse appuye,
 # ca tire normalement. si au bout d'une seconde je suis toujours en appui,
@@ -239,6 +253,7 @@ func _physics_process(delta: float) -> void:
 
 	var lift_held := _read_lift_held()
 	var is_dash_character := character != null and character.special_rule == "dash_lift"
+	var is_aim_reticle_character := character != null and character.special_rule == "aim_reticle"
 
 	if is_dash_character:
 		# Vif's rewrite: never charges (the MINUS) — Lift is edge-triggered
@@ -254,6 +269,17 @@ func _physics_process(delta: float) -> void:
 			_dash_direction = chosen_dir.normalized()
 			_dash_timer = DASH_DURATION
 			_dash_cooldown_timer = DASH_COOLDOWN
+	elif is_aim_reticle_character:
+		# Zoneur's rewrite: never charges spin either (the MINUS) — Lift
+		# instead shows an aim reticle and tracks hold duration toward the
+		# speed-boost threshold (the PLUS). See field comments above.
+		_lift_charge_timer = 0.0
+		if lift_held:
+			_aim_hold_duration += delta
+			_update_aim_reticle(true)
+		else:
+			_aim_hold_duration = 0.0
+			_update_aim_reticle(false)
 	elif lift_held:
 		_lift_charge_timer = minf(_lift_charge_timer + delta, LIFT_CHARGE_CAP)
 	else:
@@ -543,6 +569,8 @@ func _read_lift_held() -> bool:
 func get_lift_charge() -> float:
 	if character != null and character.special_rule == "dash_lift":
 		return DASH_LIFT_CHARGE if _dash_timer > 0.0 else 0.0
+	if character != null and character.special_rule == "aim_reticle":
+		return 0.0 # Zoneur's rewrite: no spin/curve ever — precision, not power (the speed boost lives in get_return_speed_boost() instead)
 	if _lift_charge_timer < 0.3:
 		return 0.0
 	elif _lift_charge_timer < 0.6:
@@ -550,6 +578,37 @@ func get_lift_charge() -> float:
 	elif _lift_charge_timer < 1.5:
 		return 0.66
 	return 1.0
+
+## Zoneur's rewrite (2026-08-09) — see AIM_BOOST_HOLD_THRESHOLD field
+## comment. 1.0 = no boost (everyone else, or Zoneur without holding long
+## enough); AIM_BOOST_SPEED_MULTIPLIER once Lift has been held long enough.
+func get_return_speed_boost() -> float:
+	if character != null and character.special_rule == "aim_reticle" and _aim_hold_duration >= AIM_BOOST_HOLD_THRESHOLD:
+		return AIM_BOOST_SPEED_MULTIPLIER
+	return 1.0
+
+## Zoneur's rewrite (2026-08-09) — a small visible marker along the current
+## aim direction while Lift is held, so "where the ball will go" is no
+## longer invisible. Purely cosmetic (rendering only); the actual return
+## direction still comes from get_aim_input() as always.
+func _update_aim_reticle(visible_now: bool) -> void:
+	if not visible_now:
+		if _aim_reticle:
+			_aim_reticle.queue_free()
+			_aim_reticle = null
+		return
+	if not _aim_reticle:
+		_aim_reticle = Polygon2D.new()
+		var pts := PackedVector2Array()
+		for i in 8:
+			var angle := TAU * i / 8.0
+			pts.append(Vector2(cos(angle), sin(angle)) * 6.0)
+		_aim_reticle.polygon = pts
+		_aim_reticle.color = Color(1.0, 0.9, 0.2, 0.85)
+		add_child(_aim_reticle)
+	var aim_dir := get_aim_input()
+	var dir := aim_dir.normalized() if aim_dir.length() > 0.01 else Vector2(1.0 if side == 0 else -1.0, 0.0)
+	_aim_reticle.position = dir * AIM_RETICLE_DISTANCE
 
 ## Story 1.12 — heuristic AI (still deliberately unskilled per AC, no
 ## reflex-tier precision): anticipates the ball's vertical trajectory with a
