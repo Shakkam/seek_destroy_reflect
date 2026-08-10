@@ -78,6 +78,7 @@ func _ready() -> void:
 	_update_sprite_texture()
 
 func _physics_process(delta: float) -> void:
+	var position_before := position
 	if is_boomerang:
 		_update_boomerang(delta)
 	elif is_looping:
@@ -97,7 +98,14 @@ func _physics_process(delta: float) -> void:
 
 	if target:
 		var target_rect := Rect2(target.position - target.half_extents, target.half_extents * 2.0)
-		if target_rect.has_point(position):
+		# 2026-08-09 bug report: "il y a plein de cas ou les tourbillons de
+		# Vif ne touchent pas... l'animation va tellement vite qu'on saute
+		# des frames" — a point check on the post-move position only, with
+		# no idea where the projectile WAS a moment ago, tunnels straight
+		# through the ship's ~28px-wide hitbox whenever a single frame's
+		# movement (loop tangential speed + drift, can exceed 30-40px/frame)
+		# is wider than the target. Sweep the whole frame's travel instead.
+		if _segment_crosses_rect(position_before, position, target_rect):
 			if is_boomerang:
 				# Can land once per leg (out/back) instead of despawning on contact.
 				if _boomerang_returning and not _boomerang_hit_return:
@@ -120,6 +128,25 @@ func _physics_process(delta: float) -> void:
 			_anim_timer = 0.0
 			_anim_index = (_anim_index + 1) % textures.size()
 			_update_sprite_texture()
+
+## Cheap swept collision check (2026-08-09 tunneling fix): samples the whole
+## from->to travel segment at a fixed step size rather than only testing the
+## single post-move position, so a fast (or fast-looping) projectile can't
+## skip clean over a target rect narrower than one frame's movement.
+func _segment_crosses_rect(from: Vector2, to: Vector2, rect: Rect2) -> bool:
+	if rect.has_point(to):
+		return true
+	var travel := to - from
+	var dist := travel.length()
+	if dist < 0.01:
+		return rect.has_point(from)
+	const SAMPLE_STEP := 8.0 # px — comfortably smaller than the ship hitbox's ~28px width
+	var steps := int(ceil(dist / SAMPLE_STEP))
+	for i in steps:
+		var t := float(i) / float(steps)
+		if rect.has_point(from.lerp(to, t)):
+			return true
+	return false
 
 func _update_sprite_texture() -> void:
 	if textures.size() > 0 and _sprite:

@@ -38,6 +38,7 @@ func _initialize() -> void:
 	_test_weapon_exclusivity()
 	_test_every_charge_capable_weapon_actually_slows()
 	_test_vortex_weapon()
+	_test_projectile_tunneling_fix()
 	_test_charged_fire_burst()
 	_test_heavy_push_rule()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
@@ -835,6 +836,44 @@ func _test_vortex_weapon() -> void:
 	if is_instance_valid(probe) and not probe.is_queued_for_deletion():
 		probe.queue_free()
 	projectile.queue_free()
+
+func _test_projectile_tunneling_fix() -> void:
+	# 2026-08-09 bug report: "il y a plein de cas ou les tourbillons de Vif
+	# ne touchent pas. J'ai l'impression que l'animation va tellement vite
+	# qu'on saute des frames" — a point-only check on the post-move position
+	# tunnels through a target rect narrower than one frame's travel. Proven
+	# here with a plain fast straight-line shot (no looping needed to
+	# reproduce it): a single large step that lands cleanly on the FAR side
+	# of the target, having started cleanly on the near side, must still
+	# register as a hit via the swept segment check.
+	var target := ShipNode.new()
+	target.position = Vector2(500, 300)
+	target.half_extents = Vector2(14, 28) # ~28px-wide hitbox
+	target.state = ShipState.new(target.position, 0, target.half_extents)
+
+	# Target rect spans x in [486, 514] (position.x=500, half_extents.x=14).
+	# Start clearly before it, end clearly past it, in a single physics step
+	# — neither endpoint is inside the rect, only the sweep between them is.
+	var projectile := ProjectileNode.new()
+	projectile.position = Vector2(470, 300)
+	projectile.velocity = Vector2(3600.0, 0.0) # a single 1/60s step covers 60px, clearing the whole 28px-wide hitbox
+	projectile.target = target
+	projectile.damage = 5
+	projectile._physics_process(1.0 / 60.0)
+	_check("a fast shot that would land past the target in one step still registers a hit (no tunneling)", target.state.hp < ShipState.START_HP)
+
+	target.queue_free()
+	if is_instance_valid(projectile) and not projectile.is_queued_for_deletion():
+		projectile.queue_free()
+
+	# The swept check itself, directly: a segment that starts before and
+	# ends after a rect, passing straight through, must be detected even
+	# though NEITHER endpoint is inside the rect.
+	var probe2 := ProjectileNode.new()
+	var rect := Rect2(100, 100, 20, 20) # spans x in [100, 120]
+	_check("segment sweep catches a pass-through even when both endpoints are outside the rect", probe2._segment_crosses_rect(Vector2(90, 110), Vector2(130, 110), rect))
+	_check("segment sweep correctly reports no crossing for a segment that misses the rect entirely", not probe2._segment_crosses_rect(Vector2(90, 200), Vector2(130, 200), rect))
+	probe2.queue_free()
 
 func _test_charged_fire_burst() -> void:
 	# 2026-08-09 — WeaponData.charged_* fields feeding
