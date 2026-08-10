@@ -180,6 +180,14 @@ func _update_sprite_texture() -> void:
 func _apply_hit_effect() -> void:
 	if effect_type == "stun":
 		target.apply_stun(effect_duration)
+		# 2026-08-10: a "stun" hit used to ignore `damage` entirely, so
+		# Perturbateur's "tir charge: 5x degats" request had nothing to
+		# actually multiply — the field was inert against ships (only ever
+		# read against turrets, see the swept turret-hit check above). Chip
+		# real HP on top of the stun whenever damage is set, so a charged
+		# giant boomerang's 5x damage multiplier is felt, not just seen.
+		if damage > 0:
+			target.apply_damage(damage)
 	else:
 		target.apply_damage(damage)
 

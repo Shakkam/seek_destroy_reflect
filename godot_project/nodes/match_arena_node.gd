@@ -276,9 +276,12 @@ func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 		return
 	if weapon.charged_projectile_count <= 1:
 		# Perturbateur (2026-08-10): "plus on charge, plus le boomerang va
-		# loin, jusqu'au fond du camp adverse" — the charged release just
-		# sends it much further out before it curves back.
-		_spawn_projectile(weapon, ship, 0.0, weapon.charged_speed_multiplier, Vector2.ZERO, weapon.charged_boomerang_out_duration)
+		# loin, jusqu'au fond du camp adverse" — the charged release sends it
+		# much further out before it curves back. "Tir charge: un enorme
+		# boomerang (5 fois la taille, 5x degats)" — charged_damage_multiplier/
+		# charged_visual_scale_multiplier default to 1.0 for every other
+		# weapon, so this only actually changes anything for the boomerang.
+		_spawn_projectile(weapon, ship, 0.0, weapon.charged_speed_multiplier, Vector2.ZERO, weapon.charged_boomerang_out_duration, weapon.charged_damage_multiplier, weapon.charged_visual_scale_multiplier, true)
 		return
 	for i in weapon.charged_projectile_count:
 		var p := float(i) / float(maxi(weapon.charged_projectile_count - 1, 1))
@@ -290,12 +293,12 @@ func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 		var angle_offset := lerpf(-weapon.charged_burst_spread_deg / 2.0, weapon.charged_burst_spread_deg / 2.0, t)
 		if weapon.charged_stagger > 0.0 and i > 0:
 			get_tree().create_timer(i * weapon.charged_stagger).timeout.connect(
-				_spawn_projectile.bind(weapon, ship, angle_offset, weapon.charged_speed_multiplier)
+				_spawn_projectile.bind(weapon, ship, angle_offset, weapon.charged_speed_multiplier, Vector2.ZERO, 0.0, weapon.charged_damage_multiplier, weapon.charged_visual_scale_multiplier)
 			)
 		else:
-			_spawn_projectile(weapon, ship, angle_offset, weapon.charged_speed_multiplier)
+			_spawn_projectile(weapon, ship, angle_offset, weapon.charged_speed_multiplier, Vector2.ZERO, 0.0, weapon.charged_damage_multiplier, weapon.charged_visual_scale_multiplier)
 
-func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: float, speed_multiplier: float = 1.0, position_offset: Vector2 = Vector2.ZERO, boomerang_out_duration_override: float = 0.0) -> void:
+func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: float, speed_multiplier: float = 1.0, position_offset: Vector2 = Vector2.ZERO, boomerang_out_duration_override: float = 0.0, damage_multiplier: float = 1.0, size_multiplier: float = 1.0, force_no_burst_shrink: bool = false) -> void:
 	if not is_instance_valid(ship):
 		return # round may have reset mid-burst-stagger
 
@@ -340,11 +343,16 @@ func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: flo
 		# tip (the bullet's "front") points RIGHT natively in both files, so the
 		# base flip_h = direction < 0.0 (set above) is already correct — the
 		# earlier toggle here was a wrong guess and has been reverted.
-	if weapon.projectile_count > 1:
+	if weapon.projectile_count > 1 and not force_no_burst_shrink:
+		# 2026-08-10: gated on the NORMAL-fire projectile_count, which used to
+		# also (wrongly) shrink Perturbateur's single giant CHARGED boomerang
+		# ("5 fois la taille") just because the weapon's normal fire is a
+		# 3-burst — force_no_burst_shrink lets the single-charged-shot call
+		# site below opt out without touching any other weapon's behavior.
 		projectile.visual_scale *= 0.7 # each unit in a burst reads smaller than a lone shot
-	projectile.visual_scale *= weapon.visual_scale_multiplier
+	projectile.visual_scale *= weapon.visual_scale_multiplier * size_multiplier
 	projectile.homing_strength = weapon.homing_strength
-	projectile.damage = weapon.damage
+	projectile.damage = int(round(weapon.damage * damage_multiplier))
 	projectile.effect_type = weapon.effect_type
 	projectile.effect_duration = weapon.effect_duration
 	projectile.tint = _weapon_tint(weapon.id)

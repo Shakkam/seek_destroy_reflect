@@ -15,6 +15,7 @@ func _initialize() -> void:
 	_test_laser_pulse()
 	_test_missile_swarm_data()
 	_test_boomerang_motion()
+	_test_stun_also_deals_damage()
 	_test_mini_shot_data()
 	_test_turret_destructible()
 	_test_turret_ball_deflection()
@@ -89,6 +90,17 @@ func _test_missile_swarm_data() -> void:
 	_check("missile projectile_count > 1", missile.projectile_count > 1)
 	_check("missile burst_spread_deg > 0", missile.burst_spread_deg > 0.0)
 	_check("missile still homes", missile.homing_strength > 0.0)
+	# 2026-08-10 nerf: "le missile teleguide c'est vraiment fort... en lacher
+	# que 3, et calmer le cote teleguide, -20% de precision".
+	_check("missile swarm was trimmed to 3 (was 4)", missile.projectile_count == 3)
+	_check("missile homing was calmed by 20% (was 2.5)", is_equal_approx(missile.homing_strength, 2.0))
+	# Traqueur's charged fire (2026-08-10): "le tir charge de missiles
+	# teleguides ne marche plus" — it never existed yet; a staggered rafale,
+	# double the normal count, per the original brainstorm note.
+	_check("Traqueur's charged fire is configured", missile.charge_fire_duration > 0.0)
+	_check("Traqueur's charge actually slows movement", missile.charge_fire_slow_multiplier < 1.0)
+	_check("Traqueur's charged burst doubles the missile count", missile.charged_projectile_count == missile.projectile_count * 2)
+	_check("Traqueur's charged burst is staggered like a rafale, not simultaneous", missile.charged_stagger > 0.0)
 
 func _test_mini_shot_data() -> void:
 	# Redesigned 2026-08-06: "mini zonk" idea dropped in favor of a fan burst
@@ -141,6 +153,17 @@ func _test_boomerang_motion() -> void:
 	_check("stun_boomerang has a charged fire configured", boomerang_data.charge_fire_duration > 0.0)
 	_check("stun_boomerang's charge actually slows movement", boomerang_data.charge_fire_slow_multiplier < 1.0)
 	_check("stun_boomerang's charged release goes further (2026-08-10: 'plus on charge, plus le boomerang va loin')", boomerang_data.charged_boomerang_out_duration > 0.0)
+	# 2026-08-10 redesign: "il faudrait que le boomerang aille plus loin...
+	# et que je puisse tirer 3 boomerangs avant cooldown (un peu comme pour
+	# les missiles)". Normal range extended enough to cross the whole arena
+	# (1200px wide) from the shooter's own edge: at the default 620px/s,
+	# boomerang_out_duration=2.0 covers ~1240px outbound.
+	_check("stun_boomerang fires 3 per press, like the missile swarm", boomerang_data.projectile_count == 3)
+	_check("stun_boomerang's normal range crosses the whole arena", boomerang_data.boomerang_out_duration * 620.0 > 1200.0)
+	# "Tir charge: tire un enorme boomerang (5 fois la taille, 5x degats)".
+	_check("stun_boomerang's charged release is a single giant boomerang", boomerang_data.charged_projectile_count == 1)
+	_check("stun_boomerang's charged release is 5x damage", is_equal_approx(boomerang_data.charged_damage_multiplier, 5.0))
+	_check("stun_boomerang's charged release is 5x size", is_equal_approx(boomerang_data.charged_visual_scale_multiplier, 5.0))
 
 	var shooter := ShipNode.new()
 	shooter.position = Vector2(200, 300)
@@ -192,6 +215,38 @@ func _test_boomerang_motion() -> void:
 	target.queue_free()
 
 	shooter.queue_free()
+
+## 2026-08-10: a "stun" hit used to ignore the projectile's `damage` field
+## entirely, so Perturbateur's "tir charge: 5x degats" request had nothing to
+## multiply. _apply_hit_effect() now also chips real HP on top of the stun
+## whenever damage > 0.
+func _test_stun_also_deals_damage() -> void:
+	var target := ShipNode.new()
+	target.position = Vector2(500, 300)
+	target.half_extents = Vector2(14, 28)
+	target.state = ShipState.new(target.position, 0, target.half_extents) # apply_damage() needs this — normally built in _ready(), never called by this harness
+	var starting_hp := target.state.hp
+
+	var stun_hit := ProjectileNode.new()
+	stun_hit.effect_type = "stun"
+	stun_hit.effect_duration = 1.0
+	stun_hit.damage = 5 # e.g. a charged boomerang's 1 * charged_damage_multiplier(5.0)
+	stun_hit.target = target
+	stun_hit._apply_hit_effect()
+
+	_check("a stun hit still stuns", target._stun_timer > 0.0)
+	_check("a stun hit with damage>0 also chips real HP", target.state.hp == starting_hp - 5)
+
+	var pure_stun := ProjectileNode.new()
+	pure_stun.effect_type = "stun"
+	pure_stun.effect_duration = 1.0
+	pure_stun.damage = 0
+	pure_stun.target = target
+	var hp_before_pure_stun := target.state.hp
+	pure_stun._apply_hit_effect()
+	_check("a stun hit with damage==0 does not touch HP (a stun weapon can still be pure annoyance, no chip, by leaving damage unset)", target.state.hp == hp_before_pure_stun)
+
+	target.queue_free()
 
 func _test_turret_destructible() -> void:
 	var turret_data: WeaponData = load("res://data/weapons/turret.tres")

@@ -89,6 +89,8 @@ extends Resource
 @export var charged_burst_ping_pong: bool = false # 2026-08-09, Spreader: sweep from -spread/2 to +spread/2 and back within the SAME burst (a triangle wave), instead of one-way linear — "balayer de haut en bas puis remonter de bas en haut"
 @export var charged_stagger: float = 0.0 # seconds between each shot in the charged burst — 0 = simultaneous
 @export var charged_speed_multiplier: float = 1.0 # multiplies projectile_speed for the charged release only
+@export var charged_damage_multiplier: float = 1.0 # 2026-08-10, Perturbateur: "tir charge: tire un enorme boomerang (5 fois la taille, 5x degats)" — generic, any weapon's charged release can hit harder
+@export var charged_visual_scale_multiplier: float = 1.0 # same request, the "5 fois la taille" half — generic size bump for the charged release only
 
 # Perturbateur's boomerang range (2026-08-10, Camil: "plus on charge, plus le
 # boomerang va loin, jusqu'au fond du camp adverse") — is_boomerang only.

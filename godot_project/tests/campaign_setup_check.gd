@@ -299,6 +299,40 @@ func _ready() -> void:
 		and spawned_charged_boomerang.boomerang_out_duration > 0.45 # meaningfully further than the default normal-throw arc
 	print("PASS: Perturbateur's charged boomerang travels further out before curving back" if boomerang_charge_ok else "FAIL: expected boomerang_out_duration %.2f, spawned=%s" % [stun_boomerang.charged_boomerang_out_duration, spawned_charged_boomerang])
 
+	# "Tir charge: un enorme boomerang (5 fois la taille, 5x degats)" — and
+	# it must NOT also get the burst-shrink meant for the normal 3-throw
+	# fan (2026-08-10 bug: the shrink was keyed off the NORMAL projectile_
+	# count, which wrongly shrank this single charged shot too).
+	var expected_charged_damage := int(round(stun_boomerang.damage * stun_boomerang.charged_damage_multiplier))
+	var expected_charged_scale := 1.4 * stun_boomerang.charged_visual_scale_multiplier # 1.4 = the boomerang's base visual_scale set in _spawn_projectile()
+	var boomerang_giant_ok: bool = spawned_charged_boomerang != null \
+		and spawned_charged_boomerang.damage == expected_charged_damage \
+		and is_equal_approx(spawned_charged_boomerang.visual_scale, expected_charged_scale)
+	print("PASS: the charged boomerang is 5x damage/size, not shrunk like a normal-fire burst unit" if boomerang_giant_ok else "FAIL: expected damage=%d scale=%.2f, got damage=%s scale=%s" % [expected_charged_damage, expected_charged_scale, spawned_charged_boomerang.damage if spawned_charged_boomerang else "n/a", spawned_charged_boomerang.visual_scale if spawned_charged_boomerang else "n/a"])
+
+	# The NORMAL throw fires 3 boomerangs per press (like the missile swarm) —
+	# staggered (burst_stagger > 0), so only the first (i=0) spawns
+	# synchronously here; the other 2 are timer-scheduled, same pattern as
+	# the mini_charge_ok check above.
+	var children_before_boomerang_burst := charge_arena.get_child_count()
+	charge_arena._on_weapon_fired(stun_boomerang, charge_arena.ship_1)
+	await get_tree().process_frame
+	var immediate_boomerangs := charge_arena.get_child_count() - children_before_boomerang_burst
+	var boomerang_burst_ok: bool = immediate_boomerangs == 1 and stun_boomerang.projectile_count == 3
+	print("PASS: Perturbateur's normal throw fires 3 boomerangs (1 immediate + 2 staggered) before cooldown" if boomerang_burst_ok else "FAIL: expected 1 immediate projectile + projectile_count 3, got %d immediate, count=%d" % [immediate_boomerangs, stun_boomerang.projectile_count])
+
+	# Traqueur's charged missile burst (2026-08-10): "le tir charge de
+	# missiles teleguides ne marche plus" (it never existed) — doubles the
+	# normal swarm count (3 -> 6), staggered like a rafale. Only the first
+	# (i=0) shot spawns synchronously; same pattern as mini_charge_ok.
+	var homing_missile: WeaponData = load("res://data/weapons/homing_missile.tres")
+	var children_before_missile_charge := charge_arena.get_child_count()
+	charge_arena._on_charged_weapon_fired(homing_missile, charge_arena.ship_1)
+	await get_tree().process_frame
+	var immediate_missiles := charge_arena.get_child_count() - children_before_missile_charge
+	var missile_charge_ok: bool = immediate_missiles == 1 and homing_missile.charged_projectile_count == homing_missile.projectile_count * 2
+	print("PASS: Traqueur's charged fire doubles the missile swarm into a staggered rafale" if missile_charge_ok else "FAIL: expected 1 immediate projectile + doubled charged count, got %d immediate, charged_count=%d" % [immediate_missiles, homing_missile.charged_projectile_count])
+
 	# Mitrailleur's charged fire (2026-08-09 redesign): a pure self-buff on
 	# release (no projectile from the charge itself), then the NEXT normal
 	# shot fires doubled — two parallel projectiles, offset vertically.
@@ -381,5 +415,5 @@ func _ready() -> void:
 		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
-		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and boomerang_charge_ok and mg_charge_ok and double_fire_ok
+		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and boomerang_charge_ok and boomerang_giant_ok and boomerang_burst_ok and missile_charge_ok and mg_charge_ok and double_fire_ok
 	get_tree().quit(0 if all_ok else 1)
