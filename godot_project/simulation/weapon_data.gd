@@ -7,19 +7,23 @@ extends Resource
 
 @export var id: String = ""
 @export var display_name: String = ""
-@export var damage: int = 2 # fixed damage per hit (GDD anchors: mitraillette ~2, bazooka ~10, super 20-30). For effect_type == "beam", this is reinterpreted as damage PER SECOND instead of per-hit.
-@export var fire_rate: float = 5.0 # shots per second — unused for effect_type == "beam" (continuous, no discrete shots)
+@export var damage: int = 2 # fixed damage per hit (GDD anchors: mitraillette ~2, bazooka ~10, super 20-30). For effect_type == "beam", this is reinterpreted as damage PER SECOND for the pulse's duration instead of per-hit.
+@export var fire_rate: float = 5.0 # shots per second — for effect_type == "beam" this gates the cooldown between pulses, same as any other weapon
 @export var gauge_max: float = 100.0
-@export var gauge_cost_per_shot: float = 10.0 # For effect_type == "beam", reinterpreted as gauge drained PER SECOND while held instead of a one-time cost.
+@export var gauge_cost_per_shot: float = 10.0 # one-time cost per pulse for effect_type == "beam" too, same as any other weapon
 @export var is_heavy: bool = false # triggers a vulnerability window on fire (Story 1.8)
 
 ## Epic 2 — what firing this weapon actually does. "damage" (default) is a
 ## normal projectile per Story 1.5. The others opt into the special
 ## resolution paths added for Stories 2.4-2.6 (+ the "shmup juice pass"),
-## still fired through the same WeaponSystemState/gauge machinery — only the
-## *effect* differs by type. "beam" is the odd one out: it bypasses the
-## discrete cooldown-gated fired() entirely in favor of continuous
-## WeaponSystemState.beam_tick() while the fire button is held.
+## still fired through the same WeaponSystemState/gauge/charge machinery —
+## only the *effect* differs by type. "beam" (2026-08-09 redesign, Zoneur:
+## "le tir normal de zoneur n'est pas bien... un laser qui traverse toute
+## la map, mais qui ne dure que 0.5 secondes... cooldown 0.8 seconde")
+## fires a discrete, timed beam PULSE through the exact same cooldown/
+## charge dispatch as every other weapon — no more continuous hold-to-
+## channel — see MatchArenaNode._spawn_timed_beam() and beam_duration/
+## charged_beam_duration below.
 @export_enum("damage", "turret", "mobility_boost", "stun", "beam") var effect_type: String = "damage"
 
 # effect_type == "mobility_boost" / "stun" only:
@@ -27,7 +31,11 @@ extends Resource
 @export var effect_speed_multiplier: float = 1.0 # mobility_boost: e.g. 1.5 = +50% speed
 
 @export var homing_strength: float = 0.0 # 0 = straight line; >0 = gently steers toward target (moved here from being hardcoded per-is_heavy, so any weapon can opt in)
-@export var beam_range: float = 500.0 # effect_type == "beam" only: max horizontal reach, capped below the full arena width so the shooter must close distance rather than poke from the back wall (2026-08-05 playtest)
+@export var beam_range: float = 500.0 # effect_type == "beam" only: max horizontal reach — set comfortably larger than the arena width for a pulse that "traverse toute la map"
+@export var beam_duration: float = 0.5 # effect_type == "beam" only: seconds the normal-fire pulse persists, with a quick fade in/out (2026-08-09)
+@export var beam_thickness_multiplier: float = 1.0 # effect_type == "beam" only
+@export var charged_beam_duration: float = 0.0 # effect_type == "beam" only: seconds the CHARGED pulse persists — 0 falls back to beam_duration
+@export var charged_beam_thickness_multiplier: float = 1.0 # effect_type == "beam" only
 @export var turret_hp: float = 22.0 # effect_type == "turret" only: destroyed by opponent fire once its HP runs out (2026-08-05 playtest: "faudrait qu'elle soit destructible (20/25 PV)")
 @export var turret_lifetime: float = 25.0 # effect_type == "turret" only: seconds before it expires on its own if not destroyed first (2026-08-05 playtest: was a flat 6s, "devraient durer bien plus longtemps, au moins 20-30 secondes")
 
@@ -81,11 +89,12 @@ extends Resource
 @export var charged_stagger: float = 0.0 # seconds between each shot in the charged burst — 0 = simultaneous
 @export var charged_speed_multiplier: float = 1.0 # multiplies projectile_speed for the charged release only
 
-# Mitrailleur's charged fire (2026-08-09, party-mode pitch: "puisque tout
-# le monde a maintenant un tir charge, le sien pourrait etre l'inverse des
-# autres — charger desactive completement la surchauffe pendant quelques
-# secondes. Le mec qui charge pour arroser sans limite, brievement.") — a
-# pure self-buff on release, no projectile burst at all (charged_projectile_
-# count is ignored when this is set). See ShipNode.grant_heat_immunity().
-@export var charged_grants_heat_immunity: bool = false
-@export var charged_heat_immunity_duration: float = 0.0 # seconds
+# Mitrailleur's charged fire (2026-08-09) — first tried as a heat-immunity
+# buff (Camil: "pas bien"), replaced with: "les 10 missiles suivants seront
+# doubles (paralleles, separes de 10px verticalement)." A pure self-buff on
+# release, no projectile burst at all (charged_projectile_count is ignored
+# when this is set) — it just arms ShipNode._double_fire_shots_remaining,
+# consumed one at a time by MatchArenaNode._on_weapon_fired() on each
+# subsequent NORMAL shot.
+@export var charged_double_fire_shots: int = 0 # how many subsequent normal shots fire doubled. 0 = disabled.
+@export var charged_double_fire_offset: float = 10.0 # px vertical separation between the two parallel shots

@@ -220,22 +220,37 @@ func _ready() -> void:
 	visuals_arena.queue_free()
 	await get_tree().process_frame
 
-	# --- Beam spawn doesn't crash on a null weapon (2026-08-09 bug report):
+	# --- Beam spawn doesn't crash on a null weapon (2026-08-09 bug history:
 	# "Invalid access to property or key 'beam_range' on a base object of
 	# type 'Nil'" — BeamNode.weapon used to be assigned AFTER add_child(),
 	# but add_child() calls _ready() synchronously, which already reads
-	# weapon.beam_range via _update_shape(). ---
+	# weapon.beam_range via _update_shape()). Also proves the 2026-08-09
+	# redesign: the laser now fires a discrete, timed pulse through
+	# _on_weapon_fired()/_spawn_timed_beam() like any other weapon, not a
+	# continuous hold-to-channel effect. ---
 	var beam_arena := arena_scene.instantiate() as MatchArenaNode
 	add_child(beam_arena)
 	await get_tree().process_frame
 	var laser: WeaponData = load("res://data/weapons/laser.tres")
-	beam_arena.ship_1.beam_active = true
-	beam_arena.ship_1.beam_weapon = laser
-	var beam_spawn_ok := true
-	beam_arena._sync_beam(beam_arena.ship_1, beam_arena.ship_2) # must not crash, and weapon must already be set
-	if not beam_arena._beams.has(beam_arena.ship_1) or beam_arena._beams[beam_arena.ship_1].weapon != laser:
-		beam_spawn_ok = false
-	print("PASS: spawning a beam never leaves BeamNode.weapon null when _ready() runs" if beam_spawn_ok else "FAIL: beam weapon was not set correctly on spawn")
+	beam_arena._on_weapon_fired(laser, beam_arena.ship_1) # must not crash, and BeamNode.weapon must already be set when _ready() runs
+	var spawned_beam: BeamNode = null
+	for child in beam_arena.get_children():
+		if child is BeamNode:
+			spawned_beam = child
+	var beam_spawn_ok: bool = spawned_beam != null and spawned_beam.weapon == laser and is_equal_approx(spawned_beam.lifetime, laser.beam_duration)
+	print("PASS: spawning a timed beam never leaves BeamNode.weapon null, and uses the normal-pulse duration" if beam_spawn_ok else "FAIL: beam weapon/lifetime was not set correctly on spawn")
+
+	# The charged pulse must be longer and thicker.
+	beam_arena._on_charged_weapon_fired(laser, beam_arena.ship_1)
+	var spawned_charged_beam: BeamNode = null
+	for child in beam_arena.get_children():
+		if child is BeamNode and child != spawned_beam:
+			spawned_charged_beam = child
+	var charged_beam_ok: bool = spawned_charged_beam != null \
+		and is_equal_approx(spawned_charged_beam.lifetime, laser.charged_beam_duration) \
+		and is_equal_approx(spawned_charged_beam.thickness_multiplier, laser.charged_beam_thickness_multiplier)
+	print("PASS: the charged laser pulse is longer and thicker" if charged_beam_ok else "FAIL: charged beam lifetime/thickness was wrong")
+
 	beam_arena.queue_free()
 	await get_tree().process_frame
 
@@ -267,16 +282,25 @@ func _ready() -> void:
 	var mini_charge_ok: bool = immediate_mini_shots == 1 # only the i=0 shot fires this frame; the other 9 are timer-scheduled
 	print("PASS: Eventail's charged fire fires the first (unstaggered) shot immediately" if mini_charge_ok else "FAIL: expected exactly 1 immediate projectile, got %d" % immediate_mini_shots)
 
-	# Mitrailleur's charged fire: a pure self-buff, must spawn NO projectile
-	# at all (unlike every other charged weapon so far).
+	# Mitrailleur's charged fire (2026-08-09 redesign): a pure self-buff on
+	# release (no projectile from the charge itself), then the NEXT normal
+	# shot fires doubled — two parallel projectiles, offset vertically.
 	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
 	var children_before_mg_charge := charge_arena.get_child_count()
-	charge_arena.ship_1._heat_immunity_timer = 0.0
+	charge_arena.ship_1._double_fire_shots_remaining = 0
 	charge_arena._on_charged_weapon_fired(machine_gun, charge_arena.ship_1)
 	await get_tree().process_frame
 	var new_children_from_mg_charge := charge_arena.get_child_count() - children_before_mg_charge
-	var mg_charge_ok: bool = new_children_from_mg_charge == 0 and charge_arena.ship_1._heat_immunity_timer > 0.0
-	print("PASS: Mitrailleur's charged fire grants heat immunity with no projectile spawned" if mg_charge_ok else "FAIL: expected 0 new projectiles + immunity armed, got %d new children, immunity timer %s" % [new_children_from_mg_charge, charge_arena.ship_1._heat_immunity_timer])
+	var mg_charge_ok: bool = new_children_from_mg_charge == 0 and charge_arena.ship_1._double_fire_shots_remaining == machine_gun.charged_double_fire_shots
+	print("PASS: Mitrailleur's charged fire arms double-fire with no projectile spawned" if mg_charge_ok else "FAIL: expected 0 new projectiles + double-fire armed, got %d new children, counter %s" % [new_children_from_mg_charge, charge_arena.ship_1._double_fire_shots_remaining])
+
+	# The next normal shot must fire TWO parallel projectiles and consume one charge.
+	var children_before_double_shot := charge_arena.get_child_count()
+	charge_arena._on_weapon_fired(machine_gun, charge_arena.ship_1)
+	await get_tree().process_frame
+	var new_projectiles_from_double_shot := charge_arena.get_child_count() - children_before_double_shot
+	var double_fire_ok: bool = new_projectiles_from_double_shot == 2 and charge_arena.ship_1._double_fire_shots_remaining == machine_gun.charged_double_fire_shots - 1
+	print("PASS: the next normal shot fires doubled and consumes one charge" if double_fire_ok else "FAIL: expected 2 new projectiles + counter decremented, got %d new projectiles, counter %s" % [new_projectiles_from_double_shot, charge_arena.ship_1._double_fire_shots_remaining])
 
 	charge_arena.queue_free()
 	await get_tree().process_frame
@@ -340,5 +364,5 @@ func _ready() -> void:
 		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
-		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_burst_ok and mini_charge_ok and mg_charge_ok
+		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and mg_charge_ok and double_fire_ok
 	get_tree().quit(0 if all_ok else 1)

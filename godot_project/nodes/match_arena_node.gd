@@ -30,7 +30,6 @@ const HP_BAR_WIDTH := 240.0
 var match_state: MatchState = MatchState.new()
 var _round_active := true
 var _ai_toggle_prev := false
-var _beams: Dictionary = {} # ShipNode -> BeamNode, tracks each ship's active laser beam (juice pass)
 
 # Epic 4, Story 4.5 — "match twist" support for campaign rival/boss fights.
 # Campaign match-launch code (Story 4.6/4.8) sets active_twist before the
@@ -140,7 +139,6 @@ func _process(_delta: float) -> void:
 	p2_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_2.state.hp / ship_2.max_hp_override, 0.0, 1.0)
 
 	_process_ai_toggle()
-	_process_beams()
 	_sync_twist_visuals()
 
 	if not _match_started:
@@ -181,6 +179,12 @@ func _debug_text(ship: ShipNode) -> String:
 		if weapon.heat_max > 0.0:
 			line += " [chauffe %d/%d]" % [int(ship.weapon_state.heats[i]), int(weapon.heat_max)]
 		lines.append(line)
+	# Mitrailleur's charged-fire buff (2026-08-09): "un petit icone se met a
+	# cote de la barre pour indiquer qu'on est en mode double tir" — a text
+	# tag next to the weapon line, same placeholder-HUD convention as the
+	# heat readout above (no icon-graphics system exists yet).
+	if ship._double_fire_shots_remaining > 0:
+		lines.append("  [DOUBLE x%d]" % ship._double_fire_shots_remaining)
 	return "\n".join(lines)
 
 func _on_gauge_filled(amount: float, ship: ShipNode) -> void:
@@ -207,14 +211,27 @@ const BONBON_TEXTURES := [
 
 ## Epic 2 — the signal carries the full WeaponData resource so this handler
 ## can branch on effect_type instead of a bare damage/is_heavy pair.
-## "beam" (laser) never reaches here — ShipNode intercepts it before
-## emitting, same as "mobility_boost" — see MatchArenaNode._sync_beam().
-## No dedicated art exists yet for the Epic 2 weapons (laser, boomerang,
-## homing missile, mini-shot) — they reuse the bazooka look when is_heavy,
-## otherwise the per-shooter machine-gun look, same as Epic 1.
+## No dedicated art exists yet for the Epic 2 weapons (boomerang, homing
+## missile) — they reuse the bazooka look when is_heavy, otherwise the
+## per-shooter machine-gun look, same as Epic 1.
 func _on_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 	if weapon.effect_type == "turret":
 		_spawn_turret(weapon, ship)
+		return
+
+	if weapon.effect_type == "beam":
+		_spawn_timed_beam(weapon, ship, weapon.beam_duration, weapon.beam_thickness_multiplier)
+		return
+
+	# Mitrailleur's charged-fire buff (2026-08-09): "les 10 missiles suivants
+	# seront doubles (paralleles, separes de 10px verticalement)" — consumed
+	# one at a time, bypasses the normal single/burst path entirely (moot
+	# for machine_gun specifically, which never has projectile_count > 1).
+	if ship._double_fire_shots_remaining > 0:
+		ship._double_fire_shots_remaining -= 1
+		var half_offset := weapon.charged_double_fire_offset / 2.0
+		_spawn_projectile(weapon, ship, 0.0, 1.0, Vector2(0.0, -half_offset))
+		_spawn_projectile(weapon, ship, 0.0, 1.0, Vector2(0.0, half_offset))
 		return
 
 	# "Shmup juice pass" — projectile_count > 1 fans a burst instead of a
@@ -239,10 +256,14 @@ func _on_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 ## different pattern (a straight staggered burst, a wide fan, a single
 ## empowered shot, ...) purely via data.
 func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
-	if weapon.charged_grants_heat_immunity:
+	if weapon.effect_type == "beam":
+		var duration := weapon.charged_beam_duration if weapon.charged_beam_duration > 0.0 else weapon.beam_duration
+		_spawn_timed_beam(weapon, ship, duration, weapon.charged_beam_thickness_multiplier)
+		return
+	if weapon.charged_double_fire_shots > 0:
 		# Mitrailleur (2026-08-09) — a pure self-buff, no projectile at all;
-		# see ShipNode.grant_heat_immunity()/WeaponSystemState.fired(ignore_heat).
-		ship.grant_heat_immunity(weapon.charged_heat_immunity_duration)
+		# see ShipNode.grant_double_fire() and _on_weapon_fired()'s consuming side.
+		ship.grant_double_fire(weapon.charged_double_fire_shots)
 		return
 	if weapon.charged_projectile_count <= 1:
 		_spawn_projectile(weapon, ship, 0.0, weapon.charged_speed_multiplier)
@@ -262,12 +283,12 @@ func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 		else:
 			_spawn_projectile(weapon, ship, angle_offset, weapon.charged_speed_multiplier)
 
-func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: float, speed_multiplier: float = 1.0) -> void:
+func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: float, speed_multiplier: float = 1.0, position_offset: Vector2 = Vector2.ZERO) -> void:
 	if not is_instance_valid(ship):
 		return # round may have reset mid-burst-stagger
 
 	var projectile := ProjectileNode.new()
-	projectile.position = ship.position
+	projectile.position = ship.position + position_offset # Mitrailleur's double-fire (2026-08-09): two parallel shots, offset vertically instead of angularly
 	var direction := 1.0 if ship.side == 0 else -1.0
 	var spread_deg := angle_offset_deg
 	# Random per-shot jitter is for single-projectile sprays (machine gun) —
@@ -319,36 +340,24 @@ func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: flo
 		projectile.lifetime = 3.0 # default 2.0s can be tight for a full out-and-back arc if the shooter keeps moving
 	add_child(projectile)
 
-## "Shmup juice pass" — the laser is a continuous beam (ShipNode.beam_active,
-## driven by WeaponSystemState.beam_tick()) rather than a discrete
-## weapon_fired signal, so MatchArenaNode owns a BeamNode's whole lifecycle
-## here instead of spawning-and-forgetting like a normal projectile.
-func _process_beams() -> void:
-	_sync_beam(ship_1, ship_2)
-	_sync_beam(ship_2, ship_1)
-
-func _sync_beam(shooter: ShipNode, target: ShipNode) -> void:
-	if shooter.beam_active:
-		if not _beams.has(shooter):
-			var beam := BeamNode.new()
-			beam.shooter = shooter
-			beam.target = target
-			beam.arena_bounds = Rect2(arena_origin, arena_size)
-			# 2026-08-09 bug report: "Invalid access to property or key
-			# 'beam_range' on a base object of type 'Nil'" — weapon used to be
-			# assigned AFTER add_child(beam) below, but add_child() calls
-			# _ready() synchronously, which already calls _update_shape(),
-			# which reads weapon.beam_range. Must be set before add_child().
-			beam.weapon = shooter.beam_weapon
-			var tint := _weapon_tint(shooter.beam_weapon.id) if shooter.beam_weapon else Color(0.4, 1.0, 0.5)
-			beam.color = Color(tint.r, tint.g, tint.b, 0.7) # translucent — _weapon_tint returns opaque colors
-			add_child(beam)
-			_beams[shooter] = beam
-		_beams[shooter].weapon = shooter.beam_weapon
-	elif _beams.has(shooter):
-		if is_instance_valid(_beams[shooter]):
-			_beams[shooter].queue_free()
-		_beams.erase(shooter)
+## 2026-08-09 redesign (Zoneur: "un laser qui traverse toute la map, mais
+## qui ne dure que 0.5 secondes... cooldown 0.8 seconde. Le tir charge
+## lache le gros laser, qui dure 3 secondes... et est 2 fois plus epais.")
+## A self-contained, timed pulse — spawn-and-forget like a normal
+## projectile, no per-frame polling/lifecycle ownership needed anymore
+## (BeamNode manages its own countdown and fades/despawns itself).
+func _spawn_timed_beam(weapon: WeaponData, ship: ShipNode, duration: float, thickness_multiplier: float) -> void:
+	var target := ship_2 if ship == ship_1 else ship_1
+	var beam := BeamNode.new()
+	beam.shooter = ship
+	beam.target = target
+	beam.arena_bounds = Rect2(arena_origin, arena_size)
+	beam.weapon = weapon # must be set before add_child() — add_child() calls _ready() synchronously, which reads weapon.beam_range (2026-08-09 bug history)
+	beam.lifetime = duration
+	beam.thickness_multiplier = thickness_multiplier
+	var tint := _weapon_tint(weapon.id)
+	beam.color = Color(tint.r, tint.g, tint.b, 0.7) # translucent — _weapon_tint returns opaque colors
+	add_child(beam)
 
 ## Epic 2 weapons without dedicated art yet reuse the machine-gun/bazooka
 ## sprites — a tint keeps them tellable apart from the base weapons and from
@@ -480,7 +489,6 @@ func _clear_round_entities() -> void:
 	for child in get_children():
 		if child is TurretNode or child is ProjectileNode or child is BeamNode or child is HazardZoneNode or child is EnergyOrbNode:
 			child.queue_free()
-	_beams.clear() # drop stale ShipNode -> BeamNode refs now that those nodes are queued for deletion
 	if is_instance_valid(_decoy):
 		_decoy.queue_free()
 	_decoy = null

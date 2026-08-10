@@ -12,7 +12,7 @@ var _failures := 0
 
 func _initialize() -> void:
 	print("--- smoke test start ---")
-	_test_beam_tick()
+	_test_laser_pulse()
 	_test_missile_swarm_data()
 	_test_boomerang_motion()
 	_test_mini_shot_data()
@@ -33,7 +33,7 @@ func _initialize() -> void:
 	_test_vif_campaign_authoring()
 	_test_gauges_reset_between_rounds()
 	_test_weapon_heat_gauge()
-	_test_mitrailleur_heat_immunity_rule()
+	_test_mitrailleur_double_fire_rule()
 	_test_vif_dash_lift_rule()
 	_test_weapon_exclusivity()
 	_test_every_charge_capable_weapon_actually_slows()
@@ -56,26 +56,33 @@ func _check(label: String, condition: bool) -> void:
 		print("FAIL: %s" % label)
 		_failures += 1
 
-func _test_beam_tick() -> void:
+func _test_laser_pulse() -> void:
+	# 2026-08-09 redesign (Zoneur: "le tir normal de zoneur n'est pas bien.
+	# je propose un laser qui traverse toute la map, mais qui ne dure que
+	# 0.5 secondes... cooldown 0.8 seconde. Le tir charge lache le gros
+	# laser, qui dure 3 secondes... et est 2 fois plus epais.") — the laser
+	# is no longer a continuous hold-to-channel weapon; it fires a discrete,
+	# timed pulse through the exact same fired()/cooldown/charge flow as
+	# every other weapon.
 	var laser: WeaponData = load("res://data/weapons/laser.tres")
 	_check("laser effect_type == beam", laser.effect_type == "beam")
-	_check("laser beam_range capped below full arena width (2026-08-05 playtest: force advancing)", laser.beam_range > 0.0 and laser.beam_range < 1000.0)
-	var state := WeaponSystemState.new([laser])
-	state = state.with_gauge_added(100.0)
-	_check("laser gauge starts at max", state.gauges[0] == laser.gauge_max)
+	_check("laser reaches across the whole arena (no more 'must close distance')", laser.beam_range > 1200.0)
+	_check("laser's normal pulse is short (~0.5s)", is_equal_approx(laser.beam_duration, 0.5))
+	_check("laser's cooldown between pulses is ~0.8s", is_equal_approx(1.0 / laser.fire_rate, 0.8))
+	_check("laser's charged pulse lasts much longer (3s)", is_equal_approx(laser.charged_beam_duration, 3.0))
+	_check("laser's charged pulse is 2x thicker", is_equal_approx(laser.charged_beam_thickness_multiplier, 2.0))
+	_check("laser's charge actually slows movement (the vortex.tres bug can never recur silently)", laser.charge_fire_slow_multiplier < 1.0 and laser.charge_fire_slow_multiplier > 0.0)
 
-	# Drain across several ticks; must stay active while gauge lasts, then stop.
-	var ticks := 0
-	var active := true
-	while active and ticks < 1000:
-		var result := state.beam_tick(0.1)
-		state = result.state
-		active = result.active
-		ticks += 1
-	var expected_ticks := int(laser.gauge_max / (laser.gauge_cost_per_shot * 0.1))
-	_check("beam drains over ~%d ticks (got %d)" % [expected_ticks, ticks], absi(ticks - expected_ticks) <= 1)
-	_check("beam reports inactive once gauge is dry", not active)
-	_check("gauge does not go negative", state.gauges[0] >= 0.0)
+	# fired() now works for the laser exactly like any other weapon —
+	# cooldown-gated, one-time gauge cost, no more continuous drain.
+	var state := WeaponSystemState.new([laser])
+	state = state.with_gauge_added(laser.gauge_max)
+	var result := state.fired()
+	_check("laser fires as a normal discrete shot", result.fired)
+	state = result.state
+	_check("laser's cooldown is set after firing", is_equal_approx(state.cooldown, 1.0 / laser.fire_rate))
+	var immediate_refire := state.fired()
+	_check("laser can't refire during its own cooldown", not immediate_refire.fired)
 
 func _test_missile_swarm_data() -> void:
 	var missile: WeaponData = load("res://data/weapons/homing_missile.tres")
@@ -649,39 +656,23 @@ func _test_weapon_heat_gauge() -> void:
 	still_firing_state = still_firing_state.with_heat_ticked(1.0, true)
 	_check("heat does not drain while is_firing is true", is_equal_approx(still_firing_state.heats[0], 1.0))
 
-func _test_mitrailleur_heat_immunity_rule() -> void:
-	# 2026-08-09 party-mode pitch, implemented: "puisque tout le monde a
-	# maintenant un tir charge, le sien pourrait etre l'inverse des autres —
-	# charger desactive completement la surchauffe pendant quelques
-	# secondes. Le mec qui charge pour arroser sans limite, brievement."
+func _test_mitrailleur_double_fire_rule() -> void:
+	# 2026-08-09 — Mitrailleur's charged fire, first tried as a heat-immunity
+	# buff (Camil: "pas bien"), replaced with: "les 10 missiles suivants
+	# seront doubles (paralleles, separes de 10px verticalement). Un petit
+	# icone se met a cote de la barre pour indiquer qu'on est en mode double
+	# tir."
 	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
 	_check("machine_gun has a charged fire configured", machine_gun.charge_fire_duration > 0.0)
 	_check("machine_gun's charge actually slows movement (the vortex.tres bug can never recur silently)", machine_gun.charge_fire_slow_multiplier < 1.0 and machine_gun.charge_fire_slow_multiplier > 0.0)
-	_check("machine_gun's charged fire grants heat immunity instead of a projectile burst", machine_gun.charged_grants_heat_immunity)
-	_check("machine_gun's heat immunity lasts a few seconds", machine_gun.charged_heat_immunity_duration > 0.0)
+	_check("machine_gun's charged fire grants 10 doubled shots", machine_gun.charged_double_fire_shots == 10)
+	_check("machine_gun's doubled shots are separated 10px vertically", is_equal_approx(machine_gun.charged_double_fire_offset, 10.0))
 
-	# WeaponSystemState.fired(ignore_heat) — bypasses the gate AND freezes
-	# heat accumulation for that shot.
-	var state := WeaponSystemState.new([machine_gun])
-	state = state.with_gauge_added(1000.0)
-	# Heat the gun up to its max first.
-	for i in 6:
-		state = state.fired().state
-		state = state.with_cooldown_ticked(state.cooldown)
-	_check("setup: machine_gun is fully heated", is_equal_approx(state.heats[0], machine_gun.heat_max))
-
-	var blocked := state.fired()
-	_check("normally, firing while overheated is blocked", not blocked.fired)
-
-	var immune_result := state.fired(true) # ignore_heat = true
-	_check("with ignore_heat, firing succeeds even while overheated", immune_result.fired)
-	state = immune_result.state
-	_check("with ignore_heat, heat does not increase further either", is_equal_approx(state.heats[0], machine_gun.heat_max))
-
-	# ShipNode.grant_heat_immunity() / _on_charged_weapon_fired() short-circuit.
+	# ShipNode.grant_double_fire() — armed by _on_charged_weapon_fired(),
+	# consumed one at a time by _on_weapon_fired().
 	var ship := ShipNode.new()
-	ship.grant_heat_immunity(machine_gun.charged_heat_immunity_duration)
-	_check("grant_heat_immunity() sets the timer", ship._heat_immunity_timer > 0.0)
+	ship.grant_double_fire(machine_gun.charged_double_fire_shots)
+	_check("grant_double_fire() arms the counter", ship._double_fire_shots_remaining == machine_gun.charged_double_fire_shots)
 	ship.queue_free()
 
 func _test_vif_dash_lift_rule() -> void:

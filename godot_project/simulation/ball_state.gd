@@ -46,7 +46,10 @@ func bounced_off_hazard(hazard_center: Vector2) -> BallState:
 ## lift_charge: 0.0-1.0, how charged the lift/spin was (see WeaponSystemState-adjacent
 ## charge tiers on ShipNode: hold-to-charge, 0/33/66/100%).
 ## outgoing_side: +1 to send the ball right, -1 to send it left.
-func returned(aim_direction: Vector2, lift_charge: float, outgoing_side: int) -> BallState:
+## speed_boost_multiplier (2026-08-09, Zoneur's aim_reticle rule — "S'il
+## reussit avec un chargement de 2 secondes, ca donne en + un boost de
+## vitesse a la balle"): multiplies the resulting speed. 1.0 = no boost.
+func returned(aim_direction: Vector2, lift_charge: float, outgoing_side: int, speed_boost_multiplier: float = 1.0) -> BallState:
 	var dir: Vector2
 	if aim_direction.length() > 0.01:
 		dir = Vector2(outgoing_side, clampf(aim_direction.y, -1.0, 1.0)).normalized()
@@ -62,5 +65,5 @@ func returned(aim_direction: Vector2, lift_charge: float, outgoing_side: int) ->
 		new_spin = -new_spin
 
 	var new_rally_count := rally_count + 1
-	var speed := BASE_SPEED + SPEED_INCREMENT_PER_RETURN * new_rally_count
+	var speed := (BASE_SPEED + SPEED_INCREMENT_PER_RETURN * new_rally_count) * speed_boost_multiplier
 	return BallState.new(position, dir * speed, new_spin, new_rally_count)

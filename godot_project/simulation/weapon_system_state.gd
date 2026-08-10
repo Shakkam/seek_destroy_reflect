@@ -69,41 +69,20 @@ func with_heat_ticked(delta: float, is_firing: bool) -> WeaponSystemState:
 	return new_state
 
 ## Attempts to fire the currently selected weapon.
-## ignore_heat (2026-08-09, Mitrailleur's charged-fire buff — "charger
-## desactive completement la surchauffe pendant quelques secondes"):
-## bypasses the heat gate entirely AND freezes heat accumulation for this
-## shot, so a temporarily-immune spray neither gets blocked by existing
-## heat nor pays for it — heat resumes exactly where it left off once the
-## buff ends.
 ## Returns {"state": WeaponSystemState, "fired": bool, "weapon": WeaponData}
-func fired(ignore_heat: bool = false) -> Dictionary:
+func fired() -> Dictionary:
 	var weapon := selected_weapon()
 	if cooldown > 0.0 or gauges[selected_index] < weapon.gauge_cost_per_shot:
 		return {"state": self, "fired": false, "weapon": null}
-	if not ignore_heat and weapon.heat_max > 0.0 and heats[selected_index] >= weapon.heat_max:
+	if weapon.heat_max > 0.0 and heats[selected_index] >= weapon.heat_max:
 		return {"state": self, "fired": false, "weapon": null} # overheated — release fire and let it cool
 
 	var new_state := _clone()
 	new_state.gauges[selected_index] = gauges[selected_index] - weapon.gauge_cost_per_shot
 	new_state.cooldown = 1.0 / weapon.fire_rate
-	if not ignore_heat and weapon.heat_max > 0.0:
+	if weapon.heat_max > 0.0:
 		new_state.heats[selected_index] = minf(heats[selected_index] + weapon.heat_per_shot, weapon.heat_max)
 	return {"state": new_state, "fired": true, "weapon": weapon}
-
-## Continuous alternative to fired(), for effect_type == "beam" weapons only.
-## Instead of a one-time gauge_cost_per_shot gated by a per-shot cooldown,
-## a beam drains gauge_cost_per_shot as a PER-SECOND rate for as long as
-## it's called (i.e. as long as the fire button is held) and simply stops
-## being "active" once the gauge runs dry — no cooldown, no discrete shot.
-## Returns {"state": WeaponSystemState, "active": bool}.
-func beam_tick(delta: float) -> Dictionary:
-	var weapon := selected_weapon()
-	var cost := weapon.gauge_cost_per_shot * delta
-	if gauges[selected_index] < cost:
-		return {"state": self, "active": false}
-	var new_state := _clone()
-	new_state.gauges[selected_index] = gauges[selected_index] - cost
-	return {"state": new_state, "active": true}
 
 func _clone() -> WeaponSystemState:
 	var copy := WeaponSystemState.new(kit, selected_index)

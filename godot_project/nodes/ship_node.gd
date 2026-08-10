@@ -19,10 +19,13 @@ var _mobility_boost_multiplier := 1.0
 var _mobility_boost_active_multiplier := 1.0 # the multiplier captured at the moment the boost fired
 var _stun_timer := 0.0 # Epic 2, Story 2.6 — movement and firing disabled while > 0
 
-# Mitrailleur's charged fire (2026-08-09) — see WeaponData.charged_grants_
-# heat_immunity/grant_heat_immunity() below: while > 0, fired() ignores the
-# selected weapon's heat gate entirely and heat stops accumulating.
-var _heat_immunity_timer := 0.0
+# Mitrailleur's charged fire (2026-08-09) — "les 10 missiles suivants
+# seront doubles (paralleles, separes de 10px verticalement)". Consumed one
+# at a time by MatchArenaNode._on_weapon_fired() on each subsequent normal
+# shot, not tracked here beyond the counter itself (the doubling/offset
+# logic lives in match_arena_node.gd, same as every other projectile-
+# spawning concern).
+var _double_fire_shots_remaining := 0
 
 # Turbo afterimage trail (2026-08-06) — was flagged as deferred polish, done
 # now that the Turbo has a tint to match. Ghost copies of the ship's own
@@ -31,13 +34,6 @@ var _trail_timer := 0.0
 const TRAIL_INTERVAL := 0.05
 const TRAIL_LIFETIME := 0.25
 const TRAIL_COLOR := Color(0.5, 1.0, 1.0, 0.35) # matches the Turbo tint, translucent
-
-# "Shmup juice pass" (2026-08-05) — beam weapons (laser) bypass the discrete
-# fired()/cooldown flow for continuous WeaponSystemState.beam_tick() while
-# held. MatchArenaNode polls these two each frame to own the BeamNode's
-# lifecycle (spawn/update/free), same pattern already used for AI toggling.
-var beam_active := false
-var beam_weapon: WeaponData = null
 
 # Epic 4, Story 4.5 — "match twist" support (campaign rival/boss fights).
 # self_fill_locked/passive_trickle_rate back the "gauge_floor" twist:
@@ -339,60 +335,48 @@ func _physics_process(delta: float) -> void:
 	_ai_pulse_select = false # consumed for this frame, whether or not it was set
 	weapon_state = weapon_state.with_cooldown_ticked(delta)
 	weapon_state = weapon_state.with_heat_ticked(delta, fire_held)
-	if selected.effect_type == "beam":
-		# "Shmup juice pass" — continuous channel instead of a discrete shot;
-		# see WeaponSystemState.beam_tick() and MatchArenaNode._sync_beam().
-		if fire_held:
-			var beam_result := weapon_state.beam_tick(delta)
-			weapon_state = beam_result.state
-			beam_active = beam_result.active
-			beam_weapon = selected if beam_active else null
-			if beam_active:
-				_vulnerability_timer = maxf(_vulnerability_timer, 0.15) # channeling stays exposed continuously, Story 1.8's spirit
-		else:
-			beam_active = false
-			beam_weapon = null
-	else:
-		beam_active = false
-		beam_weapon = null
-		var is_full_auto := character != null and character.full_auto
-		if charge_capable and is_charging:
-			pass # normal fire suspended while actively charging (past the grace window)
-		elif fire_held and (is_full_auto or not _fire_prev):
-			# Either a non-charge-capable weapon, or a charge-capable one still
-			# within its NORMAL_FIRE_GRACE window — fires exactly like normal.
-			# Full-auto (Mitrailleur only) repeats every held frame; everyone
-			# else only fires on the rising edge of a fresh press.
-			var result := weapon_state.fired(_heat_immunity_timer > 0.0)
+	# 2026-08-09 — "beam" (Zoneur's laser) used to bypass this whole dispatch
+	# for a continuous hold-to-channel effect; redesigned into a discrete,
+	# timed pulse fired through this exact same cooldown/charge flow as
+	# every other weapon (MatchArenaNode decides how to render the effect
+	# based on weapon.effect_type — see _on_weapon_fired()/_spawn_timed_beam()).
+	var is_full_auto := character != null and character.full_auto
+	if charge_capable and is_charging:
+		pass # normal fire suspended while actively charging (past the grace window)
+	elif fire_held and (is_full_auto or not _fire_prev):
+		# Either a non-charge-capable weapon, or a charge-capable one still
+		# within its NORMAL_FIRE_GRACE window — fires exactly like normal.
+		# Full-auto (Mitrailleur only) repeats every held frame; everyone
+		# else only fires on the rising edge of a fresh press.
+		var result := weapon_state.fired()
+		weapon_state = result.state
+		if result.fired:
+			var weapon: WeaponData = result.weapon
+			_flash_timer = FLASH_DURATION
+			if weapon.is_heavy:
+				_vulnerability_timer = VULNERABILITY_DURATION # Story 1.8
+			if weapon.effect_type == "mobility_boost":
+				# Story 2.5 — self-applied instantly, no projectile spawned.
+				_mobility_boost_timer = weapon.effect_duration
+				_mobility_boost_active_multiplier = weapon.effect_speed_multiplier
+			else:
+				weapon_fired.emit(weapon)
+			print("%s fired %s (gauge left: %.0f)" % [
+				name, weapon.display_name, weapon_state.gauges[weapon_state.selected_index]
+			])
+
+	if charge_capable and released_charge_attempt:
+		if charge_duration_at_release >= selected.charge_fire_duration:
+			var result := weapon_state.fired()
 			weapon_state = result.state
 			if result.fired:
-				var weapon: WeaponData = result.weapon
 				_flash_timer = FLASH_DURATION
-				if weapon.is_heavy:
-					_vulnerability_timer = VULNERABILITY_DURATION # Story 1.8
-				if weapon.effect_type == "mobility_boost":
-					# Story 2.5 — self-applied instantly, no projectile spawned.
-					_mobility_boost_timer = weapon.effect_duration
-					_mobility_boost_active_multiplier = weapon.effect_speed_multiplier
-				else:
-					weapon_fired.emit(weapon)
-				print("%s fired %s (gauge left: %.0f)" % [
-					name, weapon.display_name, weapon_state.gauges[weapon_state.selected_index]
-				])
-
-		if charge_capable and released_charge_attempt:
-			if charge_duration_at_release >= selected.charge_fire_duration:
-				var result := weapon_state.fired()
-				weapon_state = result.state
-				if result.fired:
-					_flash_timer = FLASH_DURATION
-					charged_weapon_fired.emit(result.weapon)
-					print("%s CHARGED-fired %s" % [name, result.weapon.display_name])
-			# else: released mid-charge (past the grace window, before full) — the attempt is lost, nothing fires
+				charged_weapon_fired.emit(result.weapon)
+				print("%s CHARGED-fired %s" % [name, result.weapon.display_name])
+		# else: released mid-charge (past the grace window, before full) — the attempt is lost, nothing fires
 
 	_fire_prev = fire_held
 
-	_heat_immunity_timer = maxf(_heat_immunity_timer - delta, 0.0)
 	_mobility_boost_timer = maxf(_mobility_boost_timer - delta, 0.0)
 	_mobility_boost_multiplier = _mobility_boost_active_multiplier if _mobility_boost_timer > 0.0 else 1.0
 	if _mobility_boost_timer > 0.0:
@@ -429,8 +413,8 @@ func _physics_process(delta: float) -> void:
 		elif lift_held and not is_dash_character:
 			var charge_fraction := clampf(_lift_charge_timer / LIFT_CHARGE_CAP, 0.0, 1.0)
 			visual.modulate = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.84, 0.29), charge_fraction) # builds toward gold
-		elif _heat_immunity_timer > 0.0:
-			visual.modulate = Color(1.0, 0.95, 0.3) # bright yellow — Mitrailleur's "spray without limit" buff
+		elif _double_fire_shots_remaining > 0:
+			visual.modulate = Color(1.0, 0.95, 0.3) # bright yellow — Mitrailleur's "double fire" buff
 		elif _flash_timer > 0.0:
 			visual.modulate = Color(1.7, 1.7, 1.7)
 		elif _mobility_boost_timer > 0.0:
@@ -695,9 +679,9 @@ func apply_knockback(offset: Vector2) -> void:
 	state = state.knocked_back(offset, arena_bounds, frontier_x)
 	position = state.position
 
-## Mitrailleur's charged fire (2026-08-09) — see WeaponData.charged_grants_heat_immunity.
-func grant_heat_immunity(duration: float) -> void:
-	_heat_immunity_timer = maxf(_heat_immunity_timer, duration)
+## Mitrailleur's charged fire (2026-08-09) — see WeaponData.charged_double_fire_shots.
+func grant_double_fire(shots: int) -> void:
+	_double_fire_shots_remaining = shots
 
 ## Epic 4, Story 4.5 — "gauge_floor" twist's regen guarantee: a small
 ## trickle to the selected weapon's gauge, independent of self_fill_locked
