@@ -100,6 +100,14 @@ var _dash_cooldown_timer := 0.0
 var _dash_direction := Vector2.ZERO
 var _lift_prev := false # edge-detects the Lift press for dash characters (charge characters read it as a held state instead)
 var _last_nonzero_move_dir := Vector2.ZERO
+
+## Perturbateur's boomerang (2026-08-10): "par defaut ca part du haut (30 ->
+## -30). Si je descends, ca part du bas (-30 -> 30). Si je monte, ca part du
+## haut." — MatchArenaNode reads this at throw time to pick the arc's
+## starting side; reuses the same tracked direction Vif's dash already does.
+func get_last_move_direction() -> Vector2:
+	return _last_nonzero_move_dir
+
 const DASH_DURATION := 0.15 # seconds the burst itself lasts
 const DASH_SPEED_MULTIPLIER := 3.0
 const DASH_COOLDOWN := 0.5 # can't chain dashes back to back

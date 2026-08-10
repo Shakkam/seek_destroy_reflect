@@ -36,16 +36,26 @@ var _drift_velocity := Vector2.ZERO # the straight-line velocity captured at spa
 # and once on the way back — each guarded separately below.
 var is_boomerang := false
 var shooter: ShipNode = null
-# 2026-08-10, Camil: "attention les boomerangs ne doivent pas etre
-# teleguides !" — an earlier fix made the outbound leg chase the target's
-# LIVE position every frame (fixing "ca ne marche pas du tout" by actually
-# landing hits), but that read as a homing missile, which isn't the fantasy.
-# Compromise: the curve DIRECTION is captured ONCE, at _ready() (see below),
-# from wherever the target happened to be standing at the instant of the
-# throw — still symmetric/aimable for both shooter sides (the original bug:
-# a hardcoded always-positive rotation, blind to side or target), but once
-# thrown it can no longer re-track a target that moves. A toss, not a lock-on.
-const BOOMERANG_CURVE_RATE := 70.0 # degrees/sec — bends the outbound path into a gentle arc
+# 2026-08-10, Camil, in order:
+# 1) "boomerang ne marche pas du tout" — a hardcoded always-positive
+#    rotation, blind to shooter side or target position.
+# 2) A fix chasing the target's LIVE position every frame landed hits, but
+#    "les boomerangs ne doivent pas etre teleguides !" — read as homing.
+# 3) Final design: "plutot que 'vers le haut'/'vers le bas', une trajectoire
+#    unique: ca part sur un angle a 30 deg et revient sur -30 deg. Par
+#    defaut ca part du haut (30 -> -30). Si je descends, ca part du bas
+#    (-30 -> 30). Si je monte, ca part du haut (30 -> -30)." — a fixed,
+#    deterministic banana arc between +/-BOOMERANG_ARC_ANGLE_DEG, linearly
+#    swept over the whole outbound leg. No target reference at all anymore
+#    (can't be "guided" by definition) — only the shooter's own vertical
+#    movement at throw time (boomerang_descending_throw) picks which end it
+#    starts from. See _ready() (captures _boomerang_base_velocity/start/end)
+#    and _update_boomerang() (does the actual lerp).
+const BOOMERANG_ARC_ANGLE_DEG := 30.0
+var boomerang_descending_throw: bool = false # set by MatchArenaNode._spawn_projectile() from the shooter's last movement direction
+var _boomerang_base_velocity := Vector2.ZERO # the straight-line velocity captured at spawn, before any arc is applied — the arc always rotates around this baseline, never accumulates
+var _boomerang_start_deg := BOOMERANG_ARC_ANGLE_DEG
+var _boomerang_end_deg := -BOOMERANG_ARC_ANGLE_DEG
 var boomerang_out_duration: float = 0.45 # seconds before it curves back — a var (not const) so charged_boomerang_out_duration (Perturbateur, 2026-08-09: "plus on charge, plus le boomerang va loin, jusqu'au fond du camp adverse") can send it much further out on a charged release
 const BOOMERANG_RETURN_TURN_RATE := 260.0 # degrees/sec — how fast it re-aims at the shooter on the way back (the RETURN leg still homes onto the shooter's live position — that's "catching your own throw", never complained about, and unrelated to tracking the opponent)
 const BOOMERANG_CATCH_DISTANCE := 24.0 # despawns once this close to the shooter on the return leg
@@ -53,7 +63,6 @@ var _boomerang_timer := 0.0
 var _boomerang_returning := false
 var _boomerang_hit_outbound := false
 var _boomerang_hit_return := false
-var _boomerang_curve_sign := 1.0 # captured once in _ready() from the target's position at throw time; see the note above
 
 var textures: Array = [] # of Texture2D — 1 = static sprite; 2+ = simple flicker/pulse animation
 var flip_h := false # sprites face right by default; flipped for shots travelling left
@@ -69,12 +78,21 @@ const ANIM_FRAME_DURATION := 0.1
 func _ready() -> void:
 	if is_looping:
 		_drift_velocity = velocity
-	if is_boomerang and is_instance_valid(target):
-		# Captured once here (not re-sampled every frame in _update_boomerang())
-		# — see the "ne doivent pas etre teleguides" note above.
-		_boomerang_curve_sign = signf(target.position.y - position.y)
-		if is_zero_approx(_boomerang_curve_sign):
-			_boomerang_curve_sign = 1.0 # target exactly level — pick an arbitrary consistent direction rather than never curving
+	if is_boomerang:
+		# Captured once here — the arc always rotates around this baseline,
+		# never accumulates frame to frame (see the field's comment above).
+		_boomerang_base_velocity = velocity
+		# Godot's Vector2.rotated() is clockwise-positive (y grows downward),
+		# so a POSITIVE angle on a rightward vector points DOWN, not up —
+		# the reverse of the everyday "30deg = tilted up" reading. Swap here
+		# so the field names stay true to Camil's wording ("par defaut ca
+		# part du haut") rather than to Godot's rotation sign convention.
+		if boomerang_descending_throw:
+			_boomerang_start_deg = BOOMERANG_ARC_ANGLE_DEG # starts DOWN
+			_boomerang_end_deg = -BOOMERANG_ARC_ANGLE_DEG # ends UP
+		else:
+			_boomerang_start_deg = -BOOMERANG_ARC_ANGLE_DEG # starts UP
+			_boomerang_end_deg = BOOMERANG_ARC_ANGLE_DEG # ends DOWN
 	if textures.is_empty():
 		# Epic 2 weapons without dedicated art yet (e.g. turret shots) still
 		# need to be visible — a small colored square beats an invisible hit.
@@ -207,25 +225,21 @@ func _apply_hit_effect() -> void:
 	else:
 		target.apply_damage(damage)
 
-## Outbound leg: arcs in a FIXED direction (_boomerang_curve_sign, captured
-## once in _ready() from the target's position at throw time — see that
-## field's comment). NOT re-aimed at the target frame to frame. Return leg:
-## re-aims at the shooter's current (live) position each frame, homing-
-## style, then despawns once close enough to be "caught" — that part is
-## unaffected: "catching your own throw" was never the complaint.
-##
-## History: originally a hardcoded always-positive rotation, blind to
-## shooter side or target position ("boomerang ne marche pas du tout, c'est
-## pas interessant" — 2026-08-10). Briefly replaced with a per-frame
-## chase-the-target turn (same technique as the return leg), which did land
-## hits but read as a homing missile ("les boomerangs ne doivent pas etre
-## teleguides !"). This is the middle ground: still an arc, still biased
-## toward wherever the target was at the moment of the throw (learnable/
-## aimable, not arbitrary), but frozen after that — no lock-on.
+## Outbound leg: a FIXED, deterministic banana arc — velocity is recomputed
+## every frame straight from _boomerang_base_velocity (captured at spawn)
+## rotated by an angle linearly swept from _boomerang_start_deg to
+## _boomerang_end_deg over boomerang_out_duration. No reference to `target`
+## at all (see the field block's history above) — not homing by
+## construction, just a real toss with a predictable, learnable shape.
+## Return leg: re-aims at the shooter's current (live) position each frame,
+## homing-style, then despawns once close enough to be "caught" — that part
+## is unaffected: "catching your own throw" was never the complaint.
 func _update_boomerang(delta: float) -> void:
 	_boomerang_timer += delta
 	if not _boomerang_returning:
-		velocity = velocity.rotated(deg_to_rad(BOOMERANG_CURVE_RATE * _boomerang_curve_sign * delta))
+		var t := clampf(_boomerang_timer / boomerang_out_duration, 0.0, 1.0)
+		var current_deg := lerpf(_boomerang_start_deg, _boomerang_end_deg, t)
+		velocity = _boomerang_base_velocity.rotated(deg_to_rad(current_deg))
 		if _boomerang_timer >= boomerang_out_duration:
 			_boomerang_returning = true
 	elif is_instance_valid(shooter):

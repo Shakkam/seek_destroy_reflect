@@ -365,6 +365,10 @@ func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: flo
 	if weapon.is_boomerang:
 		projectile.is_boomerang = true
 		projectile.shooter = ship
+		# 2026-08-10: "par defaut ca part du haut (30 -> -30). Si je
+		# descends, ca part du bas (-30 -> 30)." — Godot's y-down convention,
+		# so "descending" is a positive y in the ship's last move direction.
+		projectile.boomerang_descending_throw = ship.get_last_move_direction().y > 0.01
 		var out_duration := boomerang_out_duration_override
 		if out_duration <= 0.0:
 			out_duration = weapon.boomerang_out_duration # 0 here too just leaves ProjectileNode's own built-in default in place

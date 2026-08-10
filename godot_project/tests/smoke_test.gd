@@ -171,49 +171,76 @@ func _test_boomerang_motion() -> void:
 	# 2026-08-10 bug reports, in order:
 	# 1) "boomerang ne marche pas du tout" — the outbound leg used to curve a
 	#    fixed direction no matter where the target was.
-	# 2) "les boomerangs ne doivent pas etre teleguides !" — the fix for #1
-	#    (chasing the target's live position every frame) read as a homing
-	#    missile instead.
-	# Landed design: the curve direction is captured ONCE at _ready() (from
-	# the target's position at throw time), then frozen — still biased
-	# toward the opponent (fixes #1) but can't re-track them afterward
-	# (fixes #2). Place the target BELOW the shooter at spawn.
+	# 2) "les boomerangs ne doivent pas etre teleguides !" — chasing the
+	#    target's live position landed hits but read as a homing missile.
+	# 3) Final design: "une trajectoire unique: ca part sur un angle a 30 deg
+	#    et revient sur -30 deg. Par defaut ca part du haut (30 -> -30). Si
+	#    je descends, ca part du bas (-30 -> 30). Si je monte, ca part du
+	#    haut (30 -> -30)." — a fixed, deterministic arc with NO reference to
+	#    the target at all (can't be "guided" by construction); only the
+	#    shooter's own last movement direction picks which end it starts from.
 	var target := ShipNode.new()
-	target.position = Vector2(900, 500)
+	target.position = Vector2(900, 500) # deliberately irrelevant to the outcome now — see the checks below
 
-	var projectile := ProjectileNode.new()
-	projectile.is_boomerang = true
-	projectile.shooter = shooter
-	projectile.target = target
-	projectile.position = shooter.position
-	projectile.velocity = Vector2(620, 0)
-	projectile.lifetime = 3.0
-	projectile.textures = [] # forces the fallback Polygon2D path in _ready(), no art needed
+	var default_throw := ProjectileNode.new()
+	default_throw.is_boomerang = true
+	default_throw.shooter = shooter
+	default_throw.target = target
+	default_throw.position = shooter.position
+	default_throw.velocity = Vector2(620, 0)
+	default_throw.boomerang_descending_throw = false # neutral/"monte" case
+	default_throw.lifetime = 3.0
+	default_throw.textures = [] # forces the fallback Polygon2D path in _ready(), no art needed
 
 	root.add_child(shooter)
 	root.add_child(target)
-	root.add_child(projectile)
-	# _ready() only fires once the node is inside the tree and processes a
-	# frame; manually invoke the physics step instead of waiting on real
-	# engine ticks so this stays a synchronous, deterministic test. _ready()
-	# already fired on add_child() above, so the curve sign is captured now.
-	var outbound_start := projectile.position
-	for i in 5: # ~0.17s in — still inside the default 0.45s outbound window
-		projectile._physics_process(1.0 / 30.0)
-	_check("boomerang's outbound arc bends toward where the target was at throw time", projectile.velocity.y > 0.0)
-	_check("boomerang left its spawn point", projectile.position.distance_to(outbound_start) > 1.0)
+	root.add_child(default_throw)
+	# This synchronous harness never calls _ready() on its own (same gotcha
+	# as the turret test above) — invoke it manually so _boomerang_base_
+	# velocity/_boomerang_start_deg/_boomerang_end_deg get captured.
+	default_throw._ready()
+	var outbound_start := default_throw.position
+	# `velocity` only gets rotated to the start angle once _update_boomerang()
+	# actually runs — _ready() only captures the baseline/angles — so this
+	# has to be checked after the first physics tick, not before it.
+	default_throw._physics_process(1.0 / 30.0)
+	_check("default (non-descending) throw starts angled UP (+30deg = negative y, Godot y-down)", default_throw.velocity.y < 0.0)
+	for i in 4: # remaining frames up to ~0.17s in — still inside the default 0.45s outbound window
+		default_throw._physics_process(1.0 / 30.0)
+	_check("boomerang left its spawn point", default_throw.position.distance_to(outbound_start) > 1.0)
 
-	# Move the target to the OPPOSITE side mid-flight — a homing boomerang
-	# would bend the other way; this one must keep curving the SAME way,
-	# since the direction was already frozen at throw time.
+	# Move the target mid-flight — the outbound leg no longer references
+	# `target` at all (see the sign-flip checks below for the real proof
+	# that the arc is deterministic and unaffected by this).
 	target.position = Vector2(900, 50)
 	for i in 5: # remaining frames up to ~0.33s, still inside the 0.45s outbound window
-		projectile._physics_process(1.0 / 30.0)
-	_check("boomerang does NOT re-track a target that moves after the throw (not teleguide)", projectile.velocity.y > 0.0)
+		default_throw._physics_process(1.0 / 30.0)
 
 	for i in 10: # push on past the 0.45s outbound window
-		projectile._physics_process(1.0 / 30.0)
-	_check("boomerang has entered the return phase after 0.67s", projectile._boomerang_returning)
+		default_throw._physics_process(1.0 / 30.0)
+	_check("boomerang has entered the return phase after 0.67s", default_throw._boomerang_returning)
+	# By the end of the outbound leg it must have swept all the way to -30deg
+	# (positive y, Godot y-down) — starts up, ends down, "revient sur -30 deg".
+	_check("default throw ends the outbound leg angled DOWN (-30deg = positive y)", default_throw.velocity.y > 0.0)
+
+	# "Si je descends, ca part du bas (-30 -> 30)" — the mirrored case.
+	var descending_throw := ProjectileNode.new()
+	descending_throw.is_boomerang = true
+	descending_throw.shooter = shooter
+	descending_throw.target = target
+	descending_throw.position = shooter.position
+	descending_throw.velocity = Vector2(620, 0)
+	descending_throw.boomerang_descending_throw = true
+	descending_throw.lifetime = 3.0
+	descending_throw.textures = []
+	root.add_child(descending_throw)
+	descending_throw._ready() # see the note on default_throw._ready() above
+	descending_throw._physics_process(1.0 / 30.0) # see the note on the same first-tick requirement above
+	_check("a descending throw starts angled DOWN instead (-30deg = positive y)", descending_throw.velocity.y > 0.0)
+	for i in 19: # push the rest of the way through the outbound window
+		descending_throw._physics_process(1.0 / 30.0)
+	_check("a descending throw ends the outbound leg angled UP (+30deg = negative y) — mirrored from the default", descending_throw.velocity.y < 0.0)
+	descending_throw.queue_free()
 
 	# queue_free() defers actual deallocation to the next idle frame, which
 	# never happens here since we're driving _physics_process manually rather
@@ -221,10 +248,10 @@ func _test_boomerang_motion() -> void:
 	# instead of relying on is_instance_valid() to observe the free() call.
 	var closest := INF
 	for i in 60: # give it time to actually arc back toward the shooter
-		if not is_instance_valid(projectile):
+		if not is_instance_valid(default_throw):
 			break
-		projectile._physics_process(1.0 / 30.0)
-		closest = minf(closest, projectile.position.distance_to(shooter.position))
+		default_throw._physics_process(1.0 / 30.0)
+		closest = minf(closest, default_throw.position.distance_to(shooter.position))
 	_check("boomerang comes within catch distance of the shooter (closest=%.1f)" % closest, closest < ProjectileNode.BOOMERANG_CATCH_DISTANCE)
 
 	target.queue_free()
