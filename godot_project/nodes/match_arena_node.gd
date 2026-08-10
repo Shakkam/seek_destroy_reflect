@@ -239,6 +239,11 @@ func _on_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 ## different pattern (a straight staggered burst, a wide fan, a single
 ## empowered shot, ...) purely via data.
 func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
+	if weapon.charged_grants_heat_immunity:
+		# Mitrailleur (2026-08-09) — a pure self-buff, no projectile at all;
+		# see ShipNode.grant_heat_immunity()/WeaponSystemState.fired(ignore_heat).
+		ship.grant_heat_immunity(weapon.charged_heat_immunity_duration)
+		return
 	if weapon.charged_projectile_count <= 1:
 		_spawn_projectile(weapon, ship, 0.0, weapon.charged_speed_multiplier)
 		return

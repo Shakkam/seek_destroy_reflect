@@ -19,6 +19,11 @@ var _mobility_boost_multiplier := 1.0
 var _mobility_boost_active_multiplier := 1.0 # the multiplier captured at the moment the boost fired
 var _stun_timer := 0.0 # Epic 2, Story 2.6 — movement and firing disabled while > 0
 
+# Mitrailleur's charged fire (2026-08-09) — see WeaponData.charged_grants_
+# heat_immunity/grant_heat_immunity() below: while > 0, fired() ignores the
+# selected weapon's heat gate entirely and heat stops accumulating.
+var _heat_immunity_timer := 0.0
+
 # Turbo afterimage trail (2026-08-06) — was flagged as deferred polish, done
 # now that the Turbo has a tint to match. Ghost copies of the ship's own
 # Visual polygon, spawned periodically while boosted and faded out via Tween.
@@ -358,7 +363,7 @@ func _physics_process(delta: float) -> void:
 			# within its NORMAL_FIRE_GRACE window — fires exactly like normal.
 			# Full-auto (Mitrailleur only) repeats every held frame; everyone
 			# else only fires on the rising edge of a fresh press.
-			var result := weapon_state.fired()
+			var result := weapon_state.fired(_heat_immunity_timer > 0.0)
 			weapon_state = result.state
 			if result.fired:
 				var weapon: WeaponData = result.weapon
@@ -387,6 +392,7 @@ func _physics_process(delta: float) -> void:
 
 	_fire_prev = fire_held
 
+	_heat_immunity_timer = maxf(_heat_immunity_timer - delta, 0.0)
 	_mobility_boost_timer = maxf(_mobility_boost_timer - delta, 0.0)
 	_mobility_boost_multiplier = _mobility_boost_active_multiplier if _mobility_boost_timer > 0.0 else 1.0
 	if _mobility_boost_timer > 0.0:
@@ -423,6 +429,8 @@ func _physics_process(delta: float) -> void:
 		elif lift_held and not is_dash_character:
 			var charge_fraction := clampf(_lift_charge_timer / LIFT_CHARGE_CAP, 0.0, 1.0)
 			visual.modulate = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.84, 0.29), charge_fraction) # builds toward gold
+		elif _heat_immunity_timer > 0.0:
+			visual.modulate = Color(1.0, 0.95, 0.3) # bright yellow — Mitrailleur's "spray without limit" buff
 		elif _flash_timer > 0.0:
 			visual.modulate = Color(1.7, 1.7, 1.7)
 		elif _mobility_boost_timer > 0.0:
@@ -686,6 +694,10 @@ func apply_stun(duration: float) -> void:
 func apply_knockback(offset: Vector2) -> void:
 	state = state.knocked_back(offset, arena_bounds, frontier_x)
 	position = state.position
+
+## Mitrailleur's charged fire (2026-08-09) — see WeaponData.charged_grants_heat_immunity.
+func grant_heat_immunity(duration: float) -> void:
+	_heat_immunity_timer = maxf(_heat_immunity_timer, duration)
 
 ## Epic 4, Story 4.5 — "gauge_floor" twist's regen guarantee: a small
 ## trickle to the selected weapon's gauge, independent of self_fill_locked

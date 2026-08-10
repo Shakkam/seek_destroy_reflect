@@ -267,6 +267,17 @@ func _ready() -> void:
 	var mini_charge_ok: bool = immediate_mini_shots == 1 # only the i=0 shot fires this frame; the other 9 are timer-scheduled
 	print("PASS: Eventail's charged fire fires the first (unstaggered) shot immediately" if mini_charge_ok else "FAIL: expected exactly 1 immediate projectile, got %d" % immediate_mini_shots)
 
+	# Mitrailleur's charged fire: a pure self-buff, must spawn NO projectile
+	# at all (unlike every other charged weapon so far).
+	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
+	var children_before_mg_charge := charge_arena.get_child_count()
+	charge_arena.ship_1._heat_immunity_timer = 0.0
+	charge_arena._on_charged_weapon_fired(machine_gun, charge_arena.ship_1)
+	await get_tree().process_frame
+	var new_children_from_mg_charge := charge_arena.get_child_count() - children_before_mg_charge
+	var mg_charge_ok: bool = new_children_from_mg_charge == 0 and charge_arena.ship_1._heat_immunity_timer > 0.0
+	print("PASS: Mitrailleur's charged fire grants heat immunity with no projectile spawned" if mg_charge_ok else "FAIL: expected 0 new projectiles + immunity armed, got %d new children, immunity timer %s" % [new_children_from_mg_charge, charge_arena.ship_1._heat_immunity_timer])
+
 	charge_arena.queue_free()
 	await get_tree().process_frame
 
@@ -329,5 +340,5 @@ func _ready() -> void:
 		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
-		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_burst_ok and mini_charge_ok
+		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_burst_ok and mini_charge_ok and mg_charge_ok
 	get_tree().quit(0 if all_ok else 1)

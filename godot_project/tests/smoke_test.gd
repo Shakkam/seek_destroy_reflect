@@ -33,6 +33,7 @@ func _initialize() -> void:
 	_test_vif_campaign_authoring()
 	_test_gauges_reset_between_rounds()
 	_test_weapon_heat_gauge()
+	_test_mitrailleur_heat_immunity_rule()
 	_test_vif_dash_lift_rule()
 	_test_weapon_exclusivity()
 	_test_every_charge_capable_weapon_actually_slows()
@@ -646,6 +647,41 @@ func _test_weapon_heat_gauge() -> void:
 	still_firing_state = still_firing_state.fired().state
 	still_firing_state = still_firing_state.with_heat_ticked(1.0, true)
 	_check("heat does not drain while is_firing is true", is_equal_approx(still_firing_state.heats[0], 1.0))
+
+func _test_mitrailleur_heat_immunity_rule() -> void:
+	# 2026-08-09 party-mode pitch, implemented: "puisque tout le monde a
+	# maintenant un tir charge, le sien pourrait etre l'inverse des autres —
+	# charger desactive completement la surchauffe pendant quelques
+	# secondes. Le mec qui charge pour arroser sans limite, brievement."
+	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
+	_check("machine_gun has a charged fire configured", machine_gun.charge_fire_duration > 0.0)
+	_check("machine_gun's charge actually slows movement (the vortex.tres bug can never recur silently)", machine_gun.charge_fire_slow_multiplier < 1.0 and machine_gun.charge_fire_slow_multiplier > 0.0)
+	_check("machine_gun's charged fire grants heat immunity instead of a projectile burst", machine_gun.charged_grants_heat_immunity)
+	_check("machine_gun's heat immunity lasts a few seconds", machine_gun.charged_heat_immunity_duration > 0.0)
+
+	# WeaponSystemState.fired(ignore_heat) — bypasses the gate AND freezes
+	# heat accumulation for that shot.
+	var state := WeaponSystemState.new([machine_gun])
+	state = state.with_gauge_added(1000.0)
+	# Heat the gun up to its max first.
+	for i in 6:
+		state = state.fired().state
+		state = state.with_cooldown_ticked(state.cooldown)
+	_check("setup: machine_gun is fully heated", is_equal_approx(state.heats[0], machine_gun.heat_max))
+
+	var blocked := state.fired()
+	_check("normally, firing while overheated is blocked", not blocked.fired)
+
+	var immune_result := state.fired(true) # ignore_heat = true
+	_check("with ignore_heat, firing succeeds even while overheated", immune_result.fired)
+	state = immune_result.state
+	_check("with ignore_heat, heat does not increase further either", is_equal_approx(state.heats[0], machine_gun.heat_max))
+
+	# ShipNode.grant_heat_immunity() / _on_charged_weapon_fired() short-circuit.
+	var ship := ShipNode.new()
+	ship.grant_heat_immunity(machine_gun.charged_heat_immunity_duration)
+	_check("grant_heat_immunity() sets the timer", ship._heat_immunity_timer > 0.0)
+	ship.queue_free()
 
 func _test_vif_dash_lift_rule() -> void:
 	# 2026-08-09 (Camil): "vif est pas interessant... chaque perso devrait

@@ -14,3 +14,7 @@ is_heavy = false
 heat_max = 6.0
 heat_per_shot = 1.0
 heat_cooldown_rate = 6.0
+charge_fire_duration = 3.0
+charge_fire_slow_multiplier = 0.3
+charged_grants_heat_immunity = true
+charged_heat_immunity_duration = 4.0

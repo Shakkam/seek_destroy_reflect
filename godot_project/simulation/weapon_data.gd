@@ -80,3 +80,12 @@ extends Resource
 @export var charged_burst_ping_pong: bool = false # 2026-08-09, Spreader: sweep from -spread/2 to +spread/2 and back within the SAME burst (a triangle wave), instead of one-way linear — "balayer de haut en bas puis remonter de bas en haut"
 @export var charged_stagger: float = 0.0 # seconds between each shot in the charged burst — 0 = simultaneous
 @export var charged_speed_multiplier: float = 1.0 # multiplies projectile_speed for the charged release only
+
+# Mitrailleur's charged fire (2026-08-09, party-mode pitch: "puisque tout
+# le monde a maintenant un tir charge, le sien pourrait etre l'inverse des
+# autres — charger desactive completement la surchauffe pendant quelques
+# secondes. Le mec qui charge pour arroser sans limite, brievement.") — a
+# pure self-buff on release, no projectile burst at all (charged_projectile_
+# count is ignored when this is set). See ShipNode.grant_heat_immunity().
+@export var charged_grants_heat_immunity: bool = false
+@export var charged_heat_immunity_duration: float = 0.0 # seconds

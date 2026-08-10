@@ -69,18 +69,24 @@ func with_heat_ticked(delta: float, is_firing: bool) -> WeaponSystemState:
 	return new_state
 
 ## Attempts to fire the currently selected weapon.
+## ignore_heat (2026-08-09, Mitrailleur's charged-fire buff — "charger
+## desactive completement la surchauffe pendant quelques secondes"):
+## bypasses the heat gate entirely AND freezes heat accumulation for this
+## shot, so a temporarily-immune spray neither gets blocked by existing
+## heat nor pays for it — heat resumes exactly where it left off once the
+## buff ends.
 ## Returns {"state": WeaponSystemState, "fired": bool, "weapon": WeaponData}
-func fired() -> Dictionary:
+func fired(ignore_heat: bool = false) -> Dictionary:
 	var weapon := selected_weapon()
 	if cooldown > 0.0 or gauges[selected_index] < weapon.gauge_cost_per_shot:
 		return {"state": self, "fired": false, "weapon": null}
-	if weapon.heat_max > 0.0 and heats[selected_index] >= weapon.heat_max:
+	if not ignore_heat and weapon.heat_max > 0.0 and heats[selected_index] >= weapon.heat_max:
 		return {"state": self, "fired": false, "weapon": null} # overheated — release fire and let it cool
 
 	var new_state := _clone()
 	new_state.gauges[selected_index] = gauges[selected_index] - weapon.gauge_cost_per_shot
 	new_state.cooldown = 1.0 / weapon.fire_rate
-	if weapon.heat_max > 0.0:
+	if not ignore_heat and weapon.heat_max > 0.0:
 		new_state.heats[selected_index] = minf(heats[selected_index] + weapon.heat_per_shot, weapon.heat_max)
 	return {"state": new_state, "fired": true, "weapon": weapon}
 
