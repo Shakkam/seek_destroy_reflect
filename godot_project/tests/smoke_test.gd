@@ -197,26 +197,30 @@ func _test_turret_destructible() -> void:
 	root.add_child(enemy_ship)
 	root.add_child(turret)
 
+	# 2026-08-10 bug report: "j'ai l'impression que tous les tirs ne touchent
+	# pas les tourelles de controleur" — hit detection moved from a per-frame
+	# TurretNode poll (a point-only check, plus order-dependent on top of
+	# that) into ProjectileNode's own physics step, using the same swept
+	# segment check as the ship/vortex tunneling fix. Exercise it with a shot
+	# that starts clearly outside the turret's rect and ends clearly on the
+	# other side in a single step — neither endpoint alone would register.
 	var starting_hp := turret.hp
 	var incoming := ProjectileNode.new()
-	incoming.position = turret.position # overlapping the turret's hitbox
+	incoming.position = turret.position - Vector2(20, 0) # just left of the turret's rect (HALF_EXTENTS=15)
+	incoming.velocity = Vector2(1200, 0) # far enough per-frame to land right of it too
 	incoming.damage = 5
 	incoming.target = enemy_ship # target.side == turret.owner_side -> recognized as a threat to this turret
 	incoming.textures = []
 	root.add_child(incoming)
 
-	turret._check_incoming_fire()
-	_check("turret takes damage from an overlapping enemy projectile", turret.hp == starting_hp - 5)
+	incoming._physics_process(1.0 / 30.0)
+	_check("turret takes damage from a fast enemy shot that would tunnel past a point-only check", turret.hp == starting_hp - 5)
 	_check("the consumed projectile is queued for deletion", incoming.is_queued_for_deletion())
-	# queue_free() only defers deletion to the next idle frame (which this
-	# synchronous harness never reaches — same caveat as the boomerang test
-	# above) — detach it immediately so it can't be re-matched by the next
-	# _check_incoming_fire() call below and skew that assertion.
-	root.remove_child(incoming)
 
 	# A friendly shot (target on the OTHER side) passing through must NOT hurt it.
 	var friendly := ProjectileNode.new()
-	friendly.position = turret.position
+	friendly.position = turret.position - Vector2(20, 0)
+	friendly.velocity = Vector2(1200, 0)
 	friendly.damage = 99
 	var opponent_ship := ShipNode.new()
 	opponent_ship.side = 1
@@ -225,7 +229,7 @@ func _test_turret_destructible() -> void:
 	friendly.textures = []
 	root.add_child(friendly)
 	var hp_before_friendly := turret.hp
-	turret._check_incoming_fire()
+	friendly._physics_process(1.0 / 30.0)
 	_check("turret ignores an overlapping friendly-side projectile", turret.hp == hp_before_friendly)
 
 	enemy_ship.queue_free()

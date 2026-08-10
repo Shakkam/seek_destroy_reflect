@@ -54,30 +54,21 @@ func _physics_process(delta: float) -> void:
 		_fire_cooldown = 1.0 / weapon.fire_rate
 		_fire_at_target()
 
-	_check_incoming_fire()
 	_flash_timer = maxf(_flash_timer - delta, 0.0)
 	if _visual:
 		_visual.modulate = Color(1.7, 1.7, 1.7) if _flash_timer > 0.0 else Color(1.0, 1.0, 1.0)
 
-## Consumes the first overlapping enemy projectile this frame (one hit per
-## frame is plenty — projectiles are small and fast, this isn't meant to be
-## a bullet sponge) and applies its damage. "Enemy" = any projectile whose
-## intended target is a ship on this turret's own side.
-func _check_incoming_fire() -> void:
-	for child in get_parent().get_children():
-		if not (child is ProjectileNode):
-			continue
-		var incoming: ProjectileNode = child
-		if not is_instance_valid(incoming.target) or incoming.target.side != owner_side:
-			continue # this shot belongs to my own side's turret/ship, not a threat
-		var my_rect := Rect2(position - HALF_EXTENTS, HALF_EXTENTS * 2.0)
-		if my_rect.has_point(incoming.position):
-			hp -= incoming.damage
-			_flash_timer = FLASH_DURATION
-			incoming.queue_free()
-			if hp <= 0.0:
-				queue_free()
-			return
+## 2026-08-10: hit detection moved to ProjectileNode's own physics step (see
+## its swept _segment_crosses_rect() check) so it can never race this node's
+## _physics_process order — a turret polling with a point-only check here
+## used to silently swallow most incoming shots ("j'ai l'impression que tous
+## les tirs ne touchent pas les tourelles de controleur"). This is now just
+## the damage application the projectile calls into once it confirms a hit.
+func take_damage(amount: float) -> void:
+	hp -= amount
+	_flash_timer = FLASH_DURATION
+	if hp <= 0.0:
+		queue_free()
 
 func _fire_at_target() -> void:
 	var projectile := ProjectileNode.new()

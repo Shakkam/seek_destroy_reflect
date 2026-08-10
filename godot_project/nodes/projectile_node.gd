@@ -77,8 +77,10 @@ func _ready() -> void:
 	add_child(_sprite)
 	_update_sprite_texture()
 
+var position_before: Vector2 = Vector2.ZERO # last frame's pre-move position; exposed so TurretNode's swept hit-check (see turret_node.gd) always brackets a real, freshly-moved segment instead of racing physics-process order
+
 func _physics_process(delta: float) -> void:
-	var position_before := position
+	position_before = position
 	if is_boomerang:
 		_update_boomerang(delta)
 	elif is_looping:
@@ -95,6 +97,29 @@ func _physics_process(delta: float) -> void:
 	lifetime -= delta
 	if spin_speed != 0.0:
 		rotation += deg_to_rad(spin_speed) * delta
+
+	# 2026-08-10 bug report: "j'ai l'impression que tous les tirs ne touchent
+	# pas les tourelles de controleur" — same tunneling class as the vortex
+	# bug above, but TurretNode used to poll for this itself with a point-only
+	# check on the projectile's post-move position (see git history), AND
+	# that poll ran in the turret's own _physics_process — whichever frame
+	# order the two nodes happened to run in, the turret could easily be
+	# checking a projectile that hadn't moved yet THIS frame, collapsing the
+	# segment to a single (stale) point and reintroducing the exact same
+	# skip-over. Doing the sweep here instead guarantees position_before/
+	# position always bracket THIS frame's real movement.
+	if target and get_parent(): # get_parent() is null in tests that drive _physics_process() directly without adding the projectile to a tree
+		for child in get_parent().get_children():
+			if not (child is TurretNode):
+				continue
+			var turret: TurretNode = child
+			if turret.owner_side != target.side:
+				continue # this turret guards MY side, not the target's — not in the way
+			var turret_rect := Rect2(turret.position - TurretNode.HALF_EXTENTS, TurretNode.HALF_EXTENTS * 2.0)
+			if _segment_crosses_rect(position_before, position, turret_rect):
+				turret.take_damage(damage)
+				queue_free()
+				return
 
 	if target:
 		var target_rect := Rect2(target.position - target.half_extents, target.half_extents * 2.0)
