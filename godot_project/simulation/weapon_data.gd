@@ -90,6 +90,15 @@ extends Resource
 @export var charged_stagger: float = 0.0 # seconds between each shot in the charged burst — 0 = simultaneous
 @export var charged_speed_multiplier: float = 1.0 # multiplies projectile_speed for the charged release only
 
+# Perturbateur's boomerang range (2026-08-10, Camil: "plus on charge, plus le
+# boomerang va loin, jusqu'au fond du camp adverse") — is_boomerang only.
+# 0 on either field means "use ProjectileNode's built-in default" (see
+# boomerang_out_duration there); charged_boomerang_out_duration additionally
+# falls back to boomerang_out_duration (not just the hardcoded default) if
+# that one's been customized but the charged value hasn't.
+@export var boomerang_out_duration: float = 0.0 # seconds outbound before curving back on a NORMAL throw
+@export var charged_boomerang_out_duration: float = 0.0 # seconds outbound before curving back on the CHARGED throw
+
 # Mitrailleur's charged fire (2026-08-09) — first tried as a heat-immunity
 # buff (Camil: "pas bien"), replaced with: "les 10 missiles suivants seront
 # doubles (paralleles, separes de 10px verticalement)." A pure self-buff on

@@ -36,8 +36,8 @@ var _drift_velocity := Vector2.ZERO # the straight-line velocity captured at spa
 # and once on the way back — each guarded separately below.
 var is_boomerang := false
 var shooter: ShipNode = null
-const BOOMERANG_CURVE_RATE := 70.0 # degrees/sec — bends the outbound path into a gentle arc. Was 160 (2026-08-05 playtest: "part vers le bas" — over 0.45s that swung ~72°, nearly a right angle off "straight at the opponent"; 70°/s only swings ~31°, so it still clearly travels forward first.
-const BOOMERANG_OUT_DURATION := 0.45 # seconds before it curves back
+const BOOMERANG_CURVE_RATE := 70.0 # degrees/sec max turn rate — bends the outbound path into a gentle arc (was a fixed-direction rotation, see 2026-08-10 fix note below; now a clamped turn-toward-target using the same angle-diff technique as the return leg)
+var boomerang_out_duration: float = 0.45 # seconds before it curves back — a var (not const) so charged_boomerang_out_duration (Perturbateur, 2026-08-10: "plus on charge, plus le boomerang va loin, jusqu'au fond du camp adverse") can send it much further out on a charged release
 const BOOMERANG_RETURN_TURN_RATE := 260.0 # degrees/sec — how fast it re-aims at the shooter on the way back
 const BOOMERANG_CATCH_DISTANCE := 24.0 # despawns once this close to the shooter on the return leg
 var _boomerang_timer := 0.0
@@ -183,14 +183,31 @@ func _apply_hit_effect() -> void:
 	else:
 		target.apply_damage(damage)
 
-## Outbound leg: arcs via a constant angular curve. Return leg: re-aims at
-## the shooter's current (live) position each frame, homing-style, then
-## despawns once close enough to be "caught".
+## Outbound leg: arcs toward the target (clamped turn rate, same technique as
+## the return leg below). Return leg: re-aims at the shooter's current (live)
+## position each frame, homing-style, then despawns once close enough to be
+## "caught".
+##
+## 2026-08-10 bug report: "boomerang ne marche pas du tout, c'est pas
+## interessant" — the outbound leg used to be `velocity.rotated(deg_to_rad(
+## BOOMERANG_CURVE_RATE * delta))`, a FIXED-direction rotation applied every
+## frame regardless of where the target actually was. It always arced the
+## same way no matter the shooter's side or the opponent's position, so it
+## only ever lined up with a target by pure luck — practically never landed.
+## Reusing the same angle-diff clamped-turn approach the return leg already
+## used correctly fixes this: it still arcs (bounded by BOOMERANG_CURVE_RATE
+## deg/s, not an instant snap) rather than flying a straight-line homing
+## missile, but now the arc actually bends toward the opponent.
 func _update_boomerang(delta: float) -> void:
 	_boomerang_timer += delta
 	if not _boomerang_returning:
-		velocity = velocity.rotated(deg_to_rad(BOOMERANG_CURVE_RATE * delta))
-		if _boomerang_timer >= BOOMERANG_OUT_DURATION:
+		if is_instance_valid(target):
+			var to_target := target.position - position
+			if to_target.length() > 1.0:
+				var angle_diff := wrapf(to_target.angle() - velocity.angle(), -PI, PI)
+				var max_turn := deg_to_rad(BOOMERANG_CURVE_RATE) * delta
+				velocity = velocity.rotated(clampf(angle_diff, -max_turn, max_turn))
+		if _boomerang_timer >= boomerang_out_duration:
 			_boomerang_returning = true
 	elif is_instance_valid(shooter):
 		var to_shooter := shooter.position - position

@@ -208,6 +208,9 @@ const VORTEX_TEXTURES := [
 const BONBON_TEXTURES := [
 	preload("res://assets/art/vfx/bonbon.png"),
 ] # Mini/Éventail's fan shot (2026-08-09) — single sprite, spins via WeaponData.projectile_spin_speed (mini_shot.tres) since there's no multi-frame cycle for this one, unlike the Tourbillon.
+const BOOMERANG_TEXTURES := [
+	preload("res://assets/art/vfx/boomerang.png"),
+] # Perturbateur's stun_boomerang (2026-08-10) — used to reuse the tinted machine-gun sprite; dedicated art now, spins via projectile_spin_speed (stun_boomerang.tres).
 
 ## Epic 2 — the signal carries the full WeaponData resource so this handler
 ## can branch on effect_type instead of a bare damage/is_heavy pair.
@@ -272,7 +275,10 @@ func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 		ship.grant_double_fire(weapon.charged_double_fire_shots)
 		return
 	if weapon.charged_projectile_count <= 1:
-		_spawn_projectile(weapon, ship, 0.0, weapon.charged_speed_multiplier)
+		# Perturbateur (2026-08-10): "plus on charge, plus le boomerang va
+		# loin, jusqu'au fond du camp adverse" — the charged release just
+		# sends it much further out before it curves back.
+		_spawn_projectile(weapon, ship, 0.0, weapon.charged_speed_multiplier, Vector2.ZERO, weapon.charged_boomerang_out_duration)
 		return
 	for i in weapon.charged_projectile_count:
 		var p := float(i) / float(maxi(weapon.charged_projectile_count - 1, 1))
@@ -289,7 +295,7 @@ func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 		else:
 			_spawn_projectile(weapon, ship, angle_offset, weapon.charged_speed_multiplier)
 
-func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: float, speed_multiplier: float = 1.0, position_offset: Vector2 = Vector2.ZERO) -> void:
+func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: float, speed_multiplier: float = 1.0, position_offset: Vector2 = Vector2.ZERO, boomerang_out_duration_override: float = 0.0) -> void:
 	if not is_instance_valid(ship):
 		return # round may have reset mid-burst-stagger
 
@@ -317,6 +323,9 @@ func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: flo
 	elif weapon.id == "mini_shot":
 		projectile.textures = BONBON_TEXTURES # Mini/Éventail — spins via projectile_spin_speed (mini_shot.tres), no multi-frame cycle
 		projectile.visual_scale = 1.0
+	elif weapon.id == "stun_boomerang":
+		projectile.textures = BOOMERANG_TEXTURES
+		projectile.visual_scale = 1.4
 	elif weapon.is_heavy:
 		projectile.textures = BAZOOKA_TEXTURES
 		# bazook.png's fireball ("front") points LEFT natively — opposite of the
@@ -343,7 +352,16 @@ func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: flo
 	if weapon.is_boomerang:
 		projectile.is_boomerang = true
 		projectile.shooter = ship
-		projectile.lifetime = 3.0 # default 2.0s can be tight for a full out-and-back arc if the shooter keeps moving
+		var out_duration := boomerang_out_duration_override
+		if out_duration <= 0.0:
+			out_duration = weapon.boomerang_out_duration # 0 here too just leaves ProjectileNode's own built-in default in place
+		if out_duration > 0.0:
+			projectile.boomerang_out_duration = out_duration
+		# 2026-08-10: lifetime needs to scale with range — a charged throw
+		# that goes "jusqu'au fond du camp adverse" needs a lot more than the
+		# flat 3.0s a normal short arc gets, or it expires mid-flight home.
+		var effective_out := projectile.boomerang_out_duration
+		projectile.lifetime = maxf(3.0, effective_out * 4.0 + 1.0)
 	add_child(projectile)
 
 ## 2026-08-09 redesign (Zoneur: "un laser qui traverse toute la map, mais

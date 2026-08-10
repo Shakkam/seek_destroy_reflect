@@ -282,6 +282,23 @@ func _ready() -> void:
 	var mini_charge_ok: bool = immediate_mini_shots == 1 # only the i=0 shot fires this frame; the other 9 are timer-scheduled
 	print("PASS: Eventail's charged fire fires the first (unstaggered) shot immediately" if mini_charge_ok else "FAIL: expected exactly 1 immediate projectile, got %d" % immediate_mini_shots)
 
+	# Perturbateur's charged boomerang (2026-08-10): "plus on charge, plus le
+	# boomerang va loin, jusqu'au fond du camp adverse" — the charged release
+	# must carry ProjectileNode.boomerang_out_duration all the way through
+	# from stun_boomerang.tres's charged_boomerang_out_duration field.
+	var stun_boomerang: WeaponData = load("res://data/weapons/stun_boomerang.tres")
+	var children_before_boomerang_charge := charge_arena.get_child_count()
+	charge_arena._on_charged_weapon_fired(stun_boomerang, charge_arena.ship_1)
+	await get_tree().process_frame
+	var spawned_charged_boomerang: ProjectileNode = null
+	for child in charge_arena.get_children():
+		if child is ProjectileNode and child.is_boomerang and not child.is_queued_for_deletion():
+			spawned_charged_boomerang = child
+	var boomerang_charge_ok: bool = spawned_charged_boomerang != null \
+		and is_equal_approx(spawned_charged_boomerang.boomerang_out_duration, stun_boomerang.charged_boomerang_out_duration) \
+		and spawned_charged_boomerang.boomerang_out_duration > 0.45 # meaningfully further than the default normal-throw arc
+	print("PASS: Perturbateur's charged boomerang travels further out before curving back" if boomerang_charge_ok else "FAIL: expected boomerang_out_duration %.2f, spawned=%s" % [stun_boomerang.charged_boomerang_out_duration, spawned_charged_boomerang])
+
 	# Mitrailleur's charged fire (2026-08-09 redesign): a pure self-buff on
 	# release (no projectile from the charge itself), then the NEXT normal
 	# shot fires doubled — two parallel projectiles, offset vertically.
@@ -364,5 +381,5 @@ func _ready() -> void:
 		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
-		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and mg_charge_ok and double_fire_ok
+		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and boomerang_charge_ok and mg_charge_ok and double_fire_ok
 	get_tree().quit(0 if all_ok else 1)

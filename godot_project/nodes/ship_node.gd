@@ -401,6 +401,7 @@ func _physics_process(delta: float) -> void:
 	_flash_timer = maxf(_flash_timer - delta, 0.0)
 	var visual := get_node_or_null("Visual") as Polygon2D
 	if visual:
+		visual.scale = Vector2.ONE # reset here, overridden below only while charging a lift (2026-08-10: "le lift meriterait un effet un peu plus gros")
 		if hidden_from_opponent:
 			visual.modulate = Color(1.0, 1.0, 1.0, 0.0) # "invisible_opponent" twist — rendering only; targeting (homing/turrets) still uses the real position
 		elif _stun_timer > 0.0:
@@ -422,6 +423,11 @@ func _physics_process(delta: float) -> void:
 		elif lift_held and not is_dash_character:
 			var charge_fraction := clampf(_lift_charge_timer / LIFT_CHARGE_CAP, 0.0, 1.0)
 			visual.modulate = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.84, 0.29), charge_fraction) # builds toward gold
+			# 2026-08-10, Camil: "le lift meriterait un effet un peu plus gros" —
+			# the tint alone was the only feedback; the ship itself now visibly
+			# swells as the charge builds (up to +35% at 100%), on top of the
+			# color, so a fully-charged lift reads as an obviously bigger threat.
+			visual.scale = Vector2.ONE * lerpf(1.0, 1.35, charge_fraction)
 		elif _double_fire_shots_remaining > 0:
 			visual.modulate = Color(1.0, 0.95, 0.3) # bright yellow — Mitrailleur's "double fire" buff
 		elif _flash_timer > 0.0:

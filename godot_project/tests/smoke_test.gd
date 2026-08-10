@@ -138,31 +138,43 @@ func _test_mini_shot_data() -> void:
 func _test_boomerang_motion() -> void:
 	var boomerang_data: WeaponData = load("res://data/weapons/stun_boomerang.tres")
 	_check("stun_boomerang is_boomerang flag set", boomerang_data.is_boomerang)
+	_check("stun_boomerang has a charged fire configured", boomerang_data.charge_fire_duration > 0.0)
+	_check("stun_boomerang's charge actually slows movement", boomerang_data.charge_fire_slow_multiplier < 1.0)
+	_check("stun_boomerang's charged release goes further (2026-08-10: 'plus on charge, plus le boomerang va loin')", boomerang_data.charged_boomerang_out_duration > 0.0)
 
 	var shooter := ShipNode.new()
 	shooter.position = Vector2(200, 300)
 
+	# 2026-08-10 bug report: "boomerang ne marche pas du tout, c'est pas
+	# interessant" — the outbound leg used to curve a FIXED direction no
+	# matter where the target was. Place the target BELOW the shooter and
+	# confirm the outbound arc actually bends that way (velocity.y > 0,
+	# Godot's y-down convention) instead of some arbitrary fixed direction.
+	var target := ShipNode.new()
+	target.position = Vector2(900, 500)
+
 	var projectile := ProjectileNode.new()
 	projectile.is_boomerang = true
 	projectile.shooter = shooter
+	projectile.target = target
 	projectile.position = shooter.position
 	projectile.velocity = Vector2(620, 0)
 	projectile.lifetime = 3.0
 	projectile.textures = [] # forces the fallback Polygon2D path in _ready(), no art needed
 
 	root.add_child(shooter)
+	root.add_child(target)
 	root.add_child(projectile)
 	# _ready() only fires once the node is inside the tree and processes a
 	# frame; manually invoke the physics step instead of waiting on real
 	# engine ticks so this stays a synchronous, deterministic test.
 	var outbound_start := projectile.position
-	for i in 3: # ~0.1s in — should still be heading mostly toward the opponent, not diving off-axis
+	for i in 10: # ~0.33s in — still inside the default 0.45s outbound window
 		projectile._physics_process(1.0 / 30.0)
-	var early_angle_deg := absf(rad_to_deg(projectile.velocity.angle()))
-	_check("boomerang still heads mostly forward early on (angle=%.0f°, was ~180° swing before the 2026-08-05 fix)" % early_angle_deg, early_angle_deg < 45.0)
-	for i in 17: # remaining frames up to ~0.67s total — well past BOOMERANG_OUT_DURATION (0.45s)
-		projectile._physics_process(1.0 / 30.0)
+	_check("boomerang's outbound arc bends toward the target instead of a fixed direction", projectile.velocity.y > 0.0)
 	_check("boomerang left its spawn point", projectile.position.distance_to(outbound_start) > 1.0)
+	for i in 10: # push on past the 0.45s outbound window
+		projectile._physics_process(1.0 / 30.0)
 	_check("boomerang has entered the return phase after 0.67s", projectile._boomerang_returning)
 
 	# queue_free() defers actual deallocation to the next idle frame, which
@@ -176,6 +188,8 @@ func _test_boomerang_motion() -> void:
 		projectile._physics_process(1.0 / 30.0)
 		closest = minf(closest, projectile.position.distance_to(shooter.position))
 	_check("boomerang comes within catch distance of the shooter (closest=%.1f)" % closest, closest < ProjectileNode.BOOMERANG_CATCH_DISTANCE)
+
+	target.queue_free()
 
 	shooter.queue_free()
 
