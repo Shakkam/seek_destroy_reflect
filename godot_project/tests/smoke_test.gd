@@ -40,6 +40,7 @@ func _initialize() -> void:
 	_test_every_charge_capable_weapon_actually_slows()
 	_test_vortex_weapon()
 	_test_projectile_tunneling_fix()
+	_test_hit_half_size_matches_sprite()
 	_test_charged_fire_burst()
 	_test_heavy_push_rule()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
@@ -253,6 +254,52 @@ func _test_boomerang_motion() -> void:
 		default_throw._physics_process(1.0 / 30.0)
 		closest = minf(closest, default_throw.position.distance_to(shooter.position))
 	_check("boomerang comes within catch distance of the shooter (closest=%.1f)" % closest, closest < ProjectileNode.BOOMERANG_CATCH_DISTANCE)
+
+	# 2026-08-11, Camil: "les boomerangs, a leur retour, ne doivent pas
+	# forcement revenir sur le joueur qui les a lance. Si le joueur bouge
+	# trop vite et 'evite' son propre boomerang, alors celui-ci continue sa
+	# trajectoire et part dans le fond du joueur." — get a throw engaged
+	# (closing in) on the return leg, then have the shooter dodge (teleport
+	# away, simulating a fast dash) — the boomerang must give up homing
+	# instead of chasing forever.
+	var dodge_shooter := ShipNode.new()
+	dodge_shooter.position = Vector2(200, 300)
+	var dodge_throw := ProjectileNode.new()
+	dodge_throw.is_boomerang = true
+	dodge_throw.shooter = dodge_shooter
+	dodge_throw.target = target
+	dodge_throw.position = dodge_shooter.position
+	dodge_throw.velocity = Vector2(620, 0)
+	dodge_throw.boomerang_out_duration = 0.2 # short outbound so the test reaches the return leg quickly
+	dodge_throw.lifetime = 5.0
+	dodge_throw.textures = []
+	root.add_child(dodge_shooter)
+	root.add_child(dodge_throw)
+	dodge_throw._ready()
+	for i in 15: # push well past the 0.2s outbound window into the return leg
+		dodge_throw._physics_process(1.0 / 30.0)
+	_check("dodge test setup: boomerang is on its return leg", dodge_throw._boomerang_returning)
+	# Let it actually close in first — arms the miss-detection (see
+	# BOOMERANG_MISS_ENGAGE_DISTANCE's comment: a real close pass is
+	# required, not just "it hasn't turned around yet").
+	for i in 30:
+		if dodge_throw._boomerang_return_closest_dist <= ProjectileNode.BOOMERANG_MISS_ENGAGE_DISTANCE:
+			break
+		dodge_throw._physics_process(1.0 / 30.0)
+	_check("dodge test setup: boomerang actually closed in on the shooter first", dodge_throw._boomerang_return_closest_dist <= ProjectileNode.BOOMERANG_MISS_ENGAGE_DISTANCE)
+	# Now the dodge: teleport the shooter far away in one frame, well beyond
+	# BOOMERANG_MISS_MARGIN — the boomerang can't possibly have "just not
+	# turned around yet" from this.
+	dodge_shooter.position += Vector2(400, 0)
+	dodge_throw._physics_process(1.0 / 30.0)
+	_check("boomerang detects a dodge (missed the catch)", dodge_throw._boomerang_missed_catch)
+	var velocity_at_miss := dodge_throw.velocity
+	for i in 10: # it should now coast in a straight line, not keep turning back toward the shooter
+		dodge_throw._physics_process(1.0 / 30.0)
+	_check("a missed boomerang stops homing and coasts straight (velocity unchanged)", dodge_throw.velocity.is_equal_approx(velocity_at_miss))
+	dodge_shooter.queue_free()
+	if is_instance_valid(dodge_throw):
+		dodge_throw.queue_free()
 
 	target.queue_free()
 
@@ -1007,6 +1054,57 @@ func _test_projectile_tunneling_fix() -> void:
 	_check("segment sweep catches a pass-through even when both endpoints are outside the rect", probe2._segment_crosses_rect(Vector2(90, 110), Vector2(130, 110), rect))
 	_check("segment sweep correctly reports no crossing for a segment that misses the rect entirely", not probe2._segment_crosses_rect(Vector2(90, 200), Vector2(130, 200), rect))
 	probe2.queue_free()
+
+## 2026-08-11, Camil (after seeing the hitbox overlay on a charged giant
+## boomerang): "avec la hit box on voit bien que celle des projectiles ne
+## font pas la taille du sprite" — hit resolution used to test the
+## projectile's exact center POINT, ignoring how big its sprite actually
+## was. hit_half_size (computed in _ready() from texture size * visual_
+## scale) now inflates the swept hit-test, confirmed here on the generic
+## case ("il faut le faire sur tous les projectiles bien sur"), not just
+## the boomerang.
+func _test_hit_half_size_matches_sprite() -> void:
+	var texture := PlaceholderTexture2D.new()
+	texture.size = Vector2(20, 20) # matches boomerang.png's actual size
+	var normal_shot := ProjectileNode.new()
+	normal_shot.textures = [texture]
+	normal_shot.visual_scale = 1.4 # the boomerang's base visual_scale set in _spawn_projectile()
+	normal_shot._ready()
+	_check("a normal-sized shot's hit_half_size matches its texture * visual_scale", normal_shot.hit_half_size.is_equal_approx(Vector2(14.0, 14.0)))
+
+	var giant_shot := ProjectileNode.new()
+	giant_shot.textures = [texture]
+	giant_shot.visual_scale = 1.4 * 5.0 # Perturbateur's charged giant boomerang (charged_visual_scale_multiplier = 5.0)
+	giant_shot._ready()
+	_check("a 5x charged giant shot's hit_half_size is proportionally 5x bigger", giant_shot.hit_half_size.is_equal_approx(Vector2(70.0, 70.0)))
+
+	var no_art_shot := ProjectileNode.new()
+	no_art_shot.textures = []
+	no_art_shot._ready()
+	_check("a shot with no art yet keeps the small fallback hit_half_size", no_art_shot.hit_half_size.is_equal_approx(Vector2(4.0, 4.0)))
+
+	# End to end: a target placed well outside the OLD (tiny, point-like) hit
+	# test, but comfortably inside the giant shot's actual visual footprint,
+	# must now register a hit — this is the whole point of the fix.
+	var target := ShipNode.new()
+	target.position = Vector2(500, 300)
+	target.half_extents = Vector2(14, 28)
+	target.state = ShipState.new(target.position, 0, target.half_extents)
+	var far_shot := ProjectileNode.new()
+	far_shot.textures = [texture]
+	far_shot.visual_scale = 1.4 * 5.0
+	far_shot._ready()
+	far_shot.position = Vector2(430, 300) # 70px left of the target's near edge (486) — outside a bare point-test, well inside a 70px-radius hit_half_size
+	far_shot.target = target
+	far_shot.damage = 5
+	far_shot._physics_process(1.0 / 60.0)
+	_check("a giant shot registers a hit from a distance a point-sized shot never would have", target.state.hp < ShipState.START_HP)
+	target.queue_free()
+	if is_instance_valid(far_shot) and not far_shot.is_queued_for_deletion():
+		far_shot.queue_free()
+	normal_shot.queue_free()
+	giant_shot.queue_free()
+	no_art_shot.queue_free()
 
 func _test_charged_fire_burst() -> void:
 	# 2026-08-09 — WeaponData.charged_* fields feeding

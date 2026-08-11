@@ -59,6 +59,28 @@ var _boomerang_end_deg := -BOOMERANG_ARC_ANGLE_DEG
 var boomerang_out_duration: float = 0.45 # seconds before it curves back — a var (not const) so charged_boomerang_out_duration (Perturbateur, 2026-08-09: "plus on charge, plus le boomerang va loin, jusqu'au fond du camp adverse") can send it much further out on a charged release
 const BOOMERANG_RETURN_TURN_RATE := 260.0 # degrees/sec — how fast it re-aims at the shooter on the way back (the RETURN leg still homes onto the shooter's live position — that's "catching your own throw", never complained about, and unrelated to tracking the opponent)
 const BOOMERANG_CATCH_DISTANCE := 24.0 # despawns once this close to the shooter on the return leg
+# 2026-08-11, Camil: "les boomerangs, a leur retour, ne doivent pas
+# forcement revenir sur le joueur qui les a lance. Si le joueur bouge trop
+# vite et 'evite' son propre boomerang, alors celui-ci continue sa
+# trajectoire et part dans le fond du joueur." — the return leg used to home
+# on the shooter's live position FOREVER (bounded turn rate, but no give-up
+# condition), so a shooter who kept dodging could get chased indefinitely.
+# Track the closest approach; once distance starts growing again by more
+# than BOOMERANG_MISS_MARGIN without ever reaching catch distance, the
+# shooter dodged it — stop turning and let it coast in a straight line
+# (which, by construction, is already heading roughly toward the shooter's
+# own back wall, since it just overshot them on the way back).
+const BOOMERANG_MISS_MARGIN := 15.0
+# Right at the outbound->return transition, velocity is still pointed
+# wherever the outbound arc left it — essentially arbitrary relative to the
+# shooter — so distance-to-shooter can grow for the first frame or two
+# simply because the turn hasn't caught up yet, well before any real dodge
+# happened. Only "arm" miss-detection once it's actually closed to within
+# this range at least once, so a genuine close pass (not just the turn
+# warming up) is what triggers giving up.
+const BOOMERANG_MISS_ENGAGE_DISTANCE := 100.0
+var _boomerang_return_closest_dist := INF
+var _boomerang_missed_catch := false
 var _boomerang_timer := 0.0
 var _boomerang_returning := false
 var _boomerang_hit_outbound := false
@@ -69,6 +91,27 @@ var flip_h := false # sprites face right by default; flipped for shots travellin
 var visual_scale := 1.0 # engine-side size bump, independent of the source art (2026-08-02 feedback)
 var fallback_color: Color = Color.WHITE # used only when no textures are assigned (no art yet for a weapon)
 var tint: Color = Color.WHITE # Epic 2 — modulate on top of a reused texture, so weapons sharing placeholder art stay visually distinct
+
+# 2026-08-11, Camil (after seeing the hitbox overlay on a charged giant
+# boomerang): "avec la hit box on voit bien que celle des projectiles ne
+# font pas la taille du sprite" — hit resolution used to test the
+# projectile's exact center POINT against the target's rect, completely
+# ignoring how big the sprite was actually drawn (a 5x-scaled giant
+# boomerang had the exact same hit precision as a base machine-gun bullet).
+# Computed once in _ready() from the actual rendered footprint (texture
+# size * visual_scale, or the small fallback square's size when no art is
+# assigned yet), then used to inflate the swept hit-test — see
+# _physics_process()'s ship/turret checks below, and confirmed against the
+# generic case, not just boomerangs ("il faut le faire sur tous les
+# projectiles bien sur").
+var hit_half_size := Vector2(4.0, 4.0) # matches the fallback square's size by default
+
+func _update_hit_half_size() -> void:
+	if textures.is_empty():
+		return # keep the (4,4) fallback default — matches the fallback Polygon2D drawn in _ready()
+	var texture: Texture2D = textures[0]
+	if texture:
+		hit_half_size = texture.get_size() * visual_scale * 0.5
 
 var _sprite: Sprite2D
 var _anim_timer := 0.0
@@ -93,6 +136,7 @@ func _ready() -> void:
 		else:
 			_boomerang_start_deg = -BOOMERANG_ARC_ANGLE_DEG # starts UP
 			_boomerang_end_deg = BOOMERANG_ARC_ANGLE_DEG # ends DOWN
+	_update_hit_half_size()
 	if textures.is_empty():
 		# Epic 2 weapons without dedicated art yet (e.g. turret shots) still
 		# need to be visible — a small colored square beats an invisible hit.
@@ -149,14 +193,21 @@ func _physics_process(delta: float) -> void:
 			var turret: TurretNode = child
 			if turret.owner_side != target.side:
 				continue # this turret guards MY side, not the target's — not in the way
-			var turret_rect := Rect2(turret.position - TurretNode.HALF_EXTENTS, TurretNode.HALF_EXTENTS * 2.0)
+			# Inflated by hit_half_size (Minkowski sum) — a swept ROUGH-RECT vs
+			# RECT test reduces to a swept POINT vs (RECT grown by the moving
+			# rect's own half-size) test, so a big sprite (e.g. the 5x charged
+			# boomerang) actually hits as easily as it visually looks like it should.
+			var turret_rect := Rect2(turret.position - TurretNode.HALF_EXTENTS - hit_half_size, TurretNode.HALF_EXTENTS * 2.0 + hit_half_size * 2.0)
 			if _segment_crosses_rect(position_before, position, turret_rect):
 				turret.take_damage(damage)
 				queue_free()
 				return
 
 	if target:
-		var target_rect := Rect2(target.position - target.half_extents, target.half_extents * 2.0)
+		# Inflated by hit_half_size (2026-08-11: "avec la hit box on voit bien
+		# que celle des projectiles ne font pas la taille du sprite") — see
+		# the turret check above for the Minkowski-sum reasoning, identical here.
+		var target_rect := Rect2(target.position - target.half_extents - hit_half_size, target.half_extents * 2.0 + hit_half_size * 2.0)
 		# 2026-08-09 bug report: "il y a plein de cas ou les tourbillons de
 		# Vif ne touchent pas... l'animation va tellement vite qu'on saute
 		# des frames" — a point check on the post-move position only, with
@@ -188,6 +239,8 @@ func _physics_process(delta: float) -> void:
 			_anim_index = (_anim_index + 1) % textures.size()
 			_update_sprite_texture()
 
+	queue_redraw() # cheap even when DebugOverlay.show_hitboxes is false — _draw() below just no-ops
+
 ## Cheap swept collision check (2026-08-09 tunneling fix): samples the whole
 ## from->to travel segment at a fixed step size rather than only testing the
 ## single post-move position, so a fast (or fast-looping) projectile can't
@@ -210,6 +263,21 @@ func _segment_crosses_rect(from: Vector2, to: Vector2, rect: Rect2) -> bool:
 func _update_sprite_texture() -> void:
 	if textures.size() > 0 and _sprite:
 		_sprite.texture = textures[_anim_index]
+
+## 2026-08-11, Camil: "les hitbox doivent etre sur les projectiles aussi.
+## tous !" (follow-up to the ship/turret hitbox overlay, 2026-08-10) — draws
+## hit_half_size, the REAL rect now used to inflate the swept hit-test (see
+## _physics_process() above), not an arbitrary marker — what's drawn here is
+## provably what determines a hit, same guarantee as ShipNode/TurretNode's
+## outlines. Same red outline style for visual consistency. Looked up via
+## get_node_or_null("/root/DebugOverlay") rather than a direct reference —
+## same "must never break outside a scene/autoload context" constraint as
+## ShipNode._draw(), and smoke_test.gd constructs ProjectileNode instances
+## directly in several places.
+func _draw() -> void:
+	var debug := get_node_or_null("/root/DebugOverlay")
+	if debug and debug.show_hitboxes:
+		draw_rect(Rect2(-hit_half_size, hit_half_size * 2.0), Color(1.0, 0.15, 0.15, 0.9), false, 3.0)
 
 func _apply_hit_effect() -> void:
 	if effect_type == "stun":
@@ -243,17 +311,27 @@ func _update_boomerang(delta: float) -> void:
 		if _boomerang_timer >= boomerang_out_duration:
 			_boomerang_returning = true
 	elif is_instance_valid(shooter):
-		var to_shooter := shooter.position - position
-		if to_shooter.length() > 1.0:
-			# Rotate toward the shooter by a clamped angular step rather than
-			# lerping the velocity vector directly — lerping two same-length
-			# vectors pointing in different directions shortens the result
-			# (chord vs. arc), which bled off speed each frame and could leave
-			# it crawling back too slowly to ever reach BOOMERANG_CATCH_DISTANCE.
-			var angle_diff := wrapf(to_shooter.angle() - velocity.angle(), -PI, PI)
-			var max_turn := deg_to_rad(BOOMERANG_RETURN_TURN_RATE) * delta
-			velocity = velocity.rotated(clampf(angle_diff, -max_turn, max_turn))
-		if position.distance_to(shooter.position) < BOOMERANG_CATCH_DISTANCE:
-			queue_free()
+		var current_dist := position.distance_to(shooter.position)
+		if current_dist < BOOMERANG_CATCH_DISTANCE:
+			queue_free() # caught, regardless of _boomerang_missed_catch — see its comment: a lucky drift back into range still counts
+			return
+		if not _boomerang_missed_catch:
+			if current_dist < _boomerang_return_closest_dist:
+				_boomerang_return_closest_dist = current_dist
+			elif _boomerang_return_closest_dist <= BOOMERANG_MISS_ENGAGE_DISTANCE and current_dist > _boomerang_return_closest_dist + BOOMERANG_MISS_MARGIN:
+				_boomerang_missed_catch = true # dodged — give up homing, coast straight from here (see the field's comment)
+			if not _boomerang_missed_catch:
+				# Rotate toward the shooter by a clamped angular step rather than
+				# lerping the velocity vector directly — lerping two same-length
+				# vectors pointing in different directions shortens the result
+				# (chord vs. arc), which bled off speed each frame and could leave
+				# it crawling back too slowly to ever reach BOOMERANG_CATCH_DISTANCE.
+				var to_shooter := shooter.position - position
+				if to_shooter.length() > 1.0:
+					var angle_diff := wrapf(to_shooter.angle() - velocity.angle(), -PI, PI)
+					var max_turn := deg_to_rad(BOOMERANG_RETURN_TURN_RATE) * delta
+					velocity = velocity.rotated(clampf(angle_diff, -max_turn, max_turn))
+		# else: _boomerang_missed_catch — velocity is left untouched, so it
+		# just keeps coasting in whatever direction it was last heading.
 	else:
 		queue_free() # shooter gone (round reset mid-flight) — nothing to return to
