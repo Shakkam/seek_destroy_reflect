@@ -32,20 +32,12 @@ theme_override_colors/font_color = Color(1, 0.84, 0.29, 1)
 theme_override_font_sizes/font_size = 24
 text = "Gold: 0"
 
-[node name="ListLabel" type="Label" parent="."]
-offset_left = 80.0
-offset_top = 130.0
-offset_right = 640.0
-offset_bottom = 560.0
-theme_override_colors/font_color = Color(0.85, 0.87, 0.95, 1)
-theme_override_font_sizes/font_size = 22
-text = ""
-
 [node name="DescriptionLabel" type="Label" parent="."]
-offset_left = 680.0
-offset_top = 130.0
+offset_left = 80.0
+offset_top = 570.0
 offset_right = 1200.0
-offset_bottom = 400.0
+offset_bottom = 630.0
+horizontal_alignment = 1
 autowrap_mode = 3
 theme_override_colors/font_color = Color(0.65, 0.9, 1, 1)
 theme_override_font_sizes/font_size = 18
@@ -59,4 +51,4 @@ offset_bottom = 700.0
 horizontal_alignment = 1
 theme_override_colors/font_color = Color(0.6, 0.62, 0.7, 0.85)
 theme_override_font_sizes/font_size = 14
-text = "Fleches : naviguer | Espace/Entree : lancer le combat"
+text = "Fleches : naviguer | Espace/Entree : lancer le combat | T : menu cheat"

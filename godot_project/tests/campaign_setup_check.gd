@@ -428,12 +428,18 @@ func _ready() -> void:
 	add_child(branch_map)
 	var branch_map_guard_ok: bool = branch_map._confirm_prev == true
 	print("PASS: MiniBranchMap seeds _confirm_prev true (carryover guard)" if branch_map_guard_ok else "FAIL: MiniBranchMap's _confirm_prev is not seeded true")
-	var branch_map_step0_ok: bool = branch_map.node1_label.text.contains(">>") and branch_map.node2_label.text.contains("[ ]") and branch_map.node3_label.text.contains(branch.rival.twist.display_name)
-	print("PASS: MiniBranchMap at step 0 marks node 1 current, node 2 unreached, names the rival's twist" if branch_map_step0_ok else "FAIL: MiniBranchMap step-0 labels were '%s' / '%s' / '%s'" % [branch_map.node1_label.text, branch_map.node2_label.text, branch_map.node3_label.text])
+	# 2026-08-11 visual pass ("la carte illustree / branches"): state used to
+	# be parsed out of rendered label text (">>" / "[X]" / "[ ]"); now it's
+	# conveyed visually (node color/checkmark/pulsing ring), so tests read
+	# node_status() directly instead. node3_name_label still carries the
+	# rival's twist name as actual text (not encoded in a drawn shape),
+	# so that part of the check stays a text assertion.
+	var branch_map_step0_ok: bool = branch_map.node_status(0) == "current" and branch_map.node_status(1) == "upcoming" and branch_map.node3_name_label.text.contains(branch.rival.twist.display_name)
+	print("PASS: MiniBranchMap at step 0 marks node 1 current, node 2 unreached, names the rival's twist" if branch_map_step0_ok else "FAIL: MiniBranchMap step-0 statuses were '%s' / '%s', node3 label '%s'" % [branch_map.node_status(0), branch_map.node_status(1), branch_map.node3_name_label.text])
 	CampaignContext.advance_branch_step()
 	branch_map._refresh()
-	var branch_map_step1_ok: bool = branch_map.node1_label.text.contains("[X]") and branch_map.node2_label.text.contains(">>")
-	print("PASS: MiniBranchMap at step 1 marks node 1 done, node 2 current" if branch_map_step1_ok else "FAIL: MiniBranchMap step-1 labels were '%s' / '%s'" % [branch_map.node1_label.text, branch_map.node2_label.text])
+	var branch_map_step1_ok: bool = branch_map.node_status(0) == "done" and branch_map.node_status(1) == "current"
+	print("PASS: MiniBranchMap at step 1 marks node 1 done, node 2 current" if branch_map_step1_ok else "FAIL: MiniBranchMap step-1 statuses were '%s' / '%s'" % [branch_map.node_status(0), branch_map.node_status(1)])
 	branch_map.queue_free()
 	CampaignContext.clear()
 	await get_tree().process_frame
