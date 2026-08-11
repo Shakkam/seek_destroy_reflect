@@ -502,7 +502,7 @@ func _resolve_campaign_result(winner_side: int) -> void:
 		match_label.text = "Defaite..."
 		await get_tree().create_timer(2.0).timeout
 		if CampaignContext.is_organizer_fight:
-			CampaignContext.clear()
+			CampaignContext.return_to_map()
 			get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 		else:
 			get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn")
@@ -512,7 +512,7 @@ func _resolve_campaign_result(winner_side: int) -> void:
 		CampaignSave.mark_organizer_defeated(character_id)
 		match_label.text = "Tournoi remporte !"
 		await get_tree().create_timer(2.0).timeout
-		CampaignContext.clear()
+		CampaignContext.return_to_map()
 		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 		return
 
@@ -532,7 +532,7 @@ func _resolve_campaign_result(winner_side: int) -> void:
 	if CampaignContext.advance_branch_step():
 		get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn") # visible progress, per Camil's mini-map request — not a silent reload straight into the next fight
 	else:
-		CampaignContext.clear()
+		CampaignContext.return_to_map()
 		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 
 ## Round-end cleanup (2026-08-07 bug fix — "à la fin du round 1 les tourelles
@@ -659,9 +659,20 @@ func _spawn_decoy() -> void:
 ## snapped/ejected — ShipState's per-tick clamp (Regle absolue n1: already
 ## a pure function of the bounds it's given) naturally "pushes" any ship
 ## caught at the edge inward as _current_arena_bounds animates, for free.
+##
+## 2026-08-11 bug report: "elle ne retrecit qu'horizontalement, il faudrait
+## aussi verticalement. Et pas plus de 6x (sinon il reste vraiment plus
+## rien)" — was width-only; now shrinks height by the same fraction each
+## step too, and stops applying new steps past MAX_SHRINK_STEPS (a timer
+## tick past that point is simply ignored, not just clamped smaller — the
+## old fraction-of-original-width cap alone let steps keep "landing" at the
+## same clamped size indefinitely, which is harmless for size but not what
+## "pas plus de 6x" asks for).
+const MAX_SHRINK_STEPS := 6
+
 func _process_shrinking_arena(delta: float) -> void:
 	_shrink_step_timer += delta
-	if _shrink_step_timer >= active_twist.shrink_interval:
+	if _shrink_step_timer >= active_twist.shrink_interval and _shrink_step < MAX_SHRINK_STEPS:
 		_shrink_step_timer = 0.0
 		_start_next_shrink_step()
 	if _shrink_animating:
@@ -679,10 +690,12 @@ func _start_next_shrink_step() -> void:
 	_shrink_step += 1
 	var total_shrink_x := arena_size.x * active_twist.shrink_fraction * _shrink_step
 	total_shrink_x = minf(total_shrink_x, arena_size.x * 0.7) # never shrink the arena into an unplayable sliver
+	var total_shrink_y := arena_size.y * active_twist.shrink_fraction * _shrink_step
+	total_shrink_y = minf(total_shrink_y, arena_size.y * 0.7)
 	_shrink_start_bounds = _current_arena_bounds
 	_shrink_target_bounds = Rect2(
-		Vector2(arena_origin.x + total_shrink_x / 2.0, arena_origin.y),
-		Vector2(arena_size.x - total_shrink_x, arena_size.y)
+		Vector2(arena_origin.x + total_shrink_x / 2.0, arena_origin.y + total_shrink_y / 2.0),
+		Vector2(arena_size.x - total_shrink_x, arena_size.y - total_shrink_y)
 	)
 	_shrink_anim_elapsed = 0.0
 	_shrink_animating = true

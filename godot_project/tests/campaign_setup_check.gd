@@ -220,6 +220,43 @@ func _ready() -> void:
 	visuals_arena.queue_free()
 	await get_tree().process_frame
 
+	# --- CampaignContext.return_to_map() (2026-08-11 bug report): "quand je
+	# bats un rival, au lieu de continuer vers la suite de la campagne, je
+	# reviens a la selection de mon perso" — every path back to CampaignMap.
+	# tscn after a finished fight called clear(), which also nulled
+	# `campaign` (needed by CampaignMapNode._ready()), bouncing straight to
+	# CampaignCharacterSelect instead. ---
+	CampaignContext.start_branch(vif_campaign, branch)
+	CampaignContext.advance_branch_step()
+	CampaignContext.return_to_map()
+	var return_to_map_ok: bool = CampaignContext.campaign == vif_campaign and CampaignContext.branch == null and CampaignContext.branch_step == 0 and not CampaignContext.is_organizer_fight
+	print("PASS: return_to_map() preserves campaign while resetting branch/step/organizer state" if return_to_map_ok else "FAIL: campaign=%s branch=%s step=%d organizer=%s" % [CampaignContext.campaign, CampaignContext.branch, CampaignContext.branch_step, CampaignContext.is_organizer_fight])
+	CampaignContext.clear()
+
+	# --- shrinking_arena twist (2026-08-11 bug report): "elle ne retrecit
+	# qu'horizontalement, il faudrait aussi verticalement. Et pas plus de 6x
+	# (sinon il reste vraiment plus rien)". ---
+	var shrink_arena := arena_scene.instantiate() as MatchArenaNode
+	add_child(shrink_arena)
+	await get_tree().process_frame
+	shrink_arena.arena_origin = Vector2(40, 60)
+	shrink_arena.arena_size = Vector2(1200, 600)
+	shrink_arena.active_twist = load("res://data/twists/shrinking_arena.tres")
+	shrink_arena._current_arena_bounds = Rect2(shrink_arena.arena_origin, shrink_arena.arena_size)
+	shrink_arena._start_next_shrink_step()
+	var shrink_step1_ok: bool = shrink_arena._shrink_target_bounds.size.y < shrink_arena.arena_size.y
+	print("PASS: shrinking_arena now shrinks vertically too, not just horizontally" if shrink_step1_ok else "FAIL: target height was %s, expected less than %s" % [shrink_arena._shrink_target_bounds.size.y, shrink_arena.arena_size.y])
+	for i in 10: # well past MAX_SHRINK_STEPS — every extra call must be a no-op once capped
+		shrink_arena._current_arena_bounds = shrink_arena._shrink_target_bounds # simulate the animation having already finished each step
+		if shrink_arena._shrink_step < MatchArenaNode.MAX_SHRINK_STEPS:
+			shrink_arena._start_next_shrink_step()
+	var shrink_cap_ok: bool = shrink_arena._shrink_step == MatchArenaNode.MAX_SHRINK_STEPS
+	print("PASS: shrinking_arena stops advancing past MAX_SHRINK_STEPS (6)" if shrink_cap_ok else "FAIL: _shrink_step ended at %d, expected %d" % [shrink_arena._shrink_step, MatchArenaNode.MAX_SHRINK_STEPS])
+	var shrink_not_a_sliver_ok: bool = shrink_arena._shrink_target_bounds.size.x > 0.0 and shrink_arena._shrink_target_bounds.size.y > 0.0
+	print("PASS: even at the cap, the arena is never shrunk into an unplayable sliver" if shrink_not_a_sliver_ok else "FAIL: target bounds were %s" % shrink_arena._shrink_target_bounds)
+	shrink_arena.queue_free()
+	await get_tree().process_frame
+
 	# --- Beam spawn doesn't crash on a null weapon (2026-08-09 bug history:
 	# "Invalid access to property or key 'beam_range' on a base object of
 	# type 'Nil'" — BeamNode.weapon used to be assigned AFTER add_child(),
@@ -463,5 +500,6 @@ func _ready() -> void:
 		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
-		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and boomerang_charge_ok and boomerang_giant_ok and boomerang_burst_ok and missile_charge_ok and turret_charge_ok and mg_charge_ok and double_fire_ok
+		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and boomerang_charge_ok and boomerang_giant_ok and boomerang_burst_ok and missile_charge_ok and turret_charge_ok and mg_charge_ok and double_fire_ok \
+		and shrink_step1_ok and shrink_cap_ok and shrink_not_a_sliver_ok and return_to_map_ok
 	get_tree().quit(0 if all_ok else 1)

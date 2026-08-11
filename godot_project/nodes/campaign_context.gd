@@ -58,6 +58,19 @@ func clear() -> void:
 	is_organizer_fight = false
 	debug_encounter = null
 
+## 2026-08-11 bug report: "quand je bats un rival, au lieu de continuer vers
+## la suite de la campagne, je reviens a la selection de mon perso" — every
+## path back to CampaignMap.tscn after a finished fight (branch complete,
+## organizer won or lost) called clear(), which also nulls `campaign` — but
+## CampaignMapNode._ready() needs `campaign` to know which character's map
+## to keep showing, and bounces straight to CampaignCharacterSelect when
+## it's null. Same partial reset as clear(), minus that one field.
+func return_to_map() -> void:
+	branch = null
+	branch_step = 0
+	is_organizer_fight = false
+	debug_encounter = null
+
 ## Cheat menu — fight a specific opponent with a specific twist (or no
 ## twist) active, full HP both sides, no campaign progression touched.
 func start_debug_fight(campaign_data: CampaignData, encounter: RivalEncounterData) -> void:
