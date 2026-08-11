@@ -153,9 +153,19 @@ func branch_node_status(index: int) -> String:
 func _draw() -> void:
 	if not CampaignContext.campaign:
 		return # a queue_redraw() from an earlier frame can still fire _draw() once after CampaignContext.campaign goes null (e.g. cleared right after queue_free()) — the _process() guard alone isn't enough, redraws aren't synchronous with it
-	var total := _nodes.size() + 1
-	for i in total - 1:
-		draw_line(_node_position(i), _node_position(i + 1), COLOR_LINE, 3.0)
+	# 2026-08-11 bug report: "bizarre cet arbre... on peut choisir des le
+	# depart par ou on commence" — chaining branch nodes to EACH OTHER in
+	# sequence (Lourd -> Mitrailleur -> Controleur -> Zoneur -> Organisateur)
+	# visually implied a required order that doesn't exist (Story 4.3: fully
+	# free order between branches, only the organizer is gated on a COUNT of
+	# them done). Each branch now draws its own independent spoke straight to
+	# the organizer instead — a hub/spoke "these all feed into unlocking the
+	# boss" read, not a linear path. Each spoke lights up on its own once
+	# THAT branch is done, which doubles as a converging progress readout.
+	var organizer_pos := _node_position(_nodes.size())
+	for i in _nodes.size():
+		var lit := branch_node_status(i) == "done"
+		draw_line(_node_position(i), organizer_pos, COLOR_DONE if lit else COLOR_LINE, 3.0)
 
 	for i in _nodes.size():
 		_draw_branch_node(i)
