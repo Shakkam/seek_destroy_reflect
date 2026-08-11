@@ -9,6 +9,7 @@
 script = ExtResource("1")
 id = "vs_zoneur"
 display_name = "Contre Zoneur"
+prerequisite_ids = ["vs_mitrailleur"]
 mook_1 = ExtResource("2")
 mook_2 = ExtResource("3")
 rival = ExtResource("4")

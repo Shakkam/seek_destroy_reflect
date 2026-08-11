@@ -5,19 +5,24 @@ extends Node2D
 ## the character in CampaignContext.campaign (Soul Calibur IV branching-map
 ## reference, UX-DR1), plus the organizer node at the end of the path.
 ##
-## 2026-08-11 visual pass ("la carte illustree / branches"): replaced the
-## keyboard-navigable TEXT LIST (">", "[fait]", "[verrouille]") with an
-## actual drawn path — nodes positioned in a zigzag across the screen,
-## connected by lines, state conveyed by color/shape instead of bracketed
-## text. No external art assets exist yet — same "engine-side shapes, no
-## art needed" convention used throughout the weapon VFX (turrets,
-## projectiles). MiniBranchData.preview_texture (unused everywhere today)
-## is where real per-branch art would plug in later without touching this
-## layout/navigation logic.
+## 2026-08-11, second visual pass — Camil's drawing: "le joueur demarre de
+## la case noire. Il choisit un chemin en allant sur l'un des premiers
+## points verts (mini combat), puis enchaine un deuxieme point vert et un
+## rond bleu (vrai combat rival + gain de l'arme si victoire). Puis il
+## choisit encore un chemin... jusqu'au boss final." A REAL branching/
+## converging tree — this supersedes both the original Story 4.3
+## resolution ("fully free order between branches") and the first visual
+## pass's hub/spoke layout (all branches equally available, all feeding
+## the organizer independently). See MiniBranchData.prerequisite_ids for
+## the unlock rule ("either path unlocks it", not "all paths required").
 ##
-## Story 4.3's resolution applies: no mini-branch's completion is a
-## prerequisite for another (fully free order), but once inside one, its
-## mook_1 -> mook_2 -> rival sequence is fixed (see CampaignContext).
+## Layout: a simple layered graph drawing (Sugiyama-style) — each branch's
+## depth is 1 + the deepest of its prerequisites (0 if it has none, i.e. a
+## root, available from "depart"); branches at the same depth share a
+## column, evenly spaced vertically; the organizer sits one column past
+## the deepest branch. No external art assets exist yet — same "engine-
+## side shapes, no art needed" convention used throughout the weapon VFX —
+## nodes are drawn circles/rings via _draw(), not imported textures.
 
 @onready var title_label: Label = $TitleLabel
 @onready var currency_label: Label = $CurrencyLabel
@@ -36,16 +41,16 @@ const ORGANIZER_MOTIF_COLOR := Color(0.6, 0.8, 1.0, 1.0) # same pale-blue as the
 const NODE_RADIUS := 40.0
 const ORGANIZER_RADIUS := 58.0
 const MARGIN_X := 130.0
-const PATH_Y := 320.0
-const ZIGZAG_AMPLITUDE := 70.0
+const ROW_SPACING := 140.0
+const PATH_Y_CENTER := 320.0
 const COLOR_DONE := Color(0.35, 0.9, 0.55)
 const COLOR_AVAILABLE := Color(0.55, 0.75, 1.0)
 const COLOR_LOCKED := Color(0.35, 0.37, 0.45)
-const COLOR_LINE := Color(0.4, 0.42, 0.52, 0.7)
 const COLOR_CHECKMARK := Color(0.05, 0.2, 0.12)
 
 var _selected_index := 0
-var _nodes: Array = [] # of MiniBranchData
+var _nodes: Array = [] # of MiniBranchData, authoring order (CampaignData.mini_branches) — navigation cycles this order; layout position comes from _depths instead
+var _depths: Dictionary = {} # branch id (String) -> int, computed once in _ready()/whenever _nodes changes
 var _move_prev := 0.0
 # Seeded true, not false (2026-08-08 bug report: arriving here still holding
 # the Fire button from the match that just ended instantly re-triggered
@@ -67,6 +72,7 @@ func _ready() -> void:
 		get_tree().change_scene_to_file.call_deferred("res://scenes/CampaignCharacterSelect.tscn")
 		return
 	_nodes = CampaignContext.campaign.mini_branches.duplicate()
+	_depths = _compute_depths()
 	title_label.text = CampaignContext.campaign.character.display_name
 	_refresh()
 
@@ -108,16 +114,72 @@ func _organizer_unlocked() -> bool:
 	var character_id: String = CampaignContext.campaign.character.id
 	return CampaignSave.completed_branch_count(character_id) >= CampaignContext.campaign.required_branch_count
 
-## Positions every node (branch nodes then the organizer, in that order)
-## along a simple zigzag path spanning the map's usable width — no curve/
-## spline math needed for a handful of nodes (up to 7 branches + 1
-## organizer), and it reads clearly as "a path" without labels overlapping.
-func _node_position(index: int) -> Vector2:
-	var total := _nodes.size() + 1
+func _find_branch(id: String) -> MiniBranchData:
+	for branch in _nodes:
+		if branch.id == id:
+			return branch
+	return null
+
+## depth(node) = 1 + the DEEPEST of its prerequisites (0 if it has none —
+## a root, available from "depart"). Using the deepest (not just "any")
+## prerequisite guarantees a node always draws strictly to the right of
+## every path that can unlock it, so edges never point backward even when
+## multiple prerequisites sit at different depths. Memoized (cache) since
+## the same prerequisite can be shared by several branches (a convergence).
+func _compute_depths() -> Dictionary:
+	var cache := {}
+	for branch in _nodes:
+		_compute_depth(branch, cache)
+	return cache
+
+func _compute_depth(branch: MiniBranchData, cache: Dictionary) -> int:
+	if cache.has(branch.id):
+		return cache[branch.id]
+	cache[branch.id] = 0 # seeded before recursing: an authoring mistake that creates a cycle just bottoms out at 0 instead of infinite-recursing
+	var depth := 0
+	for prereq_id in branch.prerequisite_ids:
+		var prereq := _find_branch(prereq_id)
+		if prereq:
+			depth = maxi(depth, _compute_depth(prereq, cache) + 1)
+	cache[branch.id] = depth
+	return depth
+
+func _max_depth() -> int:
+	var result := 0
+	for branch in _nodes:
+		result = maxi(result, _depths.get(branch.id, 0))
+	return result
+
+func _branches_at_depth(depth: int) -> Array:
+	var result := []
+	for branch in _nodes:
+		if _depths.get(branch.id, 0) == depth:
+			result.append(branch)
+	return result
+
+## A branch with nothing pointing at it as a prerequisite — the tree's
+## "last step before the organizer" nodes, per the drawing (both final
+## converged nodes feed into the boss).
+func _is_leaf(branch: MiniBranchData) -> bool:
+	for other in _nodes:
+		if branch.id in other.prerequisite_ids:
+			return false
+	return true
+
+func _column_x(depth: int) -> float:
+	var columns := _max_depth() + 2 # branch depths 0..max_depth, plus one more column for the organizer
 	var usable_width := 1280.0 - MARGIN_X * 2.0
-	var x := MARGIN_X + usable_width * (float(index) / float(maxi(total - 1, 1)))
-	var y := PATH_Y + (ZIGZAG_AMPLITUDE if index % 2 == 1 else -ZIGZAG_AMPLITUDE)
-	return Vector2(x, y)
+	return MARGIN_X + usable_width * (float(depth) / float(maxi(columns - 1, 1)))
+
+func _node_position(index: int) -> Vector2:
+	if index == _nodes.size():
+		return Vector2(_column_x(_max_depth() + 1), PATH_Y_CENTER)
+	var branch: MiniBranchData = _nodes[index]
+	var depth: int = _depths.get(branch.id, 0)
+	var siblings := _branches_at_depth(depth)
+	var row := siblings.find(branch)
+	var y := PATH_Y_CENTER + (float(row) - float(siblings.size() - 1) / 2.0) * ROW_SPACING
+	return Vector2(_column_x(depth), y)
 
 func _refresh() -> void:
 	var character_id: String = CampaignContext.campaign.character.id
@@ -130,7 +192,18 @@ func _refresh() -> void:
 
 	if _selected_index < _nodes.size():
 		var branch: MiniBranchData = _nodes[_selected_index]
-		description_label.text = "Mini-branche : %s\n2 combats d'echauffement, puis le rival." % branch.display_name
+		match branch_node_status(_selected_index):
+			"locked":
+				var prereq_names := []
+				for prereq_id in branch.prerequisite_ids:
+					var prereq := _find_branch(prereq_id)
+					if prereq:
+						prereq_names.append(prereq.display_name)
+				description_label.text = "%s : verrouille. Termine %s pour debloquer." % [branch.display_name, " ou ".join(prereq_names)]
+			"done":
+				description_label.text = "%s : deja terminee." % branch.display_name
+			_:
+				description_label.text = "Mini-branche : %s\n2 combats d'echauffement, puis le rival." % branch.display_name
 	elif _organizer_unlocked():
 		description_label.text = "Combat final contre l'organisateur du tournoi."
 	else:
@@ -143,29 +216,46 @@ func _refresh() -> void:
 
 ## Exposed for headless testing (campaign_setup_check.gd) — the old
 ## approach parsed the rendered list label's text ("[fait]" / cursor "> ");
-## now that state is conveyed visually (node color/checkmark), tests read
-## this directly instead of scraping drawn output they can't screenshot headless.
+## now that state is conveyed visually (node color/checkmark/lock icon),
+## tests read this directly instead of scraping drawn output they can't
+## screenshot headless. Three states now, not two — "locked" is new
+## (2026-08-11 tree redesign; branches used to always be "available").
 func branch_node_status(index: int) -> String:
 	var character_id: String = CampaignContext.campaign.character.id
 	var branch: MiniBranchData = _nodes[index]
-	return "done" if CampaignSave.is_branch_completed(character_id, branch.id) else "available"
+	if CampaignSave.is_branch_completed(character_id, branch.id):
+		return "done"
+	return "available" if _branch_available(branch) else "locked"
+
+func _branch_available(branch: MiniBranchData) -> bool:
+	if branch.prerequisite_ids.is_empty():
+		return true # a root — available from "depart"
+	var character_id: String = CampaignContext.campaign.character.id
+	for prereq_id in branch.prerequisite_ids:
+		if CampaignSave.is_branch_completed(character_id, prereq_id):
+			return true # EITHER path unlocks it — see MiniBranchData.prerequisite_ids
+	return false
 
 func _draw() -> void:
 	if not CampaignContext.campaign:
 		return # a queue_redraw() from an earlier frame can still fire _draw() once after CampaignContext.campaign goes null (e.g. cleared right after queue_free()) — the _process() guard alone isn't enough, redraws aren't synchronous with it
-	# 2026-08-11 bug report: "bizarre cet arbre... on peut choisir des le
-	# depart par ou on commence" — chaining branch nodes to EACH OTHER in
-	# sequence (Lourd -> Mitrailleur -> Controleur -> Zoneur -> Organisateur)
-	# visually implied a required order that doesn't exist (Story 4.3: fully
-	# free order between branches, only the organizer is gated on a COUNT of
-	# them done). Each branch now draws its own independent spoke straight to
-	# the organizer instead — a hub/spoke "these all feed into unlocking the
-	# boss" read, not a linear path. Each spoke lights up on its own once
-	# THAT branch is done, which doubles as a converging progress readout.
-	var organizer_pos := _node_position(_nodes.size())
+
+	# Edges: each branch to its own prerequisite(s) (parent -> child), plus
+	# every leaf branch (nothing depends on it) straight to the organizer —
+	# exactly the shape in Camil's drawing, generalized to however deep/wide
+	# the authored tree actually is.
 	for i in _nodes.size():
-		var lit := branch_node_status(i) == "done"
-		draw_line(_node_position(i), organizer_pos, COLOR_DONE if lit else COLOR_LINE, 3.0)
+		var branch: MiniBranchData = _nodes[i]
+		for prereq_id in branch.prerequisite_ids:
+			var prereq := _find_branch(prereq_id)
+			if not prereq:
+				continue
+			var prereq_index := _nodes.find(prereq)
+			var lit := branch_node_status(prereq_index) == "done"
+			draw_line(_node_position(prereq_index), _node_position(i), COLOR_DONE if lit else COLOR_LOCKED, 3.0)
+		if _is_leaf(branch):
+			var lit_leaf := branch_node_status(i) == "done"
+			draw_line(_node_position(i), _node_position(_nodes.size()), COLOR_DONE if lit_leaf else COLOR_LOCKED, 3.0)
 
 	for i in _nodes.size():
 		_draw_branch_node(i)
@@ -174,16 +264,20 @@ func _draw() -> void:
 func _draw_branch_node(i: int) -> void:
 	var center := _node_position(i)
 	var branch: MiniBranchData = _nodes[i]
-	var done := branch_node_status(i) == "done"
-	var ring_color := COLOR_DONE if done else COLOR_AVAILABLE
-	if done:
-		draw_circle(center, NODE_RADIUS, ring_color)
-		# A simple drawn checkmark — no icon assets needed.
-		draw_line(center + Vector2(-15, 2), center + Vector2(-4, 15), COLOR_CHECKMARK, 5.0)
-		draw_line(center + Vector2(-4, 15), center + Vector2(17, -13), COLOR_CHECKMARK, 5.0)
-	else:
-		draw_circle(center, NODE_RADIUS, Color(ring_color.r, ring_color.g, ring_color.b, 0.12))
-		draw_arc(center, NODE_RADIUS, 0.0, TAU, 48, ring_color, 4.0)
+	var status := branch_node_status(i)
+	match status:
+		"done":
+			draw_circle(center, NODE_RADIUS, COLOR_DONE)
+			# A simple drawn checkmark — no icon assets needed.
+			draw_line(center + Vector2(-15, 2), center + Vector2(-4, 15), COLOR_CHECKMARK, 5.0)
+			draw_line(center + Vector2(-4, 15), center + Vector2(17, -13), COLOR_CHECKMARK, 5.0)
+		"available":
+			draw_circle(center, NODE_RADIUS, Color(COLOR_AVAILABLE.r, COLOR_AVAILABLE.g, COLOR_AVAILABLE.b, 0.12))
+			draw_arc(center, NODE_RADIUS, 0.0, TAU, 48, COLOR_AVAILABLE, 4.0)
+		_: # "locked"
+			draw_circle(center, NODE_RADIUS, Color(COLOR_LOCKED.r, COLOR_LOCKED.g, COLOR_LOCKED.b, 0.18))
+			draw_arc(center, NODE_RADIUS, 0.0, TAU, 48, COLOR_LOCKED, 3.0)
+			_draw_lock_icon(center) # silhouette-in-fog substitute — no dedicated art yet
 	_draw_selection_ring(center, NODE_RADIUS, i == _selected_index)
 	_draw_label(branch.display_name, center, NODE_RADIUS)
 
@@ -201,7 +295,7 @@ func _draw_organizer_node() -> void:
 		ring_radius += sin(_pulse_time * 3.0) * 5.0
 	draw_arc(center, ring_radius, 0.0, TAU, 56, base_color, 5.0)
 	if not unlocked:
-		_draw_lock_icon(center) # silhouette-in-fog substitute — no dedicated art yet
+		_draw_lock_icon(center)
 	_draw_selection_ring(center, ORGANIZER_RADIUS, index == _selected_index)
 	_draw_label("Organisateur", center, ORGANIZER_RADIUS)
 
@@ -225,8 +319,9 @@ func _confirm_selection() -> void:
 	var character_id: String = CampaignContext.campaign.character.id
 	if _selected_index < _nodes.size():
 		var branch: MiniBranchData = _nodes[_selected_index]
-		if CampaignSave.is_branch_completed(character_id, branch.id):
-			return # re-fighting a completed branch isn't part of this pass's scope
+		var status := branch_node_status(_selected_index)
+		if status != "available":
+			return # already done, or still locked behind a prerequisite — nothing to start
 		CampaignContext.start_branch(CampaignContext.campaign, branch)
 		get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn") # visible per-branch progress (2026-08-08 UX request) instead of jumping straight into a fight
 	elif _organizer_unlocked():

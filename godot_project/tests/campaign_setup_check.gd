@@ -457,6 +457,53 @@ func _ready() -> void:
 	CampaignContext.clear()
 	await get_tree().process_frame
 
+	# --- Campaign map tree structure (2026-08-11, Camil's drawing): "le
+	# joueur demarre de la case noire. Il choisit un chemin... jusqu'au boss
+	# final." Branches now have prerequisites (a real branching/converging
+	# tree, not always-available) — depth/locking computed generically off
+	# MiniBranchData.prerequisite_ids. IMPORTANT: mark_branch_completed()
+	# below writes to the REAL save file (user://campaign_save.json, the
+	# same one actual gameplay uses) — reset_all() before AND after so this
+	# test can never corrupt, or be corrupted by, real player progress. ---
+	CampaignSave.reset_all()
+	CampaignContext.campaign = vif_campaign
+	var tree_map_scene := load("res://scenes/CampaignMap.tscn") as PackedScene
+	var tree_map := tree_map_scene.instantiate() as CampaignMapNode
+	add_child(tree_map)
+	await get_tree().process_frame
+
+	var lourd_idx := -1
+	var controleur_idx := -1
+	for i in tree_map._nodes.size():
+		if tree_map._nodes[i].id == "vs_lourd":
+			lourd_idx = i
+		elif tree_map._nodes[i].id == "vs_controleur":
+			controleur_idx = i
+
+	var depth_ok: bool = tree_map._depths.get("vs_lourd", -1) == 0 and tree_map._depths.get("vs_controleur", -1) == 1
+	print("PASS: tree depth is computed from prerequisite_ids (root=0, one level deep=1)" if depth_ok else "FAIL: vs_lourd depth=%s, vs_controleur depth=%s" % [tree_map._depths.get("vs_lourd"), tree_map._depths.get("vs_controleur")])
+
+	var lourd_available_ok: bool = tree_map.branch_node_status(lourd_idx) == "available"
+	var controleur_locked_ok: bool = tree_map.branch_node_status(controleur_idx) == "locked"
+	print("PASS: a root branch (no prerequisites) starts available" if lourd_available_ok else "FAIL: vs_lourd status was %s" % tree_map.branch_node_status(lourd_idx))
+	print("PASS: a branch with an unmet prerequisite starts locked" if controleur_locked_ok else "FAIL: vs_controleur status was %s" % tree_map.branch_node_status(controleur_idx))
+
+	# Confirming a locked branch must not start anything.
+	tree_map._selected_index = controleur_idx
+	tree_map._confirm_selection()
+	var locked_confirm_ignored_ok: bool = CampaignContext.branch == null
+	print("PASS: confirming a locked branch does nothing" if locked_confirm_ignored_ok else "FAIL: CampaignContext.branch was set from a locked selection")
+
+	# Complete the prerequisite — the child must unlock.
+	CampaignSave.mark_branch_completed("vif", "vs_lourd")
+	var controleur_unlocked_ok: bool = tree_map.branch_node_status(controleur_idx) == "available"
+	print("PASS: completing a prerequisite unlocks its child" if controleur_unlocked_ok else "FAIL: vs_controleur status after completing vs_lourd was %s" % tree_map.branch_node_status(controleur_idx))
+
+	tree_map.queue_free()
+	CampaignContext.clear()
+	CampaignSave.reset_all() # never leave fake progress in the real save file
+	await get_tree().process_frame
+
 	# --- MiniBranchMap (2026-08-08 UX rework): squares should reflect
 	# branch_step, and the rival square should name its twist. ---
 	CampaignContext.start_branch(vif_campaign, branch)
@@ -501,5 +548,6 @@ func _ready() -> void:
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
 		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and boomerang_charge_ok and boomerang_giant_ok and boomerang_burst_ok and missile_charge_ok and turret_charge_ok and mg_charge_ok and double_fire_ok \
-		and shrink_step1_ok and shrink_cap_ok and shrink_not_a_sliver_ok and return_to_map_ok
+		and shrink_step1_ok and shrink_cap_ok and shrink_not_a_sliver_ok and return_to_map_ok \
+		and depth_ok and lourd_available_ok and controleur_locked_ok and locked_confirm_ignored_ok and controleur_unlocked_ok
 	get_tree().quit(0 if all_ok else 1)
