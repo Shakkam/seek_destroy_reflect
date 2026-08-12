@@ -13,11 +13,11 @@ extends Node2D
 ## matches CHARACTERS' order); P1 and P2 move independent cursors over the
 ## SAME grid (own color each, can land on the same cell). Whichever
 ## character a player's cursor is on drives that player's side preview
-## panel (name/archetype/weapon + a big full-body placeholder — real art
-## drops in once Gemini renders land, see the GDD's character-portrait
-## prompt table). No external art yet, so portraits/big image are drawn
-## placeholders (accent-tinted box + big initial), same "_draw() shapes,
-## no imported textures" convention as CampaignMapNode.
+## panel (name/archetype/weapon + a big full-body image). Real art drops
+## in per-character as it's ready (see PORTRAIT_TEXTURES/FULL_TEXTURES
+## below) — until then, a character falls back to a drawn placeholder
+## (accent-tinted box + big initial), same "_draw() shapes" convention as
+## CampaignMapNode.
 
 const CHARACTERS := [ # of CharacterData — order matches the Epic 2 roster table AND the grid's row-major layout (row = i/GRID_COLS, col = i%GRID_COLS)
 	preload("res://data/characters/lourd.tres"),
@@ -59,6 +59,21 @@ const BIG_IMAGE_P2_RECT := Rect2(970.0, 165.0, 250.0, 375.0) # right preview pan
 const GAMEPAD_STICK_DEADZONE := 0.25
 const GAMEPAD_TRIGGER_THRESHOLD := 0.4
 
+# Real portrait/full-body art, per character id — same "explicit preload +
+# id lookup" pattern match_arena_node.gd uses for weapon sprites. Only
+# Lourd has real art so far (2026-08-12, Camil's first Gemini test render
+# for this roster, exactly the GDD's target 128x128 / 256x384 dimensions
+# already background-removed); everyone else still falls back to the
+# accent-tinted placeholder in _draw_grid_cell()/_draw_big_image() until
+# their art lands — add an entry here as each character's art arrives,
+# never a code change beyond this table.
+const PORTRAIT_TEXTURES := {
+	"lourd": preload("res://assets/art/characters/lourd/portrait.png"),
+}
+const FULL_TEXTURES := {
+	"lourd": preload("res://assets/art/characters/lourd/full.png"),
+}
+
 @onready var p1_name_label: Label = $P1Name
 @onready var p2_name_label: Label = $P2Name
 @onready var p1_desc_label: Label = $P1Desc
@@ -83,6 +98,7 @@ var _p2_confirm_prev := true
 var _pulse_time := 0.0
 
 func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST # keep pixel-art portraits crisp when scaled — same convention as ProjectileNode
 	_refresh_labels()
 
 func _process(delta: float) -> void:
@@ -200,8 +216,8 @@ func _draw() -> void:
 	# perfectly overlapping and reading as one.
 	_draw_selection_frame(_cell_position(_p1_index), "J1", 8.0, P1_COLOR, _p1_confirmed)
 	_draw_selection_frame(_cell_position(_p2_index), "J2", 18.0, P2_COLOR, _p2_confirmed)
-	_draw_big_placeholder(BIG_IMAGE_P1_RECT, CHARACTERS[_p1_index])
-	_draw_big_placeholder(BIG_IMAGE_P2_RECT, CHARACTERS[_p2_index])
+	_draw_big_image(BIG_IMAGE_P1_RECT, CHARACTERS[_p1_index])
+	_draw_big_image(BIG_IMAGE_P2_RECT, CHARACTERS[_p2_index])
 
 func _draw_grid_cell(i: int) -> void:
 	var character: CharacterData = CHARACTERS[i]
@@ -210,7 +226,11 @@ func _draw_grid_cell(i: int) -> void:
 	var rect := Rect2(pos, Vector2(CELL_SIZE, CELL_SIZE))
 	draw_rect(rect, Color(accent.r, accent.g, accent.b, 0.22), true)
 	draw_rect(rect, accent, false, 3.0)
-	_draw_placeholder_initial(character.display_name, pos + Vector2(CELL_SIZE, CELL_SIZE) / 2.0, 40, accent)
+	var portrait: Texture2D = PORTRAIT_TEXTURES.get(character.id)
+	if portrait:
+		_draw_texture_fit(portrait, rect, 6.0)
+	else:
+		_draw_placeholder_initial(character.display_name, pos + Vector2(CELL_SIZE, CELL_SIZE) / 2.0, 40, accent)
 	_draw_centered_text(character.display_name, pos + Vector2(CELL_SIZE / 2.0, CELL_SIZE + 16.0), 15, Color(0.9, 0.91, 0.97))
 
 ## The bold player cursor — a thick rectangular frame with outward corner
@@ -244,12 +264,27 @@ func _draw_corner_ticks(rect: Rect2, color: Color) -> void:
 		draw_line(corner, corner + Vector2(TICK * entry[1], 0.0), color, 5.0)
 		draw_line(corner, corner + Vector2(0.0, TICK * entry[2]), color, 5.0)
 
-func _draw_big_placeholder(rect: Rect2, character: CharacterData) -> void:
+func _draw_big_image(rect: Rect2, character: CharacterData) -> void:
 	var accent: Color = ACCENT_COLORS.get(character.id, Color(0.6, 0.6, 0.6))
 	draw_rect(rect, Color(accent.r, accent.g, accent.b, 0.18), true)
 	draw_rect(rect, accent, false, 3.0)
-	_draw_placeholder_initial(character.display_name, rect.position + rect.size / 2.0, 90, accent)
-	_draw_centered_text("(placeholder — image a venir)", rect.position + Vector2(rect.size.x / 2.0, rect.size.y - 16.0), 12, Color(0.85, 0.86, 0.9, 0.7))
+	var full_image: Texture2D = FULL_TEXTURES.get(character.id)
+	if full_image:
+		_draw_texture_fit(full_image, rect, 4.0)
+	else:
+		_draw_placeholder_initial(character.display_name, rect.position + rect.size / 2.0, 90, accent)
+		_draw_centered_text("(placeholder — image a venir)", rect.position + Vector2(rect.size.x / 2.0, rect.size.y - 16.0), 12, Color(0.85, 0.86, 0.9, 0.7))
+
+## Scales `texture` to fit inside `rect` (uniform scale, aspect preserved,
+## centered), with `inset` px of margin on each side — the grid cell's
+## accent tint/border stays visible as a frame around it.
+func _draw_texture_fit(texture: Texture2D, rect: Rect2, inset: float) -> void:
+	var avail := Rect2(rect.position + Vector2(inset, inset), rect.size - Vector2(inset, inset) * 2.0)
+	var tex_size := texture.get_size()
+	var fit_scale := minf(avail.size.x / tex_size.x, avail.size.y / tex_size.y)
+	var draw_size := tex_size * fit_scale
+	var draw_pos := avail.position + (avail.size - draw_size) / 2.0
+	draw_texture_rect(texture, Rect2(draw_pos, draw_size), false)
 
 func _draw_placeholder_initial(display_name: String, center: Vector2, font_size: int, color: Color) -> void:
 	var font := ThemeDB.fallback_font
