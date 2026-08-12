@@ -69,9 +69,11 @@ const GAMEPAD_TRIGGER_THRESHOLD := 0.4
 # never a code change beyond this table.
 const PORTRAIT_TEXTURES := {
 	"lourd": preload("res://assets/art/characters/lourd/portrait.png"),
+	"missiles": preload("res://assets/art/characters/missiles/portrait.png"), # Traqueur
 }
 const FULL_TEXTURES := {
 	"lourd": preload("res://assets/art/characters/lourd/full.png"),
+	"missiles": preload("res://assets/art/characters/missiles/full.png"), # Traqueur
 }
 
 @onready var p1_name_label: Label = $P1Name
