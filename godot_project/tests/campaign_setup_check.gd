@@ -540,9 +540,28 @@ func _ready() -> void:
 	add_child(vs_select)
 	var vs_select_guard_ok: bool = vs_select._p1_confirm_prev == true and vs_select._p2_confirm_prev == true
 	print("PASS: CharacterSelect seeds both players' _confirm_prev true (carryover guard)" if vs_select_guard_ok else "FAIL: CharacterSelect's confirm_prev fields are not seeded true")
+
+	# 2026-08-12 regression: CharacterSelectNode's own _draw() (grid cells,
+	# selection cursors, big portrait placeholders) is on the SCENE ROOT, and
+	# a CanvasItem parent draws BEFORE its children in tree order — so any
+	# backdrop child left at the default z_index=0 silently paints over all
+	# of it (same root cause as the old "invisible campaign map" bug).
+	# Camil actually hit this ("toujours pas de cadre" — the whole grid was
+	# invisible, only the background/panels showed) before it got a
+	# negative z_index, same fix CampaignMap.tscn's Background already
+	# uses. Can't screenshot headless, so assert the ordering property
+	# directly instead.
+	var vs_select_backdrop_ok := true
+	for child_name in ["Background", "P1Panel", "P2Panel", "GridPanel", "HintPanel"]:
+		var child := vs_select.get_node(child_name) as CanvasItem
+		if child.z_index >= 0:
+			vs_select_backdrop_ok = false
+			print("FAIL: CharacterSelect's %s has z_index %d (must be negative or it repaints over the root's own _draw())" % [child_name, child.z_index])
+	print("PASS: CharacterSelect's background/panels all sit behind the root's own _draw() (negative z_index)" if vs_select_backdrop_ok else "FAIL: see above")
+
 	vs_select.queue_free()
 
-	var all_ok := mook_ok and rival_ok and organizer_ok and map_guard_ok and char_select_guard_ok and vs_select_guard_ok \
+	var all_ok := mook_ok and rival_ok and organizer_ok and map_guard_ok and char_select_guard_ok and vs_select_guard_ok and vs_select_backdrop_ok \
 		and mook1_label_ok and mook2_label_ok and rival_label_ok and organizer_label_ok and freeze_ok and f1_guard_precondition_ok \
 		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
 		and debug_fight_ok and debug_label_ok \
