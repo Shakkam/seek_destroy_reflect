@@ -43,6 +43,8 @@ func _initialize() -> void:
 	_test_hit_half_size_matches_sprite()
 	_test_charged_fire_burst()
 	_test_heavy_push_rule()
+	_test_match_state()
+	_test_floating_text_node()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
 	# MatchArenaNode can't be loaded under this harness — this file runs via
 	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
@@ -1201,3 +1203,42 @@ func _test_heavy_push_rule() -> void:
 	pusher.queue_free()
 	opponent.queue_free()
 	ball.queue_free()
+
+## 2026-08-11 QA pass (Camil: "j'aimerais que tu poses des tests un peu
+## partout") — MatchState (best-of-3 round win condition) had ZERO test
+## coverage anywhere in the suite despite being pure simulation logic
+## (Regle absolue n1), the exact kind of class this project's headless
+## testing convention exists for.
+func _test_match_state() -> void:
+	var fresh := MatchState.new()
+	_check("a fresh MatchState starts 0-0, not over", fresh.rounds_won == [0, 0] and not fresh.match_over and fresh.winner_side == -1)
+
+	var after_one := fresh.round_won_by(0)
+	_check("winning one round increments that side's count", after_one.rounds_won == [1, 0])
+	_check("one round win alone doesn't end the match (best of 3 needs 2)", not after_one.match_over and after_one.winner_side == -1)
+	_check("round_won_by() returns a NEW state, doesn't mutate the original (pure/immutable, matches every other *State class)", fresh.rounds_won == [0, 0])
+
+	var after_two := after_one.round_won_by(0)
+	_check("winning a second round for the same side ends the match", after_two.match_over and after_two.winner_side == 0)
+	_check("the losing side's count stays untouched", after_two.rounds_won == [2, 0])
+
+	var side1_wins := MatchState.new().round_won_by(1).round_won_by(1)
+	_check("side 1 can win the match too (not hardcoded to side 0)", side1_wins.match_over and side1_wins.winner_side == 1)
+
+	var split := MatchState.new(1, 0).round_won_by(1)
+	_check("a split 1-1 score is not over yet", not split.match_over and split.rounds_won == [1, 1])
+
+## Purely cosmetic (a floating "+N" gauge-fill popup), but still simple pure
+## motion/fade math worth locking in — same "poser des tests un peu partout"
+## pass, even for the low-risk stuff.
+func _test_floating_text_node() -> void:
+	var popup := FloatingTextNode.new()
+	popup.text = "+15"
+	popup.velocity = Vector2(0.0, -42.0)
+	popup.lifetime = 0.9
+	var start_pos := popup.position
+	popup._physics_process(0.5)
+	_check("a floating text popup rises according to its velocity", popup.position.y < start_pos.y)
+	_check("a floating text popup isn't queued for deletion before its lifetime elapses", not popup.is_queued_for_deletion())
+	popup._physics_process(0.5) # total elapsed now 1.0s > lifetime 0.9s
+	_check("a floating text popup queues for deletion once its lifetime elapses", popup.is_queued_for_deletion())
