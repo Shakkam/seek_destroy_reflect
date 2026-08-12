@@ -228,6 +228,39 @@ Piste **pixel art**, avec exigence forte de **spectacle visuel** — effets et p
 
 Direction : **metal avec une touche électronique**. Le créateur est lui-même musicien — la composition musicale est une **compétence interne**, pas un poste à externaliser/budgétiser comme le serait typiquement le cas pour un développeur solo.
 
+### Direction des portraits de personnages (pixel art "délire")
+
+2026-08-11, Sally (UX designer) + Camil — premier passage d'art réel pour le roster (jusque-là, uniquement des formes géométriques placeholder en jeu). Référence confirmée par test : **Air Zonk / Bonk's Adventure**, déjà citée plus haut comme référence shmup — cohérent avec le style existant, pas un nouveau virage. Premier essai (Traqueur) validé par Camil : "HaHa j'adore !".
+
+Deux formats requis par personnage : une **grande image** (pose dynamique plein corps, arme en action) et un **portrait** (buste, façon case de sélection façon Street Fighter II). L'arme réelle du personnage doit toujours être identifiable dans le prompt — jamais une arme générique.
+
+**Prompt de style de base (à préfixer à chaque prompt ci-dessous) :**
+
+```
+Wacky exaggerated cartoon pixel art, Air Zonk / Bonk's Adventure style —
+chibi proportions (oversized head, compact body), huge expressive eyes,
+big toothy grin, thick bold black outlines, saturated two-tone color
+scheme (armor + accent), hard pixel edges with cel-shaded highlights,
+SOLID FLAT HOT MAGENTA (#FF00FF) BACKGROUND — no gradient, no vignette,
+no floor, no scenery, no shadow cast on the background, single uniform
+flat color fill only. No text/logo/watermark.
+```
+
+Fond magenta uni choisi car aucune couleur d'accent du roster n'est proche du magenta (détourage sûr par sélection couleur, ex. GIMP, sans manger un bout de personnage).
+
+| Perso | Genre | Accent | Arme | Prompt "grande image" (après le style de base) | Prompt "portrait" (après le style de base) |
+|---|---|---|---|---|---|
+| **Traqueur** (Missiles) | Femme | Cyan / orange | Missiles téléguidés à l'épaule | ✅ Validé par Camil — voir `docs/Gemini_Generated_Image_onkan0onkan0onka.png` | *female hunter character, close bust portrait, huge mischievous grin, one shoulder-mounted missile pod visible over her shoulder in frame, cyan and orange armor, holding one small missile casually near her face like she's about to wink* |
+| **Mitrailleur** | Homme | Bleu pâle / gris | Mitraillette full-auto | *stocky male gunner in dynamic wide stance, spraying a compact rapid-fire machine gun with a stream of tiny bullet-pixel muzzle flash, huge cocky grin, pale blue and gray armor, buzz cut hair* | *stocky male gunner bust portrait, gripping his machine gun close to his chest, wild excited grin, pale blue and gray color scheme* |
+| **Vif** | Femme | Bleu électrique | Tourbillon (mini-tornade) | *lean athletic female character mid-dash, hair and jacket whipped sideways by motion, summoning a small cartoon whirlwind/tornado spinning beside her hand, electric blue and white color scheme, sly energetic smirk* | *lean female character bust portrait, hair swept sideways as if mid-motion, a tiny cartoon whirlwind spinning just past her shoulder, electric blue color scheme, sly smirk* |
+| **Lourd** | Homme | Rouge-orange | Bazooka | *massive heavily-armored male character in wide stable stance, a huge oversized bazooka resting on one shoulder, warm red-orange armor plating, stoic but exaggerated determined expression* | *massive male character bust portrait, bazooka barrel visible resting on his shoulder in frame, red-orange armor, unshakeable stern-but-cartoonish expression* |
+| **Spreader** (Éventail) | Femme | Jaune | Éventail qui tire des bonbons | *flamboyant female character mid-flourish, holding an ornate open folding fan that's launching a spread of small round candy-shaped projectiles, dramatic theatrical pose, bright yellow and white color scheme, big dazzling grin* | *flamboyant female character bust portrait, folding fan held up near her face with a couple candy-shaped projectiles visible mid-air, bright yellow color scheme, theatrical wink* |
+| **Contrôleur** | Femme | Gris acier | Tourelles autonomes | *calm female technician character standing confidently, a small stubby autonomous turret hovering/perched beside her, arms crossed, tool-belt with gadgets, cool steel-gray and white color scheme, composed but playful smirk* | *female technician bust portrait, a tiny turret visible peeking over her shoulder, steel-gray color scheme, calm confident smirk* |
+| **Zoneur** | Homme | Vert laser | Laser | *angular male character in a sharp stance, wearing a visor with a glowing green laser-sight beam projecting from one eye, holding a sleek laser rifle, laser-green and black color scheme, minimal but focused cartoon expression* | *angular male character bust portrait, glowing green laser-sight visor over one eye, laser rifle barrel visible at frame edge, green and black color scheme* |
+| **Perturbateur** | Homme | Bleu pâle / violet | Boomerang | *grinning male jester-type character mid-throw, an asymmetric mismatched wacky outfit, a boomerang spinning through the air beside him, gleeful chaotic energy, pale stun-blue and purple color scheme* | *male jester-type character bust portrait, boomerang held up next to his face, huge mischievous "gnihihi" grin, pale blue and purple color scheme* |
+
+**Détourage post-génération (GIMP) :** Sélectionner → Par couleur (seuil ~15-20) sur le fond magenta → `Suppr` → si liseré résiduel, Sélection → Grandir de 1px avant de supprimer. Exporter en PNG (alpha).
+
 ---
 
 ## Spécifications techniques
