@@ -214,8 +214,8 @@ func _draw() -> void:
 	# hidden behind a neighboring cell's own border, and P1/P2 nest at
 	# different padding when both land on the same cell instead of
 	# perfectly overlapping and reading as one.
-	_draw_selection_frame(_cell_position(_p1_index), "J1", 8.0, P1_COLOR, _p1_confirmed)
-	_draw_selection_frame(_cell_position(_p2_index), "J2", 18.0, P2_COLOR, _p2_confirmed)
+	_draw_selection_frame(_cell_position(_p1_index), "J1", 6.0, P1_COLOR, _p1_confirmed)
+	_draw_selection_frame(_cell_position(_p2_index), "J2", 12.0, P2_COLOR, _p2_confirmed)
 	_draw_big_image(BIG_IMAGE_P1_RECT, CHARACTERS[_p1_index])
 	_draw_big_image(BIG_IMAGE_P2_RECT, CHARACTERS[_p2_index])
 
@@ -241,12 +241,22 @@ func _draw_grid_cell(i: int) -> void:
 ## tests/character_select_nav_check.gd — the bug was purely that the old
 ## cursor didn't read as a cursor). Padding differs per player so two
 ## cursors on the same cell nest instead of perfectly overlapping.
+##
+## 2026-08-12 v2 (Sally's review, playtest screenshot): with the tag
+## floating ABOVE the frame and P2's old 18px pad, two players on
+## vertically-adjacent cells (P1 on the cell directly below P2's) had
+## the "J1"/"J2" tags collide right in the gap between the two cells —
+## read as "J1" labeling the wrong (upper) character. Fixed two ways:
+## padding shrunk so it can never eat the whole CELL_GAP, and the tag now
+## sits INSIDE the frame's top-left corner instead of floating above it,
+## so it can never land in the seam between two rows regardless of pad.
 func _draw_selection_frame(pos: Vector2, tag: String, base_pad: float, color: Color, confirmed: bool) -> void:
 	var pad := base_pad if confirmed else base_pad + sin(_pulse_time * 4.0) * 3.0
 	var rect := Rect2(pos - Vector2(pad, pad), Vector2(CELL_SIZE, CELL_SIZE) + Vector2(pad, pad) * 2.0)
 	draw_rect(rect, color, false, 5.0)
 	_draw_corner_ticks(rect, color)
-	_draw_centered_text(tag, rect.position + Vector2(rect.size.x / 2.0, -14.0), 15, color)
+	var font := ThemeDB.fallback_font
+	draw_string(font, rect.position + Vector2(6.0, 16.0), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, color)
 
 ## Small outward L-shaped ticks at each corner of the frame — reinforces
 ## "this is a cursor locked onto a target", not just a colored outline.
