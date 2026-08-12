@@ -253,6 +253,15 @@ Fond magenta uni choisi car aucune couleur d'accent du roster n'est proche du ma
 
 **Détourage post-génération (GIMP) :** Sélectionner → Par couleur (seuil ~15-20) sur le fond magenta → `Suppr` → si liseré résiduel, Sélection → Grandir de 1px avant de supprimer. Exporter en PNG (alpha).
 
+**Dimensions finales visées :**
+
+| Format | Dimensions finales | Ratio | Pourquoi |
+|---|---|---|---|
+| Portrait (buste) | 128 × 128 px | 1:1 (carré) | Sert à la fois pour la grille de sélection et pour le gros visage façon Ryu — un carré reste lisible aux deux usages |
+| Grande image (plein corps) | 256 × 384 px | 2:3 (vertical) | Assez de hauteur pour un perso debout avec son arme en action, sans être écrasé |
+
+Gemini ne sort pas de pixel art basse résolution natif — il génère en haute résolution (souvent 1024×1024) avec un style qui imite le pixel art. Workflow : générer en carré pour le portrait / en format vertical (proche 2:3) pour la grande image si l'outil le permet (sinon générer carré et recadrer en 2:3 dans GIMP avant redimensionnement, plutôt que d'étirer) → GIMP, Image → Échelle de l'image → dimensions finales ci-dessus → **interpolation "Aucun"** impérativement (une interpolation linéaire/cubique floute les pixels au lieu de les garder nets).
+
 ---
 
 ## Spécifications techniques
