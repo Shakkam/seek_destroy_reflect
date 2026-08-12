@@ -14,7 +14,7 @@ inputDocuments:
 
 ## Overview
 
-This document provides the complete epic and story breakdown for Seek and Destroy and Return the Ball, decomposing the requirements from the GDD and Architecture (no separate UX Design document exists — UI/UX guidance lives inside the GDD's Art & Audio Direction section) into implementable stories.
+This document provides the complete epic and story breakdown for Seek and Destroy and Return the Ball, decomposing the requirements from the GDD and Architecture into implementable stories. UI/UX guidance now lives in a dedicated UX PRD (`_bmad-output/planning-artifacts/prds/prd-ux-seek-and-destroy-and-reflect-the-ball-2026-08-12.md`, split out 2026-08-12 as the GDD's Art & Audio Direction section grew too long) rather than inside the GDD.
 
 ## Requirements Inventory
 
@@ -61,7 +61,7 @@ NFR5: Weapon/character data must be defined via Godot Custom Resources (`.tres`)
 
 ### UX Design Requirements
 
-_No separate UX Design document exists for this project. UI/UX guidance (diegetic HUD, art direction, readability principles) is captured directly in the GDD's "Art and Audio Direction" section and reflected in FR14/FR15 above._
+_2026-08-12: UI/UX guidance (diegetic HUD, art direction, readability principles, screen-by-screen flow, controls) now lives in a dedicated UX PRD — `_bmad-output/planning-artifacts/prds/prd-ux-seek-and-destroy-and-reflect-the-ball-2026-08-12.md` — split out of the GDD's "Art and Audio Direction" section (still reflected in FR14/FR15 above)._
 
 **UX-DR1 (FR18, Epic 4 — 2026-08-06):** Campaign map structure references *Soul Calibur IV*'s Tower of Lost Souls chapter map: a branching node map per chapter (not a linear stage list), each node showing a stage preview thumbnail, a chapter title, running Exp/Gold counters, a description panel for the selected stage, and a "world map" zoom-out affordance. A stage can unlock multiple next paths (branching, not strictly linear progression).
 
