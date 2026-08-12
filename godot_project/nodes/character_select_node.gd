@@ -194,8 +194,12 @@ func _cell_position(index: int) -> Vector2:
 func _draw() -> void:
 	for i in CHARACTERS.size():
 		_draw_grid_cell(i)
-	_draw_selection_ring(_cell_position(_p1_index), P1_COLOR, _p1_confirmed)
-	_draw_selection_ring(_cell_position(_p2_index), P2_COLOR, _p2_confirmed)
+	# Drawn AFTER every cell (not per-cell) so a frame is never partly
+	# hidden behind a neighboring cell's own border, and P1/P2 nest at
+	# different padding when both land on the same cell instead of
+	# perfectly overlapping and reading as one.
+	_draw_selection_frame(_cell_position(_p1_index), "J1", 8.0, P1_COLOR, _p1_confirmed)
+	_draw_selection_frame(_cell_position(_p2_index), "J2", 18.0, P2_COLOR, _p2_confirmed)
 	_draw_big_placeholder(BIG_IMAGE_P1_RECT, CHARACTERS[_p1_index])
 	_draw_big_placeholder(BIG_IMAGE_P2_RECT, CHARACTERS[_p2_index])
 
@@ -209,14 +213,36 @@ func _draw_grid_cell(i: int) -> void:
 	_draw_placeholder_initial(character.display_name, pos + Vector2(CELL_SIZE, CELL_SIZE) / 2.0, 40, accent)
 	_draw_centered_text(character.display_name, pos + Vector2(CELL_SIZE / 2.0, CELL_SIZE + 16.0), 15, Color(0.9, 0.91, 0.97))
 
-## Two cursors can land on the same cell (both players eyeing the same
-## character) — rings are drawn at different radii so neither is ever
-## fully hidden behind the other.
-func _draw_selection_ring(pos: Vector2, color: Color, confirmed: bool) -> void:
-	var center := pos + Vector2(CELL_SIZE, CELL_SIZE) / 2.0
-	var base_radius := CELL_SIZE / 2.0 + (14.0 if color == P1_COLOR else 20.0)
-	var radius := base_radius if confirmed else base_radius + sin(_pulse_time * 4.0) * 4.0
-	draw_arc(center, radius, 0.0, TAU, 40, color, 3.0)
+## The bold player cursor — a thick rectangular frame with outward corner
+## ticks (HUD "target lock" look), NOT a thin arc. 2026-08-12: the
+## original arc read as near-invisible next to each cell's own permanent
+## accent-colored border (a headless input-simulation test proved the
+## cursor's underlying index genuinely moves every press — see
+## tests/character_select_nav_check.gd — the bug was purely that the old
+## cursor didn't read as a cursor). Padding differs per player so two
+## cursors on the same cell nest instead of perfectly overlapping.
+func _draw_selection_frame(pos: Vector2, tag: String, base_pad: float, color: Color, confirmed: bool) -> void:
+	var pad := base_pad if confirmed else base_pad + sin(_pulse_time * 4.0) * 3.0
+	var rect := Rect2(pos - Vector2(pad, pad), Vector2(CELL_SIZE, CELL_SIZE) + Vector2(pad, pad) * 2.0)
+	draw_rect(rect, color, false, 5.0)
+	_draw_corner_ticks(rect, color)
+	_draw_centered_text(tag, rect.position + Vector2(rect.size.x / 2.0, -14.0), 15, color)
+
+## Small outward L-shaped ticks at each corner of the frame — reinforces
+## "this is a cursor locked onto a target", not just a colored outline.
+func _draw_corner_ticks(rect: Rect2, color: Color) -> void:
+	const TICK := 12.0
+	# [corner, outward-x sign, outward-y sign] for top-left/top-right/bottom-left/bottom-right
+	var corners := [
+		[rect.position, -1.0, -1.0],
+		[rect.position + Vector2(rect.size.x, 0.0), 1.0, -1.0],
+		[rect.position + Vector2(0.0, rect.size.y), -1.0, 1.0],
+		[rect.end, 1.0, 1.0],
+	]
+	for entry in corners:
+		var corner: Vector2 = entry[0]
+		draw_line(corner, corner + Vector2(TICK * entry[1], 0.0), color, 5.0)
+		draw_line(corner, corner + Vector2(0.0, TICK * entry[2]), color, 5.0)
 
 func _draw_big_placeholder(rect: Rect2, character: CharacterData) -> void:
 	var accent: Color = ACCENT_COLORS.get(character.id, Color(0.6, 0.6, 0.6))
