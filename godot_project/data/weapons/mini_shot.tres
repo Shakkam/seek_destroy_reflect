@@ -15,7 +15,11 @@ spread_deg = 0.0
 projectile_count = 5
 burst_spread_deg = 35.0
 burst_stagger = 0.0
-visual_scale_multiplier = 2.8
+; 2026-08-13: bonbon.png replaced with a 2x-resolution source (40x32, was
+; 20x16) — halved from 2.8 to keep the exact same on-screen size (and
+; hit_half_size, which scales off the same texture_size*visual_scale
+; product) as the already-playtest-tuned value.
+visual_scale_multiplier = 1.4
 projectile_spin_speed = 900.0
 charge_fire_duration = 3.0
 charge_fire_slow_multiplier = 0.3

@@ -119,11 +119,18 @@ func _test_mini_shot_data() -> void:
 	# original 70° fan, but still a fan (not a single tight line).
 	_check("mini_shot fan is narrower than the original 70°", mini.burst_spread_deg > 0.0 and mini.burst_spread_deg < 70.0)
 	_check("mini_shot fan fires simultaneously, not staggered like the missile swarm", mini.burst_stagger == 0.0)
-	_check("mini_shot projectiles read 2x bigger (2026-08-06 playtest)", mini.visual_scale_multiplier >= 2.0)
 	_check("mini_shot has no per-shot angle jitter (2026-08-06: 'pas de random sur les angles')", mini.spread_deg == 0.0)
-	# 2026-08-09 (Camil, now that bonbon.png art exists): "l'animation : il
-	# tourne sur lui meme assez vite. Tu peux doubler sa taille."
-	_check("mini_shot's size was doubled with real art, then trimmed back to 70% (2026-08-09: 'un peu gros')", is_equal_approx(mini.visual_scale_multiplier, 2.8))
+	# 2026-08-06 playtest: "tu peux doubler sa taille" (2x), then 2026-08-09
+	# "un peu gros" trimmed it to 70% (2x*0.7=1.4x-equivalent effective
+	# size). 2026-08-13: bonbon.png's native resolution doubled (20x16 ->
+	# 40x32) and visual_scale_multiplier was halved to compensate (2.8 ->
+	# 1.4) so the on-screen/hitbox footprint is unchanged — checked here as
+	# the EFFECTIVE pixel size (texture_size * multiplier), which is the
+	# actual invariant, not a raw multiplier value now tied to a specific
+	# source asset's resolution.
+	var bonbon_texture: Texture2D = preload("res://assets/art/vfx/bonbon.png")
+	var mini_shot_effective_size := bonbon_texture.get_size() * mini.visual_scale_multiplier
+	_check("mini_shot's effective on-screen size matches the tuned ~56x45px target, independent of the source art's own resolution", is_equal_approx(mini_shot_effective_size.x, 56.0) and is_equal_approx(mini_shot_effective_size.y, 44.8))
 	_check("mini_shot spins in place (single-sprite art, no multi-frame cycle like the Tourbillon)", mini.projectile_spin_speed > 0.0)
 
 	# 2026-08-09 — Mini's charged fire ("Tir charge : lance 10 des eventails
