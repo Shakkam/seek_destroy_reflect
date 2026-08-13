@@ -70,10 +70,16 @@ const GAMEPAD_TRIGGER_THRESHOLD := 0.4
 const PORTRAIT_TEXTURES := {
 	"lourd": preload("res://assets/art/characters/lourd/portrait.png"),
 	"missiles": preload("res://assets/art/characters/missiles/portrait.png"), # Traqueur
+	"controleur": preload("res://assets/art/characters/controleur/portrait.png"),
+	"mitrailleur": preload("res://assets/art/characters/mitrailleur/portrait.png"),
+	"zoneur": preload("res://assets/art/characters/zoneur/portrait.png"),
 }
 const FULL_TEXTURES := {
 	"lourd": preload("res://assets/art/characters/lourd/full.png"),
 	"missiles": preload("res://assets/art/characters/missiles/full.png"), # Traqueur
+	"controleur": preload("res://assets/art/characters/controleur/full.png"),
+	"mitrailleur": preload("res://assets/art/characters/mitrailleur/full.png"),
+	"zoneur": preload("res://assets/art/characters/zoneur/full.png"),
 }
 
 @onready var p1_name_label: Label = $P1Name
