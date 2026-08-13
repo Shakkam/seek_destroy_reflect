@@ -299,6 +299,20 @@ func _physics_process(delta: float) -> void:
 	_lift_prev = lift_held
 
 	var fire_held := _read_fire_pressed() and _stun_timer <= 0.0 # Story 2.6 — stunned ships can't fire
+	# 2026-08-13 bug report (Camil): "si j'appuie a la fois sur charge tir +
+	# charge lift, ca fait... du caca. on va donner la priorite au lift dans
+	# ce cas." Lift wins outright — while charging the shared lift (non-dash
+	# characters only; Vif's dash burst is instant, not a held charge, so it
+	# doesn't fight over the frame the same way), fire is treated as not
+	# pressed at all: no normal fire, no charge-fire tracking, nothing. This
+	# is the single point where that's enforced — everything downstream
+	# (is_charging, weapon_state.fired(), etc.) just sees fire_held == false.
+	# "On garde le fait d'appuyer sur les 2 pour declencher les ultra (plus
+	# tard)" — the RAW keypress is untouched (_read_fire_pressed() itself
+	# still reads the real key), so a future ultra-trigger check can still
+	# detect "fire was ALSO held while lift was held" independently of this.
+	if lift_held and not is_dash_character:
+		fire_held = false
 	var dashing := is_dash_character and _dash_timer > 0.0
 	var selected := weapon_state.selected_weapon()
 
