@@ -13,11 +13,14 @@ gauge_cost_per_shot = 8.0
 is_heavy = false
 projectile_speed = 900.0
 is_sine = true
-sine_amplitude = 40.0
+; 2026-08-13 playtest: "sinusoide un peu trop marquee" — trimmed from 40.
+sine_amplitude = 20.0
 sine_angular_speed = 720.0
 charge_fire_duration = 3.0
 charge_fire_slow_multiplier = 0.3
 charged_projectile_count = 3
 charged_stagger = 0.1
-fire_recoil_speed_boost = 1.0
+; 2026-08-13 playtest: "le boost de vitesse est trop fort... on va reduire
+; a 70% au lieu de 100" — trimmed from 1.0.
+fire_recoil_speed_boost = 0.7
 fire_recoil_boost_decay_time = 0.5

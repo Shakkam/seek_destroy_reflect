@@ -36,6 +36,7 @@ func _initialize() -> void:
 	_test_weapon_heat_gauge()
 	_test_mitrailleur_double_fire_rule()
 	_test_dash_lift_rule()
+	_test_lift_charge_rework()
 	_test_vif_reverted_to_shared_lift()
 	_test_weapon_exclusivity()
 	_test_every_charge_capable_weapon_actually_slows()
@@ -906,11 +907,32 @@ func _test_dash_lift_rule() -> void:
 	var lourd: CharacterData = load("res://data/characters/lourd.tres")
 	var lourd_ship := ShipNode.new()
 	lourd_ship.character = lourd
-	lourd_ship._lift_charge_timer = 1.5 # full charge
+	lourd_ship._lift_charge_timer = ShipNode.LIFT_CHARGE_CAP # full charge
 	_check("a normal character still uses the hold-to-charge tiers unaffected", lourd_ship.get_lift_charge() == 1.0)
 
 	ship.queue_free()
 	lourd_ship.queue_free()
+
+func _test_lift_charge_rework() -> void:
+	# 2026-08-13 (Camil, after the dash_lift revert put Vif back on the
+	# shared lift): "le lift, pas assez interessant. J'abaisserais la
+	# charge du lift max a 2 secondes. ensuite, j'augmenterais l'effet du
+	# lift de 100%. Enfin, pendant la charge, il faut pouvoir se deplacer
+	# un peu, 25% de la vitesse normale."
+	_check("LIFT_CHARGE_CAP raised to 2 seconds (was 1.5)", is_equal_approx(ShipNode.LIFT_CHARGE_CAP, 2.0))
+	_check("LIFT_CHARGE_MOVE_MULTIPLIER allows 25% movement while charging (used to be a full freeze)", is_equal_approx(ShipNode.LIFT_CHARGE_MOVE_MULTIPLIER, 0.25))
+	_check("the lift's spin effect on the ball was doubled (+100%)", is_equal_approx(BallState.SPIN_STRENGTH, 3.0))
+
+	# Regression: the old cap (1.5s) must NOT still read as full charge now
+	# that the tier threshold tracks LIFT_CHARGE_CAP instead of a stale
+	# hardcoded 1.5 literal.
+	var ship := ShipNode.new()
+	ship.character = load("res://data/characters/lourd.tres")
+	ship._lift_charge_timer = 1.5
+	_check("1.5s of charge is only the 66% tier now that the cap moved to 2s", is_equal_approx(ship.get_lift_charge(), 0.66))
+	ship._lift_charge_timer = 2.0
+	_check("2.0s of charge reaches the full 100% tier", is_equal_approx(ship.get_lift_charge(), 1.0))
+	ship.queue_free()
 
 func _test_vif_reverted_to_shared_lift() -> void:
 	# 2026-08-13 (Camil: "il faudrait que la touche de lift redevienne une
@@ -1008,7 +1030,7 @@ func _test_vortex_weapon() -> void:
 	_check("Tourbillon's cooldown was increased 1.5x (2026-08-09 playtest: 'un peu court')", vortex.fire_rate < 4.0 / 1.4) # fire_rate=4.0/1.5 -> cooldown*1.5; loose upper bound so exact rounding doesn't matter
 	_check("Tourbillon's charged fire launches 3 vortices", vortex.charged_projectile_count == 3)
 	_check("Tourbillon's charged vortices still go straight (no burst spread)", vortex.charged_burst_spread_deg == 0.0)
-	_check("Tourbillon gives Vif a recoil speed boost on fire (2026-08-13: 'une petite poussee d'acceleration de 100% degressif sur 1/2 seconde')", is_equal_approx(vortex.fire_recoil_speed_boost, 1.0) and is_equal_approx(vortex.fire_recoil_boost_decay_time, 0.5))
+	_check("Tourbillon gives Vif a recoil speed boost on fire, trimmed to 70% after playtest ('le boost de vitesse est trop fort... on va reduire a 70% au lieu de 100')", is_equal_approx(vortex.fire_recoil_speed_boost, 0.7) and is_equal_approx(vortex.fire_recoil_boost_decay_time, 0.5))
 
 	var projectile := ProjectileNode.new()
 	projectile.velocity = Vector2(vortex.projectile_speed, 0.0)

@@ -91,13 +91,18 @@ func apply_charged_beam_slow(duration: float, multiplier: float) -> void:
 
 const FIRE_HOLD_SPEED_MULTIPLIER := 0.5 # -50% while the fire button is held (2026-08-01 — "balance la sauce", was -40%)
 
-# Lift/spin charge (redesigned 2026-08-01): holding the lift key freezes
-# movement entirely and charges the lift over time, in tiers:
-# <0.3s = 0%, 0.3-0.6s = 33%, 0.6-1.5s = 66%, >=1.5s = 100%.
-# Only applies when character.special_rule != "dash_lift" — see the dash
-# fields right below for Vif's replacement mechanic.
+# Lift/spin charge (redesigned 2026-08-01, retuned 2026-08-13 — Camil:
+# "le lift, pas assez interessant. J'abaisserais la charge du lift max a
+# 2 secondes... pendant la charge, il faut pouvoir se deplacer un peu,
+# 25% de la vitesse normale"): holding the lift key charges the lift over
+# time, in tiers: <0.3s = 0%, 0.3-0.6s = 33%, 0.6-2.0s = 66%, >=2.0s =
+# 100% — see LIFT_CHARGE_MOVE_MULTIPLIER below for the movement-while-
+# charging change (used to freeze movement entirely). Only applies when
+# character.special_rule != "dash_lift" — see the dash fields right below
+# for Vif's replacement mechanic.
 var _lift_charge_timer := 0.0
-const LIFT_CHARGE_CAP := 1.5
+const LIFT_CHARGE_CAP := 2.0
+const LIFT_CHARGE_MOVE_MULTIPLIER := 0.25 # 2026-08-13: charging used to freeze movement entirely; now a slowed crawl instead — still a real risk/reward trade, not a full lockdown
 
 # Vif's rewrite (2026-08-09, Camil): "il ne peut pas charger pour faire des
 # lift. en revanche, le bouton 'lift' lui permet de faire un petit dash
@@ -330,14 +335,16 @@ func _physics_process(delta: float) -> void:
 	# attempt is genuinely still in progress.
 	var is_charging := charge_capable and _fire_held_duration > NORMAL_FIRE_GRACE
 
-	# Charging the lift freezes movement entirely — that's the risk/reward trade
-	# (dash characters never freeze this way; the dash burst below replaces it).
-	# Holding the fire button ("je balance la sauce") also slows movement —
+	# 2026-08-13: charging the lift used to freeze movement entirely; now
+	# lets a slowed crawl through instead (LIFT_CHARGE_MOVE_MULTIPLIER) —
+	# still a real risk/reward trade, just not a full lockdown. Stun is the
+	# only thing that still zeroes movement outright. Holding the fire
+	# button ("je balance la sauce") also slows movement separately —
 	# spraying continuously has a real positioning cost, not just ammo cost.
 	var input_direction: Vector2
 	if dashing:
 		input_direction = _dash_direction # steer-locked for the burst's duration
-	elif (lift_held and not is_dash_character) or _stun_timer > 0.0:
+	elif _stun_timer > 0.0:
 		input_direction = Vector2.ZERO
 	else:
 		input_direction = _read_input()
@@ -347,6 +354,8 @@ func _physics_process(delta: float) -> void:
 	var speed_multiplier := _mobility_boost_multiplier
 	if dashing:
 		speed_multiplier = maxf(speed_multiplier, DASH_SPEED_MULTIPLIER)
+	if lift_held and not is_dash_character:
+		speed_multiplier = minf(speed_multiplier, LIFT_CHARGE_MOVE_MULTIPLIER)
 	if is_charging:
 		speed_multiplier = minf(speed_multiplier, selected.charge_fire_slow_multiplier)
 	if _vulnerability_timer > 0.0:
@@ -636,7 +645,7 @@ func _read_lift_held() -> bool:
 		return Input.is_physical_key_pressed(KEY_SHIFT)
 	return Input.is_physical_key_pressed(KEY_CTRL)
 
-## Returns the charge tier reached: <0.3s=0%, 0.3-0.6s=33%, 0.6-1.5s=66%, >=1.5s=100%.
+## Returns the charge tier reached: <0.3s=0%, 0.3-0.6s=33%, 0.6-CAP(2.0)s=66%, >=CAP=100%.
 ## AI included — it now attempts occasional lifts (_ai_lift_timer -> _read_lift_held()).
 ## Vif's rewrite (special_rule == "dash_lift"): never charges — always 0%
 ## except during the dash window, where a connecting return gets a fixed
@@ -648,7 +657,7 @@ func get_lift_charge() -> float:
 		return 0.0
 	elif _lift_charge_timer < 0.6:
 		return 0.33
-	elif _lift_charge_timer < 1.5:
+	elif _lift_charge_timer < LIFT_CHARGE_CAP:
 		return 0.66
 	return 1.0
 
