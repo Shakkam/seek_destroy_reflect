@@ -8,7 +8,7 @@ extends RefCounted
 const BASE_SPEED := 418.0 # +10% (2026-08-01 playtest feedback: felt a bit slow to start)
 const RADIUS := 10.0
 const SPEED_INCREMENT_PER_RETURN := 18.0 # Story 1.3 — ball speeds up slightly each rally exchange
-const SPIN_STRENGTH := 3.0 # rad/s of curvature at full (100%) lift charge — 2026-08-13 playtest: "j'augmenterais l'effet du lift de 100%" (doubled from 1.5, lift "pas assez interessant")
+const SPIN_STRENGTH := 2.0 # rad/s of curvature at full (100%) lift charge — 2026-08-13: doubled from 1.5 to 3.0 ("j'augmenterais l'effet du lift de 100%"), then walked back after playtest: "le lift est trop fort : j'ai reussi a renvoyer une balle dans mon camp, ca ne doit pas etre possible ! On va le redescendre tranquillement." A sustained spin rotates the ball's velocity by roughly spin^2 total (area under its own linear decay to 0 via SPIN_DECAY) — the reversal-into-own-camp risk grows QUADRATICALLY with this constant, not linearly, so 3.0 (2x the original) was really ~4x the rotation risk.
 const SPIN_DECAY := 1.0 # rad/s^2 — spin fades out over the flight instead of curving forever
 
 var position: Vector2

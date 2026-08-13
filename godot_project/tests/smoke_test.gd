@@ -921,7 +921,11 @@ func _test_lift_charge_rework() -> void:
 	# un peu, 25% de la vitesse normale."
 	_check("LIFT_CHARGE_CAP raised to 2 seconds (was 1.5)", is_equal_approx(ShipNode.LIFT_CHARGE_CAP, 2.0))
 	_check("LIFT_CHARGE_MOVE_MULTIPLIER allows 25% movement while charging (used to be a full freeze)", is_equal_approx(ShipNode.LIFT_CHARGE_MOVE_MULTIPLIER, 0.25))
-	_check("the lift's spin effect on the ball was doubled (+100%)", is_equal_approx(BallState.SPIN_STRENGTH, 3.0))
+	# 2026-08-13: doubled to 3.0 first, then walked back to 2.0 after
+	# Camil hit an actual reversal bug ("j'ai reussi a renvoyer une balle
+	# dans mon camp, ca ne doit pas etre possible !") — still above the
+	# original 1.5, just not the full double anymore.
+	_check("the lift's spin effect on the ball was strengthened but walked back after a reversal bug", BallState.SPIN_STRENGTH > 1.5 and is_equal_approx(BallState.SPIN_STRENGTH, 2.0))
 
 	# Regression: the old cap (1.5s) must NOT still read as full charge now
 	# that the tier threshold tracks LIFT_CHARGE_CAP instead of a stale
@@ -1030,7 +1034,7 @@ func _test_vortex_weapon() -> void:
 	_check("Tourbillon's cooldown was increased 1.5x (2026-08-09 playtest: 'un peu court')", vortex.fire_rate < 4.0 / 1.4) # fire_rate=4.0/1.5 -> cooldown*1.5; loose upper bound so exact rounding doesn't matter
 	_check("Tourbillon's charged fire launches 3 vortices", vortex.charged_projectile_count == 3)
 	_check("Tourbillon's charged vortices still go straight (no burst spread)", vortex.charged_burst_spread_deg == 0.0)
-	_check("Tourbillon gives Vif a recoil speed boost on fire, trimmed to 70% after playtest ('le boost de vitesse est trop fort... on va reduire a 70% au lieu de 100')", is_equal_approx(vortex.fire_recoil_speed_boost, 0.7) and is_equal_approx(vortex.fire_recoil_boost_decay_time, 0.5))
+	_check("Tourbillon gives Vif a recoil speed boost on fire, trimmed twice after playtest (100% -> 70% -> 60%, 'toujours trop fort')", is_equal_approx(vortex.fire_recoil_speed_boost, 0.6) and is_equal_approx(vortex.fire_recoil_boost_decay_time, 0.5))
 
 	var projectile := ProjectileNode.new()
 	projectile.velocity = Vector2(vortex.projectile_speed, 0.0)

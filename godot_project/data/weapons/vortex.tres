@@ -21,6 +21,7 @@ charge_fire_slow_multiplier = 0.3
 charged_projectile_count = 3
 charged_stagger = 0.1
 ; 2026-08-13 playtest: "le boost de vitesse est trop fort... on va reduire
-; a 70% au lieu de 100" — trimmed from 1.0.
-fire_recoil_speed_boost = 0.7
+; a 70% au lieu de 100" — trimmed from 1.0 to 0.7, then "toujours trop
+; fort. baisse a 60%" — trimmed again.
+fire_recoil_speed_boost = 0.6
 fire_recoil_boost_decay_time = 0.5
