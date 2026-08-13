@@ -60,19 +60,19 @@ const GAMEPAD_STICK_DEADZONE := 0.25
 const GAMEPAD_TRIGGER_THRESHOLD := 0.4
 
 # Real portrait/full-body art, per character id — same "explicit preload +
-# id lookup" pattern match_arena_node.gd uses for weapon sprites. Only
-# Lourd has real art so far (2026-08-12, Camil's first Gemini test render
-# for this roster, exactly the GDD's target 128x128 / 256x384 dimensions
-# already background-removed); everyone else still falls back to the
-# accent-tinted placeholder in _draw_grid_cell()/_draw_big_image() until
-# their art lands — add an entry here as each character's art arrives,
-# never a code change beyond this table.
+# id lookup" pattern match_arena_node.gd uses for weapon sprites.
+# 2026-08-13: full roster now has real art (all 8), so the placeholder
+# path in _draw_grid_cell()/_draw_big_image() is dead code in practice —
+# left in place as a safety net for any future 9th character/reroll.
 const PORTRAIT_TEXTURES := {
 	"lourd": preload("res://assets/art/characters/lourd/portrait.png"),
 	"missiles": preload("res://assets/art/characters/missiles/portrait.png"), # Traqueur
 	"controleur": preload("res://assets/art/characters/controleur/portrait.png"),
 	"mitrailleur": preload("res://assets/art/characters/mitrailleur/portrait.png"),
 	"zoneur": preload("res://assets/art/characters/zoneur/portrait.png"),
+	"perturbateur": preload("res://assets/art/characters/perturbateur/portrait.png"),
+	"mini": preload("res://assets/art/characters/mini/portrait.png"), # Spreader
+	"vif": preload("res://assets/art/characters/vif/portrait.png"),
 }
 const FULL_TEXTURES := {
 	"lourd": preload("res://assets/art/characters/lourd/full.png"),
@@ -80,6 +80,9 @@ const FULL_TEXTURES := {
 	"controleur": preload("res://assets/art/characters/controleur/full.png"),
 	"mitrailleur": preload("res://assets/art/characters/mitrailleur/full.png"),
 	"zoneur": preload("res://assets/art/characters/zoneur/full.png"),
+	"perturbateur": preload("res://assets/art/characters/perturbateur/full.png"),
+	"mini": preload("res://assets/art/characters/mini/full.png"), # Spreader
+	"vif": preload("res://assets/art/characters/vif/full.png"),
 }
 
 @onready var p1_name_label: Label = $P1Name
