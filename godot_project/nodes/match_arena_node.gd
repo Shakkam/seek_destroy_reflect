@@ -28,7 +28,11 @@ extends Node2D
 @onready var center_line: Line2D = $CenterLine
 
 const HP_BAR_WIDTH := 240.0
-const GO_FLASH_DURATION := 0.6 # seconds the "GO !" flash holds ships/ball frozen after confirm, before actually unfreezing
+# 2026-08-13 (Camil: "on a bien le 'go!' mais pas 'Ready...... go !'.
+# Donc y'a bien 2 steps. Ready (1.5 secondes) Go ! 1 sec") — a real two-
+# phase beat, not a single flash: "Ready..." holds first, THEN "GO !".
+const READY_FLASH_DURATION := 1.5
+const GO_FLASH_DURATION := 1.0 # was a single 0.6s flash before the two-phase split
 
 var match_state: MatchState = MatchState.new()
 var _round_active := true
@@ -55,13 +59,15 @@ var _shrink_start_bounds: Rect2
 var _shrink_target_bounds: Rect2
 var _drift_direction := 1.0 # "drifting_neutral_zone" — reverses at +/- drift_range from _base_frontier_x
 
-# Pre-round gate (2026-08-01, extended 2026-08-13 to a real "Ready...Go!"
-# beat and to every round, not just round 1). True while the current
-# round's gameplay is actually unfrozen; false while sitting in the
-# ready/GO gate (see _begin_round_ready_gate()/_process_ready_gate()).
+# Pre-round gate (2026-08-01, extended 2026-08-13 to a real two-phase
+# "Ready...Go!" beat and to every round, not just round 1). True while
+# the current round's gameplay is actually unfrozen; false while sitting
+# in the ready/READY/GO gate (see _begin_round_ready_gate()/
+# _process_ready_gate()).
 var _round_playing := false
-var _starting_round := false # true during the brief post-confirm "GO !" flash, before ships/ball actually unfreeze
-var _go_flash_timer := 0.0
+enum RoundStartPhase { WAITING_FOR_INPUT, READY_FLASH, GO_FLASH }
+var _round_start_phase := RoundStartPhase.WAITING_FOR_INPUT
+var _round_start_phase_timer := 0.0
 
 # Epic 4, Story 4.4/4.6/4.8 — true when this match was launched from the
 # campaign map via CampaignContext, so _check_round_end() records the
@@ -168,7 +174,7 @@ func _physics_process(delta: float) -> void:
 ## round 2/3 began the instant round 1 ended). Same freeze either way.
 func _begin_round_ready_gate() -> void:
 	_round_playing = false
-	_starting_round = false
+	_round_start_phase = RoundStartPhase.WAITING_FOR_INPUT
 	ship_1.active = false
 	ship_2.active = false
 	ball.active = false
@@ -181,30 +187,36 @@ func _begin_round_ready_gate() -> void:
 	ready_label.text = "Round %d\nPret ? (appuyez sur Tir pour commencer)" % round_number
 
 ## Pre-round gate — waits for either player's fire input (keyboard or
-## gamepad trigger, device 0 or 1), then holds a short freeze-frame with a
-## "GO !" flash (GO_FLASH_DURATION) before actually unfreezing — the
-## "Ready...Go!" beat itself, replacing the old instant press-to-unfreeze.
+## gamepad trigger, device 0 or 1), then runs the two-phase "Ready...Go!"
+## beat (READY_FLASH_DURATION, then GO_FLASH_DURATION) before actually
+## unfreezing, replacing the old instant press-to-unfreeze.
 func _process_ready_gate(delta: float) -> void:
-	if _starting_round:
-		_go_flash_timer -= delta
-		if _go_flash_timer <= 0.0:
-			_unfreeze_round()
-		return
-
-	var pressed := Input.is_physical_key_pressed(KEY_SPACE) \
-		or Input.is_physical_key_pressed(KEY_ENTER) \
-		or Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) > 0.4 \
-		or Input.get_joy_axis(1, JOY_AXIS_TRIGGER_RIGHT) > 0.4
-	if not pressed:
-		return
-	_starting_round = true
-	_go_flash_timer = GO_FLASH_DURATION
-	ready_label.add_theme_font_size_override("font_size", 48) # bigger for the flash
-	ready_label.add_theme_color_override("font_color", Color(1, 0.84, 0.29, 1)) # same gold as MatchLabel's "Victoire !"/"Match termine" announcements
-	ready_label.text = "GO !"
+	match _round_start_phase:
+		RoundStartPhase.WAITING_FOR_INPUT:
+			var pressed := Input.is_physical_key_pressed(KEY_SPACE) \
+				or Input.is_physical_key_pressed(KEY_ENTER) \
+				or Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) > 0.4 \
+				or Input.get_joy_axis(1, JOY_AXIS_TRIGGER_RIGHT) > 0.4
+			if not pressed:
+				return
+			_round_start_phase = RoundStartPhase.READY_FLASH
+			_round_start_phase_timer = READY_FLASH_DURATION
+			ready_label.text = "Ready......"
+		RoundStartPhase.READY_FLASH:
+			_round_start_phase_timer -= delta
+			if _round_start_phase_timer <= 0.0:
+				_round_start_phase = RoundStartPhase.GO_FLASH
+				_round_start_phase_timer = GO_FLASH_DURATION
+				ready_label.add_theme_font_size_override("font_size", 48) # bigger for the flash
+				ready_label.add_theme_color_override("font_color", Color(1, 0.84, 0.29, 1)) # same gold as MatchLabel's "Victoire !"/"Match termine" announcements
+				ready_label.text = "GO !"
+		RoundStartPhase.GO_FLASH:
+			_round_start_phase_timer -= delta
+			if _round_start_phase_timer <= 0.0:
+				_unfreeze_round()
 
 func _unfreeze_round() -> void:
-	_starting_round = false
+	_round_start_phase = RoundStartPhase.WAITING_FOR_INPUT
 	_round_playing = true
 	ship_1.active = true
 	ship_2.active = true
