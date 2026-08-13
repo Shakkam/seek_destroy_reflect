@@ -13,11 +13,24 @@ const RETURN_GAUGE_FILL := 10.0 # Story 1.7 — standard fill per successful ret
 const RETURN_GAUGE_FILL_MAX_LIFT := 15.0 # Story 1.7 — fill at a fully-charged (100%) lift return
 const MISS_GAUGE_FILL := 50.0 # Story 1.6 — playtest-tuned down from a "full charge" (2026-08-01 feedback)
 
+# "Systeme des 5 balles" (2026-08-11 brainstorm, built 2026-08-13 — see
+# project memory super-meter-backlog-idea): Camil — "5 ronds vides qui se
+# remplissent avec une balle a chaque fois que l'adversaire perd la
+# balle. Au bout de 5 balles (jauge pleine) on peut declencher un super."
+# One pip per opponent miss (ball_node.gd's _resolve_out_of_bounds(),
+# alongside the existing MISS_GAUGE_FILL weapon-gauge fill), consumed
+# entirely when the super triggers (ShipNode). Lives here (not a new
+# *State class) because this is already "the ship's resource-gauge
+# system" and _clone() is the one place that can't silently drop a field
+# the way ShipState's manual reconstructions could.
+const SUPER_METER_MAX := 5
+
 var kit: Array # of WeaponData
 var gauges: Array[float] # parallel array to kit — current charge per weapon
 var heats: Array[float] # parallel array to kit — current "barrel heat" per weapon (see WeaponData.heat_max)
 var selected_index: int
 var cooldown: float # seconds remaining before the next shot is allowed
+var super_pips: int # 0..SUPER_METER_MAX
 
 func _init(weapon_kit: Array, start_selected: int = 0) -> void:
 	kit = weapon_kit
@@ -28,6 +41,7 @@ func _init(weapon_kit: Array, start_selected: int = 0) -> void:
 		heats.append(0.0)
 	selected_index = start_selected
 	cooldown = 0.0
+	super_pips = 0
 
 func selected_weapon() -> WeaponData:
 	return kit[selected_index]
@@ -49,6 +63,22 @@ func with_gauge_added(amount: float, index: int = -1) -> WeaponSystemState:
 func with_cooldown_ticked(delta: float) -> WeaponSystemState:
 	var new_state := _clone()
 	new_state.cooldown = maxf(cooldown - delta, 0.0)
+	return new_state
+
+## +1 pip, capped at SUPER_METER_MAX — one call per opponent miss.
+func with_super_pip_added() -> WeaponSystemState:
+	var new_state := _clone()
+	new_state.super_pips = mini(super_pips + 1, SUPER_METER_MAX)
+	return new_state
+
+func super_ready() -> bool:
+	return super_pips >= SUPER_METER_MAX
+
+## Spends the whole meter — called the instant the super triggers, so a
+## held/repeated trigger input can never fire it twice off one fill.
+func with_super_consumed() -> WeaponSystemState:
+	var new_state := _clone()
+	new_state.super_pips = 0
 	return new_state
 
 ## Heat gauge (2026-08-09 playtest, replacing the earlier hard burst-limit:
@@ -89,4 +119,5 @@ func _clone() -> WeaponSystemState:
 	copy.gauges = gauges.duplicate()
 	copy.heats = heats.duplicate()
 	copy.cooldown = cooldown
+	copy.super_pips = super_pips
 	return copy

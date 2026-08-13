@@ -100,6 +100,7 @@ func _resolve_out_of_bounds() -> void:
 		for ship in ships:
 			if ship.side == opponent_side:
 				ship.fill_selected_gauge(WeaponSystemState.MISS_GAUGE_FILL)
+				ship.add_super_pip() # "systeme des 5 balles" — same trigger as the weapon-gauge miss fill
 				break
 
 		reset_to_center()

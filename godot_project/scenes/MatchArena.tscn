@@ -5,6 +5,7 @@
 [ext_resource type="PackedScene" path="res://scenes/Ball.tscn" id="3"]
 [ext_resource type="Resource" path="res://data/characters/controleur.tres" id="4"]
 [ext_resource type="Resource" path="res://data/characters/perturbateur.tres" id="5"]
+[ext_resource type="Script" path="res://nodes/super_meter_node.gd" id="6"]
 
 [node name="MatchArena" type="Node2D" unique_id=456439615]
 position = Vector2(-1, -1)
@@ -100,6 +101,14 @@ offset_right = 1260.0
 offset_bottom = 104.0
 color = Color(1, 0.55, 0.7, 1)
 
+[node name="P1SuperMeter" type="Node2D" parent="DebugHUD"]
+position = Vector2(20, 116)
+script = ExtResource("6")
+
+[node name="P2SuperMeter" type="Node2D" parent="DebugHUD"]
+position = Vector2(1020, 116)
+script = ExtResource("6")
+
 [node name="RoundLabel" type="Label" parent="DebugHUD"]
 offset_left = 540.0
 offset_top = 12.0
@@ -157,7 +166,7 @@ offset_right = 400.0
 offset_bottom = 716.0
 theme_override_colors/font_color = Color(0.65, 0.9, 1, 0.85)
 theme_override_font_sizes/font_size = 14
-text = "J1 — Deplacer: Z Q S D | Arme: A | Tir: Espace | Lift (maintenir, bloque): Maj"
+text = "J1 — Deplacer: Z Q S D | Arme: A | Tir: Espace | Lift (maintenir, bloque): Maj | Super (jauge pleine): E"
 
 [node name="ControlsP2" type="Label" parent="DebugHUD"]
 offset_left = 880.0
@@ -167,4 +176,4 @@ offset_bottom = 716.0
 horizontal_alignment = 2
 theme_override_colors/font_color = Color(1, 0.55, 0.7, 0.85)
 theme_override_font_sizes/font_size = 14
-text = "J2 — Deplacer: Fleches | Arme: Pave num. 0 | Tir: Entree | Lift (maintenir, bloque): Ctrl"
+text = "J2 — Deplacer: Fleches | Arme: Pave num. 0 | Tir: Entree | Lift (maintenir, bloque): Ctrl | Super (jauge pleine): Entree num."

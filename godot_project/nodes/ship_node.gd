@@ -8,6 +8,7 @@ extends CharacterBody2D
 signal weapon_fired(weapon: WeaponData) # carries the full weapon so callers can branch on effect_type
 signal charged_weapon_fired(weapon: WeaponData) # 2026-08-09 "tir charge" — released at full charge, MatchArenaNode spawns the weapon's bespoke charged burst instead of a normal shot
 signal gauge_filled(amount: float)
+signal super_triggered # 2026-08-13 "systeme des 5 balles" — meter's full and the player triggered it; MatchArenaNode (which has both ships) resolves the actual effect, same split as weapon_fired
 
 @export var player_index: int = 1 # 1 or 2 — selects which local input scheme to read
 @export var side: int = 0 # 0 = left half, 1 = right half
@@ -56,6 +57,7 @@ var active := true # set false by MatchArenaNode during the pre-match "ready?" g
 
 var weapon_state: WeaponSystemState
 var _weapon_select_prev := false
+var _super_prev := false # edge-detects the Super trigger key
 var _flash_timer := 0.0
 const FLASH_DURATION := 0.08
 
@@ -348,6 +350,7 @@ func _physics_process(delta: float) -> void:
 	_dash_timer = maxf(_dash_timer - delta, 0.0)
 
 	_process_weapon_selection()
+	_process_super_trigger()
 	_ai_pulse_select = false # consumed for this frame, whether or not it was set
 	weapon_state = weapon_state.with_cooldown_ticked(delta)
 	weapon_state = weapon_state.with_heat_ticked(delta, fire_held)
@@ -509,6 +512,17 @@ func _process_weapon_selection() -> void:
 		print("%s selected %s" % [name, weapon_state.selected_weapon().display_name])
 	_weapon_select_prev = select_pressed
 
+## "Systeme des 5 balles" — edge-triggered like weapon select, and only
+## does anything once the meter reads full (super_ready()). Consuming the
+## meter here (not in MatchArenaNode's handler) means the signal itself
+## can never fire twice for one press even if a listener is slow/absent.
+func _process_super_trigger() -> void:
+	var pressed := _read_super_pressed()
+	if pressed and not _super_prev and weapon_state.super_ready():
+		weapon_state = weapon_state.with_super_consumed()
+		super_triggered.emit()
+	_super_prev = pressed
+
 ## Dedicated inputs, separate from movement keys (Story 1.4 AC: movement
 ## must never be blocked by weapon selection).
 func _read_weapon_select_pressed() -> bool:
@@ -519,6 +533,18 @@ func _read_weapon_select_pressed() -> bool:
 	if player_index == 1:
 		return Input.is_physical_key_pressed(KEY_Q) # physical Q = "A" label on AZERTY
 	return Input.is_physical_key_pressed(KEY_KP_0) # numpad — unambiguous across keyboard layouts
+
+## "Systeme des 5 balles" — a dedicated key, separate from weapon-select/
+## fire/lift, same "never blocks movement" principle as the rest of the
+## input scheme. Face button B on gamepad (A is already weapon-select).
+func _read_super_pressed() -> bool:
+	if ai_controlled:
+		return false # AI doesn't use its super yet — no per-character super effects exist to pick from until the individualization pass
+	if Input.is_joy_button_pressed(_gamepad_device(), JOY_BUTTON_B):
+		return true
+	if player_index == 1:
+		return Input.is_physical_key_pressed(KEY_E)
+	return Input.is_physical_key_pressed(KEY_KP_ENTER) # numpad cluster, distinct from KEY_ENTER (Tir)
 
 func _read_fire_pressed() -> bool:
 	if ai_controlled:
@@ -759,3 +785,11 @@ func fill_selected_gauge_from_return(amount: float) -> void:
 	if self_fill_locked:
 		return
 	fill_selected_gauge(amount)
+
+## "Systeme des 5 balles" — called by ball_node.gd alongside
+## fill_selected_gauge() whenever THIS ship's opponent misses. Never
+## gated by self_fill_locked either — same reasoning as the weapon gauge
+## (a punishment for the OTHER player's miss shouldn't be twist-lockable
+## on this side).
+func add_super_pip() -> void:
+	weapon_state = weapon_state.with_super_pip_added()
