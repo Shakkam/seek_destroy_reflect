@@ -1032,6 +1032,12 @@ func _test_vortex_weapon() -> void:
 	# ship_node.gd fix attempt was solving a different, hypothetical problem.
 	_check("Tourbillon's charge actually slows movement (was silently defaulting to 1.0 = no slow)", vortex.charge_fire_slow_multiplier < 1.0 and vortex.charge_fire_slow_multiplier > 0.0)
 	_check("Tourbillon's cooldown was increased 1.5x (2026-08-09 playtest: 'un peu court')", vortex.fire_rate < 4.0 / 1.4) # fire_rate=4.0/1.5 -> cooldown*1.5; loose upper bound so exact rounding doesn't matter
+	# 2026-08-13: "j'augmenterais bien aussi le cooldown de l'arme de vif,
+	# +40% par rapport a l'actuel" — actual before/after cooldowns compared
+	# directly (1/fire_rate), not another fire_rate-space approximation.
+	var vortex_cooldown_before := 1.0 / 2.667 # the value going into this change
+	var vortex_cooldown_after := 1.0 / vortex.fire_rate
+	_check("Tourbillon's cooldown was increased another 40% on top of that", is_equal_approx(vortex_cooldown_after, vortex_cooldown_before * 1.4))
 	_check("Tourbillon's charged fire launches 3 vortices", vortex.charged_projectile_count == 3)
 	_check("Tourbillon's charged vortices still go straight (no burst spread)", vortex.charged_burst_spread_deg == 0.0)
 	_check("Tourbillon gives Vif a recoil speed boost on fire, trimmed twice after playtest (100% -> 70% -> 60%, 'toujours trop fort')", is_equal_approx(vortex.fire_recoil_speed_boost, 0.6) and is_equal_approx(vortex.fire_recoil_boost_decay_time, 0.5))

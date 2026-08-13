@@ -7,7 +7,10 @@ script = ExtResource("1")
 id = "vortex"
 display_name = "Tourbillon"
 damage = 2
-fire_rate = 2.667
+; 2026-08-13: "j'augmenterais bien aussi le cooldown de l'arme de vif,
+; +40% par rapport a l'actuel" — cooldown = 1/fire_rate, so +40% cooldown
+; is fire_rate / 1.4 (was 2.667, giving a ~0.375s cooldown; now ~0.525s).
+fire_rate = 1.905
 gauge_max = 100.0
 gauge_cost_per_shot = 8.0
 is_heavy = false
