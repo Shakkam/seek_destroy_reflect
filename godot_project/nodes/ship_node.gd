@@ -28,6 +28,16 @@ var _stun_timer := 0.0 # Epic 2, Story 2.6 — movement and firing disabled whil
 # spawning concern).
 var _double_fire_shots_remaining := 0
 
+# Vif's Tourbillon (2026-08-13, replacing the dropped dash_lift rework —
+# Camil: "a chaque tire, vif, a une petite poussee d'acceleration de 100%
+# degressif sur 1/2 seconde") — WeaponData.fire_recoil_speed_boost/
+# fire_recoil_boost_decay_time, data-driven so any future weapon could
+# opt in too. Counts down from the weapon's decay_time; the fraction
+# remaining (1.0 right after firing -> 0.0 at expiry) linearly scales the
+# boost. Re-firing resets the window rather than stacking (see
+# _process_super_trigger()-style single-timer pattern used elsewhere).
+var _fire_recoil_boost_timer := 0.0
+
 # Turbo afterimage trail (2026-08-06) — was flagged as deferred polish, done
 # now that the Turbo has a tint to match. Ghost copies of the ship's own
 # Visual polygon, spawned periodically while boosted and faded out via Tween.
@@ -345,9 +355,17 @@ func _physics_process(delta: float) -> void:
 		speed_multiplier = minf(speed_multiplier, _charged_beam_slow_multiplier)
 	if fire_held and not is_charging:
 		speed_multiplier = minf(speed_multiplier, FIRE_HOLD_SPEED_MULTIPLIER) # normal firing (including a charge-capable weapon's grace window) always carries this slow; charge_fire_slow_multiplier takes over once actually charging
+	if _fire_recoil_boost_timer > 0.0 and selected.fire_recoil_boost_decay_time > 0.0:
+		# Vif's Tourbillon recoil kick — starts at +fire_recoil_speed_boost
+		# (1.0 = +100%) and decays linearly to +0% over the weapon's decay
+		# time. A boost, so it wins over any slow via maxf (same as the
+		# dash speed bump above), not multiplied/stacked with them.
+		var recoil_fraction := _fire_recoil_boost_timer / selected.fire_recoil_boost_decay_time
+		speed_multiplier = maxf(speed_multiplier, 1.0 + selected.fire_recoil_speed_boost * recoil_fraction)
 	state = state.update(input_direction, delta, arena_bounds, frontier_x, speed_multiplier)
 	position = state.position
 	_dash_timer = maxf(_dash_timer - delta, 0.0)
+	_fire_recoil_boost_timer = maxf(_fire_recoil_boost_timer - delta, 0.0)
 
 	_process_weapon_selection()
 	_process_super_trigger()
@@ -380,6 +398,8 @@ func _physics_process(delta: float) -> void:
 				_mobility_boost_active_multiplier = weapon.effect_speed_multiplier
 			else:
 				weapon_fired.emit(weapon)
+			if weapon.fire_recoil_speed_boost > 0.0:
+				_fire_recoil_boost_timer = weapon.fire_recoil_boost_decay_time
 			print("%s fired %s (gauge left: %.0f)" % [
 				name, weapon.display_name, weapon_state.gauges[weapon_state.selected_index]
 			])
@@ -391,6 +411,8 @@ func _physics_process(delta: float) -> void:
 			if result.fired:
 				_flash_timer = FLASH_DURATION
 				charged_weapon_fired.emit(result.weapon)
+				if result.weapon.fire_recoil_speed_boost > 0.0:
+					_fire_recoil_boost_timer = result.weapon.fire_recoil_boost_decay_time
 				print("%s CHARGED-fired %s" % [name, result.weapon.display_name])
 		# else: released mid-charge (past the grace window, before full) — the attempt is lost, nothing fires
 

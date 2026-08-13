@@ -27,7 +27,21 @@ var is_looping := false
 var loop_radius: float = 18.0 # px
 var loop_angular_speed: float = 1080.0 # deg/sec — how fast/tight each loop is
 var _loop_elapsed := 0.0
-var _drift_velocity := Vector2.ZERO # the straight-line velocity captured at spawn; the loop orbits this drifting reference
+var _drift_velocity := Vector2.ZERO # the straight-line velocity captured at spawn; is_looping's loop AND is_sine's wave both orbit/ride this drifting reference
+
+# 2026-08-13, Vif's Tourbillon rework (Camil: "je n'aime pas [l'arme de
+# vif]... que son tir ne fasse plus des cercles, mais parte tout droit
+# avec une trajectoire sinusoidale") — a straight-line drift (like a
+# normal shot) with a lateral oscillation added on top, instead of
+# is_looping's closed circular orbit. Same trochoid-style construction as
+# is_looping: velocity = constant drift + a perpendicular component that
+# oscillates (there, tangential/circular; here, sinusoidal), so position
+# integrates cleanly without drifting off-axis. Mutually exclusive with
+# is_looping/is_boomerang/homing_strength.
+var is_sine := false
+var sine_amplitude: float = 40.0 # px, lateral swing either side of the straight path
+var sine_angular_speed: float = 720.0 # deg/sec — how fast the wave oscillates
+var _sine_elapsed := 0.0
 
 # "Shmup juice pass" (2026-08-05) — boomerang motion: curves outward for
 # BOOMERANG_OUT_DURATION, then arcs back toward `shooter`. Mutually exclusive
@@ -119,7 +133,7 @@ var _anim_index := 0
 const ANIM_FRAME_DURATION := 0.1
 
 func _ready() -> void:
-	if is_looping:
+	if is_looping or is_sine:
 		_drift_velocity = velocity
 	if is_boomerang:
 		# Captured once here — the arc always rotates around this baseline,
@@ -166,6 +180,12 @@ func _physics_process(delta: float) -> void:
 		var loop_angle := deg_to_rad(loop_angular_speed) * _loop_elapsed
 		var tangential_speed := loop_radius * deg_to_rad(loop_angular_speed) # |d/dt of R*(cos,sin)(w*t)| = R*w
 		velocity = _drift_velocity + Vector2(-sin(loop_angle), cos(loop_angle)) * tangential_speed
+	elif is_sine:
+		_sine_elapsed += delta
+		var wave_angle := deg_to_rad(sine_angular_speed) * _sine_elapsed
+		var perp_dir := _drift_velocity.normalized().orthogonal()
+		var lateral_speed := sine_amplitude * deg_to_rad(sine_angular_speed) * cos(wave_angle) # d/dt of amplitude*sin(w*t) = amplitude*w*cos(w*t)
+		velocity = _drift_velocity + perp_dir * lateral_speed
 	elif target and homing_strength > 0.0:
 		# Only steer vertically — horizontal (left/right) speed stays constant.
 		var desired_vy := clampf((target.position.y - position.y) * 2.0, -260.0, 260.0)

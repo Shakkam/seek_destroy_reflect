@@ -35,7 +35,8 @@ func _initialize() -> void:
 	_test_gauges_reset_between_rounds()
 	_test_weapon_heat_gauge()
 	_test_mitrailleur_double_fire_rule()
-	_test_vif_dash_lift_rule()
+	_test_dash_lift_rule()
+	_test_vif_reverted_to_shared_lift()
 	_test_weapon_exclusivity()
 	_test_every_charge_capable_weapon_actually_slows()
 	_test_vortex_weapon()
@@ -867,18 +868,25 @@ func _test_mitrailleur_double_fire_rule() -> void:
 	_check("grant_double_fire() arms the counter", ship._double_fire_shots_remaining == machine_gun.charged_double_fire_shots)
 	ship.queue_free()
 
-func _test_vif_dash_lift_rule() -> void:
+func _test_dash_lift_rule() -> void:
 	# 2026-08-09 (Camil): "vif est pas interessant... chaque perso devrait
 	# avoir une regle bien a lui. un + et un -. Proposition pour vif: il ne
 	# peut pas charger pour faire des lift. en revanche, le bouton lift lui
 	# permet de faire un petit dash... s'il tape en dashant, ca fait un
 	# leger lift."
-	var vif: CharacterData = load("res://data/characters/vif.tres")
-	_check("Vif's special_rule is dash_lift", vif.special_rule == "dash_lift")
-	_check("Vif's kit is just his Tourbillon (2026-08-09: weapons became per-character exclusive, mitraillette went to Mitrailleur)", vif.kit.size() == 1 and vif.kit[0].id == "vortex")
+	#
+	# 2026-08-13: reverted for Vif specifically (Camil: "il faudrait que la
+	# touche de lift redevienne une touche de lift, comme les autres") —
+	# see _test_vortex_weapon()/vif.tres for his rework. The dash_lift
+	# MECHANISM itself is untouched in ShipNode (still a valid general
+	# special_rule option, just unused by anyone right now), so it's still
+	# tested here — decoupled from Vif's specific assignment, via a
+	# synthetic CharacterData instead of loading vif.tres.
+	var dash_character := CharacterData.new()
+	dash_character.special_rule = "dash_lift"
 
 	var ship := ShipNode.new()
-	ship.character = vif
+	ship.character = dash_character
 	_check("get_lift_charge() reads 0% for a dash character with no dash active (the MINUS: no charging at all)", ship.get_lift_charge() == 0.0)
 
 	ship._dash_timer = 0.1
@@ -896,6 +904,22 @@ func _test_vif_dash_lift_rule() -> void:
 
 	ship.queue_free()
 	lourd_ship.queue_free()
+
+func _test_vif_reverted_to_shared_lift() -> void:
+	# 2026-08-13 (Camil: "il faudrait que la touche de lift redevienne une
+	# touche de lift, comme les autres") — Vif's special_rule goes back to
+	# "none", so he uses the shared hold-to-charge lift like everyone
+	# without a special_rule (Lourd, Contrôleur, etc.), same as before the
+	# 2026-08-09 dash_lift experiment.
+	var vif: CharacterData = load("res://data/characters/vif.tres")
+	_check("Vif's special_rule reverted to none (dash_lift dropped)", vif.special_rule == "none")
+	_check("Vif's kit is still just his Tourbillon", vif.kit.size() == 1 and vif.kit[0].id == "vortex")
+
+	var ship := ShipNode.new()
+	ship.character = vif
+	ship._lift_charge_timer = ShipNode.LIFT_CHARGE_CAP
+	_check("Vif now uses the shared hold-to-charge lift tiers, not the dash rewrite", ship.get_lift_charge() == 1.0)
+	ship.queue_free()
 
 func _test_every_charge_capable_weapon_actually_slows() -> void:
 	# 2026-08-09 — a general invariant, added after vortex.tres shipped with
@@ -952,15 +976,21 @@ func _test_vortex_weapon() -> void:
 	# qui tourne sur lui meme en avancant et qui va tres vite. tir charge,
 	# trois tourbillons qui vont tout droit (toujours en tournant sur eux
 	# meme)." Redesigned after Camil's drawing: "je veux qu'il fasse des
-	# cercles" — small forward-advancing loops, not a straight line, and not
-	# a node rotation either. Then: "vu la vitesse, pour le tourbillon, pas
-	# d'anim : garde uniquement wind1" — the wind1-3 cycle was dropped, too
-	# fast to read once the loop motion was tuned up; the loop itself
-	# carries the "spinning" read now.
+	# cercles" — small forward-advancing loops. Then: "vu la vitesse, pour
+	# le tourbillon, pas d'anim : garde uniquement wind1" — the wind1-3
+	# cycle was dropped, too fast to read once the loop motion was tuned
+	# up; the loop itself carried the "spinning" read.
+	#
+	# 2026-08-13 REWORK (Camil: "je n'aime pas [l'arme de vif]... que son
+	# tir ne fasse plus des cercles, mais parte tout droit avec une
+	# trajectoire sinusoidale") — is_looping (closed circular orbit)
+	# replaced by is_sine (straight-line drift with a lateral wave), see
+	# ProjectileNode.is_sine.
 	var vortex: WeaponData = load("res://data/weapons/vortex.tres")
 	_check("Tourbillon travels faster than the shared default projectile speed", vortex.projectile_speed > 620.0)
-	_check("Tourbillon loops instead of flying straight", vortex.is_looping and vortex.loop_radius > 0.0 and vortex.loop_angular_speed > 0.0)
-	_check("Tourbillon does not also spin the node (the loop motion already conveys spin)", vortex.projectile_spin_speed == 0.0)
+	_check("Tourbillon rides a sine wave instead of flying straight or looping", vortex.is_sine and vortex.sine_amplitude > 0.0 and vortex.sine_angular_speed > 0.0)
+	_check("Tourbillon no longer loops (2026-08-13 rework)", not vortex.is_looping)
+	_check("Tourbillon does not also spin the node (the wave motion already conveys spin)", vortex.projectile_spin_speed == 0.0)
 	_check("Tourbillon has a charged fire configured", vortex.charge_fire_duration > 0.0)
 	_check("Tourbillon's charge duration is 3s (2026-08-09 playtest: 'augmenter le temps de charge : 3 secondes')", is_equal_approx(vortex.charge_fire_duration, 3.0))
 	# 2026-08-09 bug (the REAL root cause of the recurring "ralentissement"
@@ -971,50 +1001,69 @@ func _test_vortex_weapon() -> void:
 	_check("Tourbillon's cooldown was increased 1.5x (2026-08-09 playtest: 'un peu court')", vortex.fire_rate < 4.0 / 1.4) # fire_rate=4.0/1.5 -> cooldown*1.5; loose upper bound so exact rounding doesn't matter
 	_check("Tourbillon's charged fire launches 3 vortices", vortex.charged_projectile_count == 3)
 	_check("Tourbillon's charged vortices still go straight (no burst spread)", vortex.charged_burst_spread_deg == 0.0)
+	_check("Tourbillon gives Vif a recoil speed boost on fire (2026-08-13: 'une petite poussee d'acceleration de 100% degressif sur 1/2 seconde')", is_equal_approx(vortex.fire_recoil_speed_boost, 1.0) and is_equal_approx(vortex.fire_recoil_boost_decay_time, 0.5))
 
 	var projectile := ProjectileNode.new()
 	projectile.velocity = Vector2(vortex.projectile_speed, 0.0)
-	projectile.is_looping = true
-	projectile.loop_radius = vortex.loop_radius
-	projectile.loop_angular_speed = vortex.loop_angular_speed
+	projectile.is_sine = true
+	projectile.sine_amplitude = vortex.sine_amplitude
+	projectile.sine_angular_speed = vortex.sine_angular_speed
 	projectile._ready() # captures _drift_velocity — never called automatically by .new() under this harness
 	var start_position := projectile.position
 	var off_the_straight_line := false
 	var net_forward_progress := false
-	for i in 20: # ~0.33s at a 60fps-equivalent step
+	var crossed_back_toward_center := false # true sine oscillates both sides, unlike a one-way curve
+	var max_deviation := 0.0
+	for i in 90: # ~1.5s at a 60fps-equivalent step — long enough to complete a full wave
 		projectile._physics_process(1.0 / 60.0)
-		if absf(projectile.position.y - start_position.y) > 2.0:
+		var dy := projectile.position.y - start_position.y
+		if absf(dy) > 2.0:
 			off_the_straight_line = true
+		max_deviation = maxf(max_deviation, absf(dy))
+		if max_deviation > 5.0 and absf(dy) < max_deviation * 0.3:
+			crossed_back_toward_center = true
 		if projectile.position.x - start_position.x > 20.0:
 			net_forward_progress = true
-	_check("a looping projectile deviates off the straight line (traces circles)", off_the_straight_line)
-	_check("a looping projectile still makes real net forward progress (drifts, doesn't just spin in place)", net_forward_progress)
+	_check("a sine-wave projectile deviates off the straight line", off_the_straight_line)
+	_check("a sine-wave projectile swings back toward the center line (a real oscillation, not a one-way curve)", crossed_back_toward_center)
+	_check("a sine-wave projectile still makes real net forward progress (drifts, doesn't just wave in place)", net_forward_progress)
 
 	# 2026-08-09 (Camil: "attention quand il tourne, sa zone de contact
-	# tourne avec lui !") — the hit check uses the same `position` the loop
-	# actually moves through (no separate visual-only offset), so a target
-	# placed only in the loop's swept path — off the straight drift line —
-	# must still register a hit.
+	# tourne avec lui !") — same principle carried into the sine rework:
+	# the hit check uses the same `position` the wave actually moves
+	# through, so a target placed only in the wave's swept path — off the
+	# straight drift line — must still register a hit.
 	var off_line_target := ShipNode.new()
-	off_line_target.position = start_position + Vector2(10.0, vortex.loop_radius) # well off the straight (dy=0) line, but within the loop's sweep
+	# Placed where the wave actually PEAKS (quarter-period forward, full
+	# amplitude sideways) rather than an arbitrary small offset — a sine's
+	# lateral displacement is ~0 near t=0 and only reaches full amplitude a
+	# quarter-cycle in, by which point the projectile (at projectile_speed)
+	# has already traveled real forward distance too.
+	var quarter_period_time := 90.0 / vortex.sine_angular_speed # seconds to reach max lateral offset (90deg = quarter cycle)
+	var forward_offset_at_peak := vortex.projectile_speed * quarter_period_time
+	# Godot's Vector2.orthogonal() returns (y, -x) — for a rightward drift
+	# (1,0) that's (0,-1), so the FIRST peak (t=quarter_period, sin=1) lands
+	# at NEGATIVE y (up), not positive. Confirmed empirically (a +amplitude
+	# placement missed entirely) rather than assumed.
+	off_line_target.position = start_position + Vector2(forward_offset_at_peak, -vortex.sine_amplitude) # well off the straight (dy=0) line, but within the wave's sweep
 	off_line_target.half_extents = Vector2(14, 28)
 	off_line_target.state = ShipState.new(off_line_target.position, 0, off_line_target.half_extents) # apply_damage() needs this — normally built in _ready(), never called by this harness
 	var probe := ProjectileNode.new()
 	probe.velocity = Vector2(vortex.projectile_speed, 0.0)
-	probe.is_looping = true
-	probe.loop_radius = vortex.loop_radius
-	probe.loop_angular_speed = vortex.loop_angular_speed
+	probe.is_sine = true
+	probe.sine_amplitude = vortex.sine_amplitude
+	probe.sine_angular_speed = vortex.sine_angular_speed
 	probe.damage = 2
 	probe.target = off_line_target
 	probe.position = start_position
 	probe._ready()
 	var hit_off_line_target := false
-	for i in 60: # ~1s — long enough to sweep through a full loop
+	for i in 90: # long enough to sweep through a full wave
 		probe._physics_process(1.0 / 60.0)
 		if not is_instance_valid(probe) or probe.is_queued_for_deletion():
 			hit_off_line_target = true
 			break
-	_check("the loop's hit detection actually follows the curved path (an off-line target still gets hit)", hit_off_line_target)
+	_check("the sine wave's hit detection actually follows the curved path (an off-line target still gets hit)", hit_off_line_target)
 	off_line_target.queue_free()
 	if is_instance_valid(probe) and not probe.is_queued_for_deletion():
 		probe.queue_free()

@@ -391,9 +391,12 @@ func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: flo
 	projectile.is_looping = weapon.is_looping
 	projectile.loop_radius = weapon.loop_radius
 	projectile.loop_angular_speed = weapon.loop_angular_speed
+	projectile.is_sine = weapon.is_sine
+	projectile.sine_amplitude = weapon.sine_amplitude
+	projectile.sine_angular_speed = weapon.sine_angular_speed
 	projectile.flip_h = direction < 0.0
 	if weapon.id == "vortex":
-		projectile.textures = VORTEX_TEXTURES # Vif's Tourbillon — 3-frame spin animation (wind1-3), loops via is_looping instead of a node rotation
+		projectile.textures = VORTEX_TEXTURES # Vif's Tourbillon — 3-frame spin animation (wind1-3), rides a sine wave via is_sine instead of a node rotation (2026-08-13 rework, was is_looping)
 		projectile.visual_scale = 2.4 # 2026-08-09 playtest: "tu peux doubler la taille des tourbillons" (was 1.2)
 	elif weapon.id == "mini_shot":
 		projectile.textures = BONBON_TEXTURES # Mini/Éventail — spins via projectile_spin_speed (mini_shot.tres), no multi-frame cycle

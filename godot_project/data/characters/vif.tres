@@ -10,4 +10,4 @@ display_name = "Vif"
 archetype = "Vif"
 kit = [ExtResource("2")]
 complexity = "intermediate"
-special_rule = "dash_lift"
+special_rule = "none"

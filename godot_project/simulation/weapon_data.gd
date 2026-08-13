@@ -77,9 +77,28 @@ extends Resource
 
 # Vif's Tourbillon (2026-08-09, Camil's drawing): traces small forward-
 # advancing loops instead of a straight line. See ProjectileNode.is_looping.
+# 2026-08-13 (Camil: "je n'aime pas [l'arme de vif]... que son tir ne fasse
+# plus des cercles, mais parte tout droit avec une trajectoire sinusoidale")
+# — replaced by is_sine below for the Tourbillon specifically, but left in
+# place as a generic option for any future weapon that wants a true loop.
 @export var is_looping: bool = false
 @export var loop_radius: float = 18.0 # px
 @export var loop_angular_speed: float = 1080.0 # deg/sec — how fast/tight each loop is
+
+# 2026-08-13 rework of Vif's Tourbillon — straight-line net progress (unlike
+# is_looping above) with a lateral wave riding on top. See ProjectileNode.is_sine.
+@export var is_sine: bool = false
+@export var sine_amplitude: float = 40.0 # px, lateral swing either side of the straight path
+@export var sine_angular_speed: float = 720.0 # deg/sec — how fast the wave oscillates (same "deg/sec" convention as loop_angular_speed)
+
+# 2026-08-13, Vif's rework (Camil: "a chaque tire, vif, a une petite poussee
+# d'acceleration de 100% degressif sur 1/2 seconde") — a movement-speed kick
+# on top of whatever ShipNode's speed_multiplier chain already computes,
+# starting at fire_recoil_speed_boost (1.0 = +100%, i.e. 2x) and decaying
+# LINEARLY to 0 over fire_recoil_boost_decay_time seconds. Re-firing resets
+# the decay window rather than stacking. 0 = disabled (every other weapon).
+@export var fire_recoil_speed_boost: float = 0.0
+@export var fire_recoil_boost_decay_time: float = 0.5
 
 # Charged fire (2026-08-09, Camil's per-character "tir charge" pass —
 # "chaque perso devrait avoir une regle bien a lui"). A quick tap still
