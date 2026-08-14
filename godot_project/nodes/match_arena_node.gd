@@ -38,6 +38,16 @@ var match_state: MatchState = MatchState.new()
 var _round_active := true
 var _ai_toggle_prev := false
 
+# Dev-only in-match cheat keys (2026-08-13, Camil: "des cheats shortcuts
+# pour tests ingame") — global, not per-player-device-scoped, same
+# convention as F1 (AI toggle)/TAB (hitbox overlay). Always target ship_1
+# as "self"/the tester and ship_2 as "the opponent", mirroring how F1's
+# AI toggle only ever touches ship_2 — matches the assumption a solo dev
+# is testing AS Player 1 against an AI or a second human on ship_2.
+var _cheat_kill_prev := false
+var _cheat_ultra_prev := false
+var _cheat_ammo_prev := false
+
 # Epic 4, Story 4.5 — "match twist" support for campaign rival/boss fights.
 # Campaign match-launch code (Story 4.6/4.8) sets active_twist before the
 # pre-match ready gate; MatchArenaNode owns applying/ticking whichever twist
@@ -153,6 +163,7 @@ func _process(delta: float) -> void:
 	p2_ultra_meter.pips = ship_2.weapon_state.ultra_pips
 
 	_process_ai_toggle()
+	_process_cheat_keys()
 	_sync_twist_visuals()
 
 	if not _round_playing:
@@ -680,6 +691,32 @@ func _process_ai_toggle() -> void:
 		ship_2.ai_controlled = not ship_2.ai_controlled
 		ai_status_label.text = "IA J2: %s (F1)" % ("ON" if ship_2.ai_controlled else "OFF")
 	_ai_toggle_prev = pressed
+
+## Dev-only cheat keys for faster manual testing (2026-08-13): K instantly
+## kills the opponent (ship_2), U maxes ship_1's ultra meter (skip
+## grinding 5 real misses to test an ultra trigger), M fills ship_1's
+## ammo/weapon gauges to 100. Gated on _round_playing so they can't fire
+## mid-freeze (ready gate / match-over pause) and do something undefined.
+func _process_cheat_keys() -> void:
+	if not _round_playing:
+		return
+
+	var kill_pressed := Input.is_physical_key_pressed(KEY_K)
+	if kill_pressed and not _cheat_kill_prev:
+		ship_2.apply_damage(ship_2.state.hp) # HP to exactly 0 regardless of current value — _check_round_end() resolves it normally next frame, same as a real kill
+	_cheat_kill_prev = kill_pressed
+
+	var ultra_pressed := Input.is_physical_key_pressed(KEY_U)
+	if ultra_pressed and not _cheat_ultra_prev:
+		while not ship_1.weapon_state.ultra_ready():
+			ship_1.add_ultra_pip()
+	_cheat_ultra_prev = ultra_pressed
+
+	var ammo_pressed := Input.is_physical_key_pressed(KEY_M)
+	if ammo_pressed and not _cheat_ammo_prev:
+		for i in ship_1.weapon_state.kit.size():
+			ship_1.weapon_state = ship_1.weapon_state.with_gauge_added(ship_1.weapon_state.kit[i].gauge_max, i)
+	_cheat_ammo_prev = ammo_pressed
 
 ## Epic 4, Story 4.5 — configures the arena for one of the pool twists (or
 ## the boss-only energy_orb_pickup). Call before the pre-match ready gate,
