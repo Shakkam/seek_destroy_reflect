@@ -25,6 +25,7 @@ func _initialize() -> void:
 	_test_decoy_wander()
 	_test_energy_orb_pickup()
 	_test_ball_hazard_bounce()
+	_test_lift_spin_stays_returnable()
 	_test_twist_pool_authoring()
 	_test_campaign_data_resources()
 	_test_campaign_save()
@@ -573,6 +574,22 @@ func _test_ball_hazard_bounce() -> void:
 	var bounced := state.bounced_off_hazard(hazard_center)
 	_check("hazard bounce reverses velocity on a head-on hit", bounced.velocity.x < 0.0)
 	_check("hazard bounce preserves speed", is_equal_approx(bounced.velocity.length(), state.velocity.length()))
+
+func _test_lift_spin_stays_returnable() -> void:
+	# 2026-08-14 bug report (Camil, screenshot): "lors d'un lift, il m'arrive
+	# d'avoir la balle qui est quasi verticale, donc l'echange est presque
+	# impossible." A full-charge lift's spin curves the ball by ~114 degrees
+	# total (see comment on MAX_SPIN_ANGLE_FROM_HORIZONTAL_RAD), which was
+	# enough to spin an already-angled return well past vertical.
+	var state := BallState.new(Vector2.ZERO, Vector2(1.0, 0.0), 0.0, 0)
+	state = state.returned(Vector2(1.0, 1.0), 1.0, 1) # full-charge lift, steepest allowed aim, sent right
+	var min_angle_from_vertical := INF
+	for _i in range(240): # a couple of seconds at 1/60 — long enough for the full spin decay
+		state = state.update(1.0 / 60.0)
+		var angle_from_horizontal := absf(state.velocity.angle())
+		min_angle_from_vertical = min(min_angle_from_vertical, absf(PI / 2.0 - angle_from_horizontal))
+	_check("a fully-charged lift's spin never curves the ball past the near-vertical clamp", min_angle_from_vertical >= deg_to_rad(19.0))
+	_check("the spin-curved ball keeps heading toward the side it was sent to (no reversal into the sender's own camp)", state.velocity.x > 0.0)
 
 func _test_twist_pool_authoring() -> void:
 	# 2026-08-09 bug report (Camil, cheat-menu testing): "Le twist zone du

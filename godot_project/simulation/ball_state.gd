@@ -10,6 +10,7 @@ const RADIUS := 10.0
 const SPEED_INCREMENT_PER_RETURN := 18.0 # Story 1.3 — ball speeds up slightly each rally exchange
 const SPIN_STRENGTH := 2.0 # rad/s of curvature at full (100%) lift charge — 2026-08-13: doubled from 1.5 to 3.0 ("j'augmenterais l'effet du lift de 100%"), then walked back after playtest: "le lift est trop fort : j'ai reussi a renvoyer une balle dans mon camp, ca ne doit pas etre possible ! On va le redescendre tranquillement." A sustained spin rotates the ball's velocity by roughly spin^2 total (area under its own linear decay to 0 via SPIN_DECAY) — the reversal-into-own-camp risk grows QUADRATICALLY with this constant, not linearly, so 3.0 (2x the original) was really ~4x the rotation risk.
 const SPIN_DECAY := 1.0 # rad/s^2 — spin fades out over the flight instead of curving forever
+const MAX_SPIN_ANGLE_FROM_HORIZONTAL_RAD := deg_to_rad(70.0) # 2026-08-14 bug fix (Camil, screenshot with near-vertical trajectory): a fully-charged spin curves the velocity by ~114 degrees total over its decay, which is enough to rotate an already-angled return past vertical and make the exchange nearly impossible to react to. Clamp keeps at least 20 degrees of margin from straight-up/down at all times.
 
 var position: Vector2
 var velocity: Vector2
@@ -25,9 +26,29 @@ func _init(start_position: Vector2, start_velocity: Vector2, start_spin: float =
 func update(delta: float) -> BallState:
 	var new_velocity := velocity
 	if spin != 0.0:
-		new_velocity = velocity.rotated(spin * delta)
+		new_velocity = _clamp_from_vertical(velocity.rotated(spin * delta))
 	var new_spin := move_toward(spin, 0.0, SPIN_DECAY * delta)
 	return BallState.new(position + new_velocity * delta, new_velocity, new_spin, rally_count)
+
+## Keeps a spin-curved velocity from getting too close to a straight vertical
+## path (see MAX_SPIN_ANGLE_FROM_HORIZONTAL_RAD): rescales toward a minimum
+## horizontal component while preserving speed and both axes' signs, so the
+## curve still reads as a curve but never spins the ball into an unreturnable
+## near-vertical (or reversed) shot.
+func _clamp_from_vertical(v: Vector2) -> Vector2:
+	var speed := v.length()
+	if speed < 0.01:
+		return v
+	var min_abs_x := speed * cos(MAX_SPIN_ANGLE_FROM_HORIZONTAL_RAD)
+	if absf(v.x) >= min_abs_x:
+		return v
+	var x_sign := signf(v.x) if v.x != 0.0 else signf(velocity.x)
+	if x_sign == 0.0:
+		x_sign = 1.0
+	var y_sign := signf(v.y) if v.y != 0.0 else 1.0
+	var clamped_x := min_abs_x * x_sign
+	var clamped_y := sqrt(maxf(speed * speed - clamped_x * clamped_x, 0.0)) * y_sign
+	return Vector2(clamped_x, clamped_y)
 
 func bounced_off_wall(clamped_y: float) -> BallState:
 	return BallState.new(Vector2(position.x, clamped_y), Vector2(velocity.x, -velocity.y), spin, rally_count)
