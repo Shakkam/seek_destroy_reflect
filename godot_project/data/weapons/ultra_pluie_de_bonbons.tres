@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="WeaponData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://simulation/weapon_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "ultra_pluie_de_bonbons"
+display_name = "Pluie de Bonbons"
+; Spreader's Ultra (2026-08-13 party-mode brainstorm, Epic 4 memlog):
+; "pluie de bonbons (saturation totale de l'arene, contraste mignon/
+; letal)" — a much bigger burst than her base mini_shot.tres (5
+; projectiles, 35deg fan), spread wide enough to cover top-to-bottom of
+; the arena rather than a narrow fan, same "ping-pong sweep" spirit as
+; her own charged fire but as a single bigger saturation burst.
+damage = 3
+projectile_count = 14
+burst_spread_deg = 80.0
+burst_stagger = 0.04
+projectile_spin_speed = 900.0
+visual_scale_multiplier = 1.4

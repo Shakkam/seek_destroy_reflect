@@ -278,6 +278,7 @@ func _on_gauge_filled(amount: float, ship: ShipNode) -> void:
 const GENERIC_ULTRA_DAMAGE := 25.0 # fallback for any character without a bespoke Ultra yet
 const ULTRA_LA_MEUTE := preload("res://data/weapons/ultra_la_meute.tres")
 const ULTRA_PLUIE_DE_SCUDS := preload("res://data/weapons/ultra_pluie_de_scuds.tres")
+const ULTRA_PLUIE_DE_BONBONS := preload("res://data/weapons/ultra_pluie_de_bonbons.tres")
 
 ## 2026-08-14 (Camil): "quand un ultra se declenche, le jeu se met en
 ## pause. une barre blanche et le mot 'ultra' arrivent de la droite, le
@@ -318,6 +319,8 @@ func _resolve_ultra_effect(ship: ShipNode) -> void:
 			_ultra_la_meute(ship, opponent)
 		"lourd": # Lourd
 			_ultra_pluie_de_scuds(ship, opponent)
+		"mini": # Spreader
+			_ultra_pluie_de_bonbons(ship, opponent)
 		_:
 			opponent.apply_damage(GENERIC_ULTRA_DAMAGE) # placeholder until this character's Ultra is designed/built
 
@@ -360,6 +363,24 @@ func _ultra_pluie_de_scuds(ship: ShipNode, opponent: ShipNode) -> void:
 			get_tree().create_timer(i * PLUIE_DE_SCUDS_STAGGER).timeout.connect(_spawn_projectile.bind(ULTRA_PLUIE_DE_SCUDS, ship, angle_offset))
 		else:
 			_spawn_projectile(ULTRA_PLUIE_DE_SCUDS, ship, angle_offset)
+
+## Spreader's Ultra — "Pluie de Bonbons" (2026-08-13 Epic 4 memlog: "pluie
+## de bonbons (saturation totale de l'arene, contraste mignon/letal)").
+## Same guaranteed-floor-plus-dodgeable-bulk pattern: a flat hit, then a
+## much bigger fan than her base mini_shot (14 projectiles across 80deg,
+## vs. mini_shot's 5 across 35deg) — wide enough to read as covering the
+## whole vertical span of the arena rather than a narrow spray.
+const PLUIE_DE_BONBONS_GUARANTEED_DAMAGE := 8.0
+
+func _ultra_pluie_de_bonbons(ship: ShipNode, opponent: ShipNode) -> void:
+	opponent.apply_damage(PLUIE_DE_BONBONS_GUARANTEED_DAMAGE)
+	for i in ULTRA_PLUIE_DE_BONBONS.projectile_count:
+		var p := float(i) / float(maxi(ULTRA_PLUIE_DE_BONBONS.projectile_count - 1, 1))
+		var angle_offset := lerpf(-ULTRA_PLUIE_DE_BONBONS.burst_spread_deg / 2.0, ULTRA_PLUIE_DE_BONBONS.burst_spread_deg / 2.0, p)
+		if ULTRA_PLUIE_DE_BONBONS.burst_stagger > 0.0 and i > 0:
+			get_tree().create_timer(i * ULTRA_PLUIE_DE_BONBONS.burst_stagger).timeout.connect(_spawn_projectile.bind(ULTRA_PLUIE_DE_BONBONS, ship, angle_offset))
+		else:
+			_spawn_projectile(ULTRA_PLUIE_DE_BONBONS, ship, angle_offset)
 
 # Placeholder R-Type sprites (2026-08-02) — replace with final art later.
 # Machine-gun shots are colored per-shooter (matches ship colors) so a spray
@@ -499,8 +520,8 @@ func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: flo
 	if weapon.id == "vortex":
 		projectile.textures = VORTEX_TEXTURES # Vif's Tourbillon — 3-frame spin animation (wind1-3), rides a sine wave via is_sine instead of a node rotation (2026-08-13 rework, was is_looping)
 		projectile.visual_scale = 2.4 # 2026-08-09 playtest: "tu peux doubler la taille des tourbillons" (was 1.2)
-	elif weapon.id == "mini_shot":
-		projectile.textures = BONBON_TEXTURES # Mini/Éventail — spins via projectile_spin_speed (mini_shot.tres), no multi-frame cycle
+	elif weapon.id == "mini_shot" or weapon.id == "ultra_pluie_de_bonbons":
+		projectile.textures = BONBON_TEXTURES # Mini/Éventail (base weapon + her Ultra) — spins via projectile_spin_speed, no multi-frame cycle
 		projectile.visual_scale = 1.0
 	elif weapon.id == "stun_boomerang":
 		projectile.textures = BOOMERANG_TEXTURES
@@ -592,8 +613,8 @@ func _weapon_tint(weapon_id: String) -> Color:
 			return Color(1.0, 0.6, 0.2) # orange — same as her base missiles, "La Meute" reads as a bigger pack of the same thing
 		"laser":
 			return Color(0.4, 1.0, 0.5) # green
-		"mini_shot":
-			return Color(1.0, 1.0, 0.4) # yellow
+		"mini_shot", "ultra_pluie_de_bonbons":
+			return Color(1.0, 1.0, 0.4) # yellow — same as her base bonbons
 		_:
 			return Color.WHITE # machine_gun / bazooka — unchanged
 

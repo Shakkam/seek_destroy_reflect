@@ -1,16 +1,17 @@
 extends Node2D
 
-## One-off scene-boot verification for the first two bespoke Ultras
+## One-off scene-boot verification for the bespoke Ultras built so far
 ## (2026-08-13 Epic 4 party-mode memlog roster, replacing the generic
-## 25-damage placeholder): Traqueur's "La Meute" and Lourd's "Pluie de
-## Scuds". Confirms, via the real trigger path (Input.parse_input_event,
-## same pattern as ultra_meter_check.gd): (1) triggering freezes the
+## 25-damage placeholder): Traqueur's "La Meute", Lourd's "Pluie de
+## Scuds", Spreader's "Pluie de Bonbons". Confirms, via the real trigger
+## path (Input.parse_input_event, same pattern as ultra_meter_check.gd):
+## (1) triggering freezes the
 ## match and plays the UltraIntroNode intro beat (2026-08-14) BEFORE
 ## anything lands — no damage, no projectiles, ships/ball inactive; (2)
 ## once the intro finishes, ships/ball unfreeze and the guaranteed damage
 ## floor lands; (3) the full projectile burst actually spawns (right
 ## count of ProjectileNode children). Run with:
-##   Godot --headless --path godot_project res://tests/ultra_abilities_check.tscn --quit-after 20000
+##   Godot --headless --path godot_project res://tests/ultra_abilities_check.tscn --quit-after 28000
 
 func _ready() -> void:
 	var la_meute_ok := await _check_ultra(
@@ -25,7 +26,13 @@ func _ready() -> void:
 		MatchArenaNode.PLUIE_DE_SCUDS_SHELL_COUNT,
 		"Pluie de Scuds",
 	)
-	get_tree().quit(0 if (la_meute_ok and scuds_ok) else 1)
+	var bonbons_ok := await _check_ultra(
+		load("res://data/characters/mini.tres"), # Spreader
+		MatchArenaNode.PLUIE_DE_BONBONS_GUARANTEED_DAMAGE,
+		MatchArenaNode.ULTRA_PLUIE_DE_BONBONS.projectile_count,
+		"Pluie de Bonbons",
+	)
+	get_tree().quit(0 if (la_meute_ok and scuds_ok and bonbons_ok) else 1)
 
 func _check_ultra(character: CharacterData, expected_floor: float, expected_projectile_count: int, expected_name: String) -> bool:
 	var arena_scene := load("res://scenes/MatchArena.tscn") as PackedScene
