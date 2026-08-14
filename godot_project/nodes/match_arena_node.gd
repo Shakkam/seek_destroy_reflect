@@ -327,6 +327,8 @@ func _resolve_ultra_effect(ship: ShipNode) -> void:
 			_ultra_mitrailleuses_satellites(ship, opponent)
 		"zoneur": # Zoneur
 			_ultra_grille_laser(ship, opponent)
+		"controleur": # Contrôleur
+			_ultra_trou_noir(ship, opponent)
 		_:
 			opponent.apply_damage(GENERIC_ULTRA_DAMAGE) # placeholder until this character's Ultra is designed/built
 
@@ -442,6 +444,30 @@ func _ultra_grille_laser(ship: ShipNode, opponent: ShipNode) -> void:
 		beam.position = Vector2(ship.position.x, band_y) # also before add_child() — freeze_position captures this in _ready()
 		beam.lifetime = GRILLE_LASER_DURATION
 		add_child(beam)
+
+## Contrôleur's Ultra — "Trou noir" (2026-08-13 Epic 4 memlog: "champ
+## continu, attire+ralentit, synergie avec ses tourelles"). Guaranteed
+## floor, then a BlackHoleNode opens at a fixed spot — the frontier,
+## vertically centered — rather than on top of the opponent (which would
+## give the pull nothing to actually pull FROM) or chasing them, so it
+## reads as a real battlefield hazard the opponent has to fight the pull
+## of, not a homing effect.
+const TROU_NOIR_GUARANTEED_DAMAGE := 8.0
+const TROU_NOIR_RADIUS := 110.0
+const TROU_NOIR_PULL_SPEED := 140.0
+const TROU_NOIR_SLOW_MULTIPLIER := 0.5
+const TROU_NOIR_DURATION := 3.0
+
+func _ultra_trou_noir(ship: ShipNode, opponent: ShipNode) -> void:
+	opponent.apply_damage(TROU_NOIR_GUARANTEED_DAMAGE)
+	var black_hole := BlackHoleNode.new()
+	black_hole.position = Vector2(_current_frontier_x, arena_origin.y + arena_size.y / 2.0)
+	black_hole.radius = TROU_NOIR_RADIUS
+	black_hole.pull_speed = TROU_NOIR_PULL_SPEED
+	black_hole.slow_multiplier = TROU_NOIR_SLOW_MULTIPLIER
+	black_hole.duration = TROU_NOIR_DURATION
+	black_hole.target = opponent
+	add_child(black_hole)
 
 # Placeholder R-Type sprites (2026-08-02) — replace with final art later.
 # Machine-gun shots are colored per-shooter (matches ship colors) so a spray

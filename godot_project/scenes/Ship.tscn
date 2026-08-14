@@ -14,3 +14,6 @@ shape = SubResource("RectangleShape2D_1")
 [node name="Visual" type="Polygon2D" parent="."]
 polygon = PackedVector2Array(-14, -28, 14, -28, 14, 28, -14, 28)
 color = Color(0.27, 0.85, 1, 1)
+
+[node name="CharacterArt" type="Sprite2D" parent="Visual"]
+visible = false

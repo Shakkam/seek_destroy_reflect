@@ -89,6 +89,23 @@ func apply_charged_beam_slow(duration: float, multiplier: float) -> void:
 	_charged_beam_slow_timer = duration
 	_charged_beam_slow_multiplier = multiplier
 
+## Controleur's Ultra "Trou noir" (2026-08-14) — a slow applied BY an
+## opponent's effect, not a weapon's own charge-up self-slow. Kept as a
+## separate timer/multiplier pair from _charged_beam_slow_timer rather
+## than reusing it: that one is a ship slowing ITSELF while charging its
+## own weapon, this is an external debuff — sharing one field would let
+## an unrelated self-slow and an opponent's black hole stomp on each
+## other's timers if both were ever active at once. maxf(), not a flat
+## overwrite, so a continuous field re-applying every tick just keeps
+## refreshing the duration instead of never actually expiring at a lower
+## value.
+var _external_slow_timer := 0.0
+var _external_slow_multiplier := 1.0
+
+func apply_external_slow(duration: float, multiplier: float) -> void:
+	_external_slow_timer = maxf(_external_slow_timer, duration)
+	_external_slow_multiplier = multiplier
+
 const FIRE_HOLD_SPEED_MULTIPLIER := 0.5 # -50% while the fire button is held (2026-08-01 — "balance la sauce", was -40%)
 
 # Lift/spin charge (redesigned 2026-08-01, retuned 2026-08-13 — Camil:
@@ -240,6 +257,7 @@ func _ready() -> void:
 		]
 	weapon_state = WeaponSystemState.new(kit)
 	_apply_ai_profile()
+	_update_character_art()
 
 ## Epic 2, Story 2.3 — assigns a character (and rebuilds the weapon kit from
 ## it) after the ship already exists, e.g. from a character-select screen.
@@ -248,6 +266,35 @@ func set_character(new_character: CharacterData) -> void:
 	if character and character.kit.size() > 0:
 		weapon_state = WeaponSystemState.new(character.kit)
 	_apply_ai_profile()
+	_update_character_art()
+
+## "Raquettes personnalisees" (2026-08-14 party-mode/Sally session) — per-
+## character paddle art, layered as a child Sprite2D on top of the flat
+## Visual polygon (Ship.tscn) so state-tint feedback (charge/lift/vulnerable/
+## invisible/etc., all applied via Visual.modulate in _physics_process) keeps
+## working untouched: CharacterArt inherits Visual's modulate for free since
+## it's a CanvasItem child. Falls back to the flat team-colored polygon
+## (already there, drawn underneath) for any character without dedicated art
+## yet — same "art drops in per-character as it's ready" pattern already
+## used for CharacterSelectNode's PORTRAIT_TEXTURES/FULL_TEXTURES, but via
+## ResourceLoader.exists() + load() instead of a preloaded dict, since most
+## of the 8 don't have a ship.png yet (a preload would fail to parse for the
+## missing ones).
+func _update_character_art() -> void:
+	var sprite := get_node_or_null("Visual/CharacterArt") as Sprite2D
+	if not sprite:
+		return
+	var path := "res://assets/art/characters/%s/ship.png" % character.id if character else ""
+	if path == "" or not ResourceLoader.exists(path):
+		sprite.visible = false
+		sprite.texture = null
+		return
+	var texture: Texture2D = load(path)
+	sprite.texture = texture
+	sprite.visible = true
+	var tex_size := texture.get_size()
+	if tex_size.x > 0.0 and tex_size.y > 0.0:
+		sprite.scale = (half_extents * 2.0) / tex_size
 
 ## Story 2.7 — loads this ship's AI tuning from AI_PROFILES if its character
 ## has one, else falls back to the original Story 1.12 defaults.
@@ -376,6 +423,8 @@ func _physics_process(delta: float) -> void:
 		speed_multiplier = minf(speed_multiplier, VULNERABILITY_SPEED_MULTIPLIER)
 	if _charged_beam_slow_timer > 0.0:
 		speed_multiplier = minf(speed_multiplier, _charged_beam_slow_multiplier)
+	if _external_slow_timer > 0.0:
+		speed_multiplier = minf(speed_multiplier, _external_slow_multiplier)
 	if fire_held and not is_charging:
 		speed_multiplier = minf(speed_multiplier, FIRE_HOLD_SPEED_MULTIPLIER) # normal firing (including a charge-capable weapon's grace window) always carries this slow; charge_fire_slow_multiplier takes over once actually charging
 	if _fire_recoil_boost_timer > 0.0 and selected.fire_recoil_boost_decay_time > 0.0:
@@ -454,6 +503,7 @@ func _physics_process(delta: float) -> void:
 	_stun_timer = maxf(_stun_timer - delta, 0.0)
 	_vulnerability_timer = maxf(_vulnerability_timer - delta, 0.0)
 	_charged_beam_slow_timer = maxf(_charged_beam_slow_timer - delta, 0.0)
+	_external_slow_timer = maxf(_external_slow_timer - delta, 0.0)
 	_flash_timer = maxf(_flash_timer - delta, 0.0)
 	var visual := get_node_or_null("Visual") as Polygon2D
 	if visual:
@@ -544,6 +594,7 @@ func reset_for_new_round() -> void:
 	state = ShipState.new(_spawn_position, side, half_extents, max_hp_override)
 	_vulnerability_timer = 0.0
 	_charged_beam_slow_timer = 0.0
+	_external_slow_timer = 0.0
 	# 2026-08-08 bug report: weapon gauges carried over between rounds
 	# (a maxed gauge from round 1's rally could open round 2 with a free
 	# shot). Rebuild fresh — same kit, gauges/cooldown back to 0 — keeping

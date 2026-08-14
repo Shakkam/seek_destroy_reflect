@@ -26,6 +26,7 @@ func _initialize() -> void:
 	_test_energy_orb_pickup()
 	_test_ball_hazard_bounce()
 	_test_lift_spin_stays_returnable()
+	_test_character_ship_art()
 	_test_twist_pool_authoring()
 	_test_campaign_data_resources()
 	_test_campaign_save()
@@ -590,6 +591,26 @@ func _test_lift_spin_stays_returnable() -> void:
 		min_angle_from_vertical = min(min_angle_from_vertical, absf(PI / 2.0 - angle_from_horizontal))
 	_check("a fully-charged lift's spin never curves the ball past the near-vertical clamp", min_angle_from_vertical >= deg_to_rad(19.0))
 	_check("the spin-curved ball keeps heading toward the side it was sent to (no reversal into the sender's own camp)", state.velocity.x > 0.0)
+
+func _test_character_ship_art() -> void:
+	# 2026-08-14 (Sally/party-mode session) — per-character paddle art.
+	# CharacterArt is a real scene child (Ship.tscn), which bare
+	# ShipNode.new() (every other test's pattern in this file) doesn't have,
+	# so this test instances the actual scene instead.
+	var scene: PackedScene = load("res://scenes/Ship.tscn")
+	var ship := scene.instantiate() as ShipNode
+	var missiles: CharacterData = load("res://data/characters/missiles.tres") # Traqueur — has assets/art/characters/missiles/ship.png
+	ship.set_character(missiles)
+	var sprite := ship.get_node_or_null("Visual/CharacterArt") as Sprite2D
+	_check("a character with dedicated ship art gets its CharacterArt sprite shown", sprite != null and sprite.visible)
+	_check("the sprite's texture is actually loaded, not left null", sprite.texture != null)
+	_check("the sprite is scaled to match the ship's half_extents (28x56), not left at native art resolution", is_equal_approx(sprite.scale.x * sprite.texture.get_width(), ship.half_extents.x * 2.0) and is_equal_approx(sprite.scale.y * sprite.texture.get_height(), ship.half_extents.y * 2.0))
+
+	var lourd: CharacterData = load("res://data/characters/lourd.tres") # no ship.png authored yet — must fall back to the flat Visual polygon, not crash
+	ship.set_character(lourd)
+	_check("a character without dedicated ship art yet falls back cleanly (sprite hidden, no crash)", not sprite.visible)
+
+	ship.queue_free()
 
 func _test_twist_pool_authoring() -> void:
 	# 2026-08-09 bug report (Camil, cheat-menu testing): "Le twist zone du
