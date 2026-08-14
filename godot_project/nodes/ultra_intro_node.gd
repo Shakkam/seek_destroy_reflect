@@ -14,11 +14,12 @@ extends Node2D
 ## isn't just decoration playing over the attack, it gates it.
 ##
 ## Reuses the same per-character full-body art as CharacterSelect
-## (nodes/character_select_node.gd's FULL_TEXTURES/ACCENT_COLORS) —
-## duplicated here rather than shared, matching this project's existing
-## "explicit preload + id lookup per node" convention (see
-## match_arena_node.gd's own weapon-sprite consts, or CharacterSelect's
-## own copy of the same idea).
+## (nodes/character_select_node.gd's FULL_TEXTURES) — duplicated here
+## rather than shared, matching this project's existing "explicit preload
+## + id lookup per node" convention (see match_arena_node.gd's own
+## weapon-sprite consts, or CharacterSelect's own copy of the same idea).
+## 2026-08-14: no accent-colored frame around the image (Camil: "il faut
+## enlever le cadre autour de l'image du perso") — just the art itself.
 
 signal finished
 
@@ -40,16 +41,6 @@ const FULL_TEXTURES := {
 	"perturbateur": preload("res://assets/art/characters/perturbateur/full.png"),
 	"mini": preload("res://assets/art/characters/mini/full.png"), # Spreader
 	"vif": preload("res://assets/art/characters/vif/full.png"),
-}
-const ACCENT_COLORS := {
-	"lourd": Color(0.85, 0.4, 0.15),
-	"controleur": Color(0.6, 0.63, 0.68),
-	"mitrailleur": Color(0.65, 0.78, 0.88),
-	"vif": Color(0.15, 0.55, 1.0),
-	"zoneur": Color(0.25, 0.9, 0.45),
-	"perturbateur": Color(0.6, 0.5, 0.9),
-	"missiles": Color(0.2, 0.85, 0.9), # Traqueur
-	"mini": Color(1.0, 0.85, 0.2), # Spreader
 }
 
 enum Phase { SLIDE_IN, HOLD, SLIDE_OUT }
@@ -122,6 +113,4 @@ func _draw_character() -> void:
 	if not texture:
 		return
 	var rect := Rect2(Vector2(_character_left_x(), IMAGE_REST_CENTER.y - IMAGE_SIZE.y / 2.0), IMAGE_SIZE)
-	var accent: Color = ACCENT_COLORS.get(character.id, Color.WHITE)
-	draw_rect(rect.grow(6.0), accent, false, 6.0) # a simple accent-colored frame — no dedicated intro-specific art needed
 	draw_texture_rect(texture, rect, false)
