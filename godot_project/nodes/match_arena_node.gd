@@ -23,6 +23,7 @@ extends Node2D
 @onready var p2_ultra_meter: UltraMeterNode = $DebugHUD/P2UltraMeter
 @onready var ready_label: Label = $DebugHUD/ReadyLabel
 @onready var campaign_label: Label = $DebugHUD/CampaignLabel
+@onready var debug_hud: CanvasLayer = $DebugHUD
 @onready var background: ColorRect = $Background
 @onready var neutral_zone_visual: ColorRect = $NeutralZone
 @onready var center_line: Line2D = $CenterLine
@@ -278,24 +279,47 @@ const GENERIC_ULTRA_DAMAGE := 25.0 # fallback for any character without a bespok
 const ULTRA_LA_MEUTE := preload("res://data/weapons/ultra_la_meute.tres")
 const ULTRA_PLUIE_DE_SCUDS := preload("res://data/weapons/ultra_pluie_de_scuds.tres")
 
+## 2026-08-14 (Camil): "quand un ultra se declenche, le jeu se met en
+## pause. une barre blanche et le mot 'ultra' arrivent de la droite, le
+## perso en -image arrive de la gauche... puis [ils] sortent... le jeu se
+## de-freeze et l'ULTRA se lance." Freezes ships/ball (same freeze
+## ShipNode/BallNode already read via `active`), plays UltraIntroNode to
+## completion, unfreezes, THEN resolves the actual effect — the intro
+## gates the attack, it doesn't just play alongside it.
 func _on_ultra_triggered(ship: ShipNode) -> void:
+	ship_1.active = false
+	ship_2.active = false
+	ball.active = false
+	for extra in _extra_balls:
+		if is_instance_valid(extra):
+			extra.active = false
+
+	var intro := UltraIntroNode.new()
+	intro.character = ship.character
+	debug_hud.add_child(intro) # inside the CanvasLayer, not the world-space root, so it draws over the HP bars/labels too — this is meant to cover the whole screen
+	await intro.finished
+	intro.queue_free()
+
+	if not is_instance_valid(ship) or not _round_playing:
+		return # round ended/reset mid-intro (e.g. the K cheat, or a real KO landing from elsewhere) — bail out rather than un-freezing into a stale state or firing a stale ultra
+	ship_1.active = true
+	ship_2.active = true
+	ball.active = true
+	for extra in _extra_balls:
+		if is_instance_valid(extra):
+			extra.active = true
+	_resolve_ultra_effect(ship)
+
+func _resolve_ultra_effect(ship: ShipNode) -> void:
 	var opponent := ship_2 if ship == ship_1 else ship_1
 	var character_id := ship.character.id if ship.character else ""
-	var ultra_name := "ULTRA"
 	match character_id:
 		"missiles": # Traqueur
-			ultra_name = "La Meute"
 			_ultra_la_meute(ship, opponent)
 		"lourd": # Lourd
-			ultra_name = "Pluie de Scuds"
 			_ultra_pluie_de_scuds(ship, opponent)
 		_:
 			opponent.apply_damage(GENERIC_ULTRA_DAMAGE) # placeholder until this character's Ultra is designed/built
-	var popup := FloatingTextNode.new()
-	popup.position = ship.position + Vector2(0.0, -40.0)
-	popup.text = "%s !" % ultra_name
-	popup.lifetime = 1.2
-	add_child(popup)
 
 ## Traqueur's Ultra — "La Meute" (2026-08-13 Epic 4 memlog: "missiles qui
 ## pourchassent, resserrent avec le temps"). A guaranteed-floor hit (the

@@ -13,8 +13,12 @@ extends Node2D
 ## resets the meter. Named "ultra" not "super" — collides with the GDD's
 ## existing "arme 'super'/lourde" weapon-tier naming otherwise (separate
 ## party-mode brainstorm, Epic 4 memlog; file was originally
-## super_meter_check.gd). Run with:
-##   Godot --headless --path godot_project res://tests/ultra_meter_check.tscn --quit-after 30
+## super_meter_check.gd). 2026-08-14: the damage itself now lands only
+## after the UltraIntroNode beat finishes (~1.667s) — meter consumption
+## is still immediate (ShipNode's own job), only MatchArenaNode's actual
+## effect is deferred, so this waits it out before checking damage. Run
+## with:
+##   Godot --headless --path godot_project res://tests/ultra_meter_check.tscn --quit-after 8000
 
 func _ready() -> void:
 	var arena_scene := load("res://scenes/MatchArena.tscn") as PackedScene
@@ -55,6 +59,14 @@ func _ready() -> void:
 
 	var meter_reset_ok: bool = arena.ship_2.weapon_state.ultra_pips == 0 and not arena.ship_2.weapon_state.ultra_ready()
 	print("PASS: triggering the ultra spends the whole meter" if meter_reset_ok else "FAIL: ship_2's meter still reads %d after triggering" % arena.ship_2.weapon_state.ultra_pips)
+
+	# The generic placeholder effect is a single flat apply_damage() call
+	# (no projectile burst to worry about outrunning), so a plain fixed
+	# wait for the intro to finish is enough here — headless frames run
+	# far faster than realtime (see project memory's "--quit-after counts
+	# FRAMES" trap), hence the large tick count for ~1.667s of game time.
+	for i in 1600:
+		await get_tree().physics_frame
 
 	var damage_ok: bool = is_equal_approx(arena.ship_1.state.hp, hp_before - MatchArenaNode.GENERIC_ULTRA_DAMAGE)
 	print("PASS: the opponent (ship_1) takes the generic ultra's damage" if damage_ok else "FAIL: ship_1 HP was %.1f -> %.1f, expected a %.1f drop" % [hp_before, arena.ship_1.state.hp, MatchArenaNode.GENERIC_ULTRA_DAMAGE])
