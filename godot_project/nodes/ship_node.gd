@@ -8,7 +8,7 @@ extends CharacterBody2D
 signal weapon_fired(weapon: WeaponData) # carries the full weapon so callers can branch on effect_type
 signal charged_weapon_fired(weapon: WeaponData) # 2026-08-09 "tir charge" — released at full charge, MatchArenaNode spawns the weapon's bespoke charged burst instead of a normal shot
 signal gauge_filled(amount: float)
-signal super_triggered # 2026-08-13 "systeme des 5 balles" — meter's full and the player triggered it; MatchArenaNode (which has both ships) resolves the actual effect, same split as weapon_fired
+signal ultra_triggered # 2026-08-13 "systeme des 5 balles" — meter's full and the player triggered it; MatchArenaNode (which has both ships) resolves the actual effect, same split as weapon_fired. Named "ultra" not "super" — collides with the GDD's existing "arme 'super'/lourde" weapon-tier naming otherwise (separate party-mode brainstorm, Epic 4 memlog).
 
 @export var player_index: int = 1 # 1 or 2 — selects which local input scheme to read
 @export var side: int = 0 # 0 = left half, 1 = right half
@@ -35,7 +35,7 @@ var _double_fire_shots_remaining := 0
 # opt in too. Counts down from the weapon's decay_time; the fraction
 # remaining (1.0 right after firing -> 0.0 at expiry) linearly scales the
 # boost. Re-firing resets the window rather than stacking (see
-# _process_super_trigger()-style single-timer pattern used elsewhere).
+# _process_ultra_trigger()-style single-timer pattern used elsewhere).
 var _fire_recoil_boost_timer := 0.0
 
 # Turbo afterimage trail (2026-08-06) — was flagged as deferred polish, done
@@ -67,7 +67,7 @@ var active := true # set false by MatchArenaNode during the pre-match "ready?" g
 
 var weapon_state: WeaponSystemState
 var _weapon_select_prev := false
-var _super_prev := false # edge-detects the Super trigger key
+var _ultra_prev := false # edge-detects the Ultra trigger key
 var _flash_timer := 0.0
 const FLASH_DURATION := 0.08
 
@@ -391,7 +391,7 @@ func _physics_process(delta: float) -> void:
 	_fire_recoil_boost_timer = maxf(_fire_recoil_boost_timer - delta, 0.0)
 
 	_process_weapon_selection()
-	_process_super_trigger()
+	_process_ultra_trigger()
 	_ai_pulse_select = false # consumed for this frame, whether or not it was set
 	weapon_state = weapon_state.with_cooldown_ticked(delta)
 	weapon_state = weapon_state.with_heat_ticked(delta, fire_held)
@@ -558,15 +558,15 @@ func _process_weapon_selection() -> void:
 	_weapon_select_prev = select_pressed
 
 ## "Systeme des 5 balles" — edge-triggered like weapon select, and only
-## does anything once the meter reads full (super_ready()). Consuming the
+## does anything once the meter reads full (ultra_ready()). Consuming the
 ## meter here (not in MatchArenaNode's handler) means the signal itself
 ## can never fire twice for one press even if a listener is slow/absent.
-func _process_super_trigger() -> void:
-	var pressed := _read_super_pressed()
-	if pressed and not _super_prev and weapon_state.super_ready():
-		weapon_state = weapon_state.with_super_consumed()
-		super_triggered.emit()
-	_super_prev = pressed
+func _process_ultra_trigger() -> void:
+	var pressed := _read_ultra_pressed()
+	if pressed and not _ultra_prev and weapon_state.ultra_ready():
+		weapon_state = weapon_state.with_ultra_consumed()
+		ultra_triggered.emit()
+	_ultra_prev = pressed
 
 ## Dedicated inputs, separate from movement keys (Story 1.4 AC: movement
 ## must never be blocked by weapon selection).
@@ -582,9 +582,9 @@ func _read_weapon_select_pressed() -> bool:
 ## "Systeme des 5 balles" — a dedicated key, separate from weapon-select/
 ## fire/lift, same "never blocks movement" principle as the rest of the
 ## input scheme. Face button B on gamepad (A is already weapon-select).
-func _read_super_pressed() -> bool:
+func _read_ultra_pressed() -> bool:
 	if ai_controlled:
-		return false # AI doesn't use its super yet — no per-character super effects exist to pick from until the individualization pass
+		return false # AI doesn't use its ultra yet — no per-character ultra effects exist to pick from until the individualization pass
 	if Input.is_joy_button_pressed(_gamepad_device(), JOY_BUTTON_B):
 		return true
 	if player_index == 1:
@@ -836,5 +836,5 @@ func fill_selected_gauge_from_return(amount: float) -> void:
 ## gated by self_fill_locked either — same reasoning as the weapon gauge
 ## (a punishment for the OTHER player's miss shouldn't be twist-lockable
 ## on this side).
-func add_super_pip() -> void:
-	weapon_state = weapon_state.with_super_pip_added()
+func add_ultra_pip() -> void:
+	weapon_state = weapon_state.with_ultra_pip_added()

@@ -1,13 +1,16 @@
-class_name SuperMeterNode
+class_name UltraMeterNode
 extends Node2D
 
 ## Story (2026-08-13, "systeme des 5 balles" backlog, see project memory
 ## super-meter-backlog-idea) — draws a row of pip indicators for a ship's
-## super meter (fills on the OPPONENT missing the ball, see
+## ultra meter (fills on the OPPONENT missing the ball, see
 ## ball_node.gd's _resolve_out_of_bounds(); triggered by ShipNode once
 ## full). Pure presentation: MatchArenaNode sets `pips` every frame from
-## ship.weapon_state.super_pips, this just draws it. Same "_draw() shapes,
+## ship.weapon_state.ultra_pips, this just draws it. Same "_draw() shapes,
 ## no imported textures" convention as CampaignMapNode/CharacterSelect.
+## Named "ultra" not "super" — collides with the GDD's existing "arme
+## 'super'/lourde" weapon-tier naming otherwise (separate party-mode
+## brainstorm, Epic 4 memlog; file was originally super_meter_node.gd).
 
 @export var max_pips: int = 5
 @export var pip_color: Color = Color(1, 0.84, 0.29, 1) # same gold as MatchLabel's "Victoire !"/the GO! flash — reads as "big moment" across the HUD

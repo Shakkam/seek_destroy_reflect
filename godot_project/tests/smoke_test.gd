@@ -47,7 +47,7 @@ func _initialize() -> void:
 	_test_heavy_push_rule()
 	_test_match_state()
 	_test_floating_text_node()
-	_test_super_meter()
+	_test_ultra_meter()
 	# NOTE: a round-end turret cleanup test belongs here in spirit, but
 	# MatchArenaNode can't be loaded under this harness — this file runs via
 	# `-s`, which does not initialize project autoloads (confirmed 2026-08-07),
@@ -1332,29 +1332,29 @@ func _test_floating_text_node() -> void:
 	popup._physics_process(0.5) # total elapsed now 1.0s > lifetime 0.9s
 	_check("a floating text popup queues for deletion once its lifetime elapses", popup.is_queued_for_deletion())
 
-func _test_super_meter() -> void:
+func _test_ultra_meter() -> void:
 	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
 	var state := WeaponSystemState.new([machine_gun])
-	_check("a fresh WeaponSystemState starts with 0 super pips", state.super_pips == 0)
-	_check("super isn't ready with an empty meter", not state.super_ready())
+	_check("a fresh WeaponSystemState starts with 0 ultra pips", state.ultra_pips == 0)
+	_check("ultra isn't ready with an empty meter", not state.ultra_ready())
 
-	for i in WeaponSystemState.SUPER_METER_MAX - 1:
-		state = state.with_super_pip_added()
-	_check("one pip short of the max still isn't ready", not state.super_ready() and state.super_pips == WeaponSystemState.SUPER_METER_MAX - 1)
+	for i in WeaponSystemState.ULTRA_METER_MAX - 1:
+		state = state.with_ultra_pip_added()
+	_check("one pip short of the max still isn't ready", not state.ultra_ready() and state.ultra_pips == WeaponSystemState.ULTRA_METER_MAX - 1)
 
-	state = state.with_super_pip_added()
-	_check("hitting SUPER_METER_MAX makes the super ready", state.super_ready() and state.super_pips == WeaponSystemState.SUPER_METER_MAX)
+	state = state.with_ultra_pip_added()
+	_check("hitting ULTRA_METER_MAX makes the ultra ready", state.ultra_ready() and state.ultra_pips == WeaponSystemState.ULTRA_METER_MAX)
 
-	var overfilled := state.with_super_pip_added()
-	_check("adding a pip past the max is clamped, not uncapped", overfilled.super_pips == WeaponSystemState.SUPER_METER_MAX)
+	var overfilled := state.with_ultra_pip_added()
+	_check("adding a pip past the max is clamped, not uncapped", overfilled.ultra_pips == WeaponSystemState.ULTRA_METER_MAX)
 
-	var consumed := state.with_super_consumed()
-	_check("triggering the super spends the whole meter", consumed.super_pips == 0 and not consumed.super_ready())
-	_check("with_super_pip_added() returns a NEW instance, doesn't mutate the original (matches every other *State class)", state.super_pips == WeaponSystemState.SUPER_METER_MAX)
+	var consumed := state.with_ultra_consumed()
+	_check("triggering the ultra spends the whole meter", consumed.ultra_pips == 0 and not consumed.ultra_ready())
+	_check("with_ultra_pip_added() returns a NEW instance, doesn't mutate the original (matches every other *State class)", state.ultra_pips == WeaponSystemState.ULTRA_METER_MAX)
 
 	var fresh := WeaponSystemState.new([machine_gun])
 	var filled_then_fired := fresh.with_gauge_added(machine_gun.gauge_max)
-	for i in WeaponSystemState.SUPER_METER_MAX:
-		filled_then_fired = filled_then_fired.with_super_pip_added()
+	for i in WeaponSystemState.ULTRA_METER_MAX:
+		filled_then_fired = filled_then_fired.with_ultra_pip_added()
 	var fire_result := filled_then_fired.fired()
-	_check("firing a normal shot doesn't touch the super meter (independent resources)", fire_result.state.super_pips == WeaponSystemState.SUPER_METER_MAX)
+	_check("firing a normal shot doesn't touch the ultra meter (independent resources)", fire_result.state.ultra_pips == WeaponSystemState.ULTRA_METER_MAX)

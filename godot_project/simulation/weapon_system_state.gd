@@ -19,18 +19,21 @@ const MISS_GAUGE_FILL := 50.0 # Story 1.6 — playtest-tuned down from a "full c
 # balle. Au bout de 5 balles (jauge pleine) on peut declencher un super."
 # One pip per opponent miss (ball_node.gd's _resolve_out_of_bounds(),
 # alongside the existing MISS_GAUGE_FILL weapon-gauge fill), consumed
-# entirely when the super triggers (ShipNode). Lives here (not a new
+# entirely when the ultra triggers (ShipNode). Lives here (not a new
 # *State class) because this is already "the ship's resource-gauge
 # system" and _clone() is the one place that can't silently drop a field
 # the way ShipState's manual reconstructions could.
-const SUPER_METER_MAX := 5
+# 2026-08-13 (separate party-mode brainstorm, Epic 4 memlog): named
+# "Ultra" not "Super" — collides with the GDD's existing "arme 'super'/
+# lourde ~20-30 degats" weapon-tier naming otherwise.
+const ULTRA_METER_MAX := 5
 
 var kit: Array # of WeaponData
 var gauges: Array[float] # parallel array to kit — current charge per weapon
 var heats: Array[float] # parallel array to kit — current "barrel heat" per weapon (see WeaponData.heat_max)
 var selected_index: int
 var cooldown: float # seconds remaining before the next shot is allowed
-var super_pips: int # 0..SUPER_METER_MAX
+var ultra_pips: int # 0..ULTRA_METER_MAX
 
 func _init(weapon_kit: Array, start_selected: int = 0) -> void:
 	kit = weapon_kit
@@ -41,7 +44,7 @@ func _init(weapon_kit: Array, start_selected: int = 0) -> void:
 		heats.append(0.0)
 	selected_index = start_selected
 	cooldown = 0.0
-	super_pips = 0
+	ultra_pips = 0
 
 func selected_weapon() -> WeaponData:
 	return kit[selected_index]
@@ -65,20 +68,20 @@ func with_cooldown_ticked(delta: float) -> WeaponSystemState:
 	new_state.cooldown = maxf(cooldown - delta, 0.0)
 	return new_state
 
-## +1 pip, capped at SUPER_METER_MAX — one call per opponent miss.
-func with_super_pip_added() -> WeaponSystemState:
+## +1 pip, capped at ULTRA_METER_MAX — one call per opponent miss.
+func with_ultra_pip_added() -> WeaponSystemState:
 	var new_state := _clone()
-	new_state.super_pips = mini(super_pips + 1, SUPER_METER_MAX)
+	new_state.ultra_pips = mini(ultra_pips + 1, ULTRA_METER_MAX)
 	return new_state
 
-func super_ready() -> bool:
-	return super_pips >= SUPER_METER_MAX
+func ultra_ready() -> bool:
+	return ultra_pips >= ULTRA_METER_MAX
 
-## Spends the whole meter — called the instant the super triggers, so a
+## Spends the whole meter — called the instant the ultra triggers, so a
 ## held/repeated trigger input can never fire it twice off one fill.
-func with_super_consumed() -> WeaponSystemState:
+func with_ultra_consumed() -> WeaponSystemState:
 	var new_state := _clone()
-	new_state.super_pips = 0
+	new_state.ultra_pips = 0
 	return new_state
 
 ## Heat gauge (2026-08-09 playtest, replacing the earlier hard burst-limit:
@@ -119,5 +122,5 @@ func _clone() -> WeaponSystemState:
 	copy.gauges = gauges.duplicate()
 	copy.heats = heats.duplicate()
 	copy.cooldown = cooldown
-	copy.super_pips = super_pips
+	copy.ultra_pips = ultra_pips
 	return copy

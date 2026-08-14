@@ -4,7 +4,7 @@ extends Node2D
 ## (Camil: "a chaque tire, vif, a une petite poussee d'acceleration de
 ## 100% degressif sur 1/2 seconde"). Drives it through REAL production
 ## code paths — real Input.parse_input_event key presses, same pattern as
-## character_select_nav_check.gd/ready_gate_check.gd/super_meter_check.gd —
+## character_select_nav_check.gd/ready_gate_check.gd/ultra_meter_check.gd —
 ## measuring actual per-tick displacement before/right-after/well-after
 ## firing to confirm the boost applies and decays. Uses
 ## get_tree().physics_frame for precise tick counting instead of a real

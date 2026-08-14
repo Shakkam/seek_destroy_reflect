@@ -19,8 +19,8 @@ extends Node2D
 @onready var ai_status_label: Label = $DebugHUD/AIStatusLabel
 @onready var p1_hp_fill: ColorRect = $DebugHUD/P1HPBarFill
 @onready var p2_hp_fill: ColorRect = $DebugHUD/P2HPBarFill
-@onready var p1_super_meter: SuperMeterNode = $DebugHUD/P1SuperMeter
-@onready var p2_super_meter: SuperMeterNode = $DebugHUD/P2SuperMeter
+@onready var p1_ultra_meter: UltraMeterNode = $DebugHUD/P1UltraMeter
+@onready var p2_ultra_meter: UltraMeterNode = $DebugHUD/P2UltraMeter
 @onready var ready_label: Label = $DebugHUD/ReadyLabel
 @onready var campaign_label: Label = $DebugHUD/CampaignLabel
 @onready var background: ColorRect = $Background
@@ -138,8 +138,8 @@ func _ready() -> void:
 	ship_2.charged_weapon_fired.connect(_on_charged_weapon_fired.bind(ship_2))
 	ship_1.gauge_filled.connect(_on_gauge_filled.bind(ship_1))
 	ship_2.gauge_filled.connect(_on_gauge_filled.bind(ship_2))
-	ship_1.super_triggered.connect(_on_super_triggered.bind(ship_1))
-	ship_2.super_triggered.connect(_on_super_triggered.bind(ship_2))
+	ship_1.ultra_triggered.connect(_on_ultra_triggered.bind(ship_1))
+	ship_2.ultra_triggered.connect(_on_ultra_triggered.bind(ship_2))
 
 	_update_round_label()
 	_begin_round_ready_gate()
@@ -149,8 +149,8 @@ func _process(delta: float) -> void:
 	p2_label.text = _debug_text(ship_2)
 	p1_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_1.state.hp / ship_1.max_hp_override, 0.0, 1.0)
 	p2_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_2.state.hp / ship_2.max_hp_override, 0.0, 1.0)
-	p1_super_meter.pips = ship_1.weapon_state.super_pips
-	p2_super_meter.pips = ship_2.weapon_state.super_pips
+	p1_ultra_meter.pips = ship_1.weapon_state.ultra_pips
+	p2_ultra_meter.pips = ship_2.weapon_state.ultra_pips
 
 	_process_ai_toggle()
 	_sync_twist_visuals()
@@ -254,21 +254,24 @@ func _on_gauge_filled(amount: float, ship: ShipNode) -> void:
 	add_child(popup)
 
 # "Systeme des 5 balles" (2026-08-13, project memory super-meter-backlog-
-# idea) — generic placeholder super, SAME for all 8 characters until each
+# idea) — generic placeholder ultra, SAME for all 8 characters until each
 # gets an individualized design (Camil: "on verra ce qu'est le super de
 # chaque perso" — explicitly deferred, separate pass per character like
 # the charged-fire rollout). A flat, unavoidable chunk of damage straight
 # to the opponent (bypasses weapons/projectiles entirely, same direct-
-# state path as ShipNode.apply_damage()), plus a "SUPER !" popup so
+# state path as ShipNode.apply_damage()), plus an "ULTRA !" popup so
 # triggering it reads as a real event even with zero bespoke VFX yet.
-const GENERIC_SUPER_DAMAGE := 25.0
+# Named "ultra" not "super" — collides with the GDD's existing "arme
+# 'super'/lourde" weapon-tier naming otherwise (separate party-mode
+# brainstorm, Epic 4 memlog).
+const GENERIC_ULTRA_DAMAGE := 25.0
 
-func _on_super_triggered(ship: ShipNode) -> void:
+func _on_ultra_triggered(ship: ShipNode) -> void:
 	var opponent := ship_2 if ship == ship_1 else ship_1
-	opponent.apply_damage(GENERIC_SUPER_DAMAGE)
+	opponent.apply_damage(GENERIC_ULTRA_DAMAGE)
 	var popup := FloatingTextNode.new()
 	popup.position = ship.position + Vector2(0.0, -40.0)
-	popup.text = "SUPER !"
+	popup.text = "ULTRA !"
 	popup.lifetime = 1.2
 	add_child(popup)
 
