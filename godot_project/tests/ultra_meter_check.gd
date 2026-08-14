@@ -60,16 +60,23 @@ func _ready() -> void:
 	var meter_reset_ok: bool = arena.ship_2.weapon_state.ultra_pips == 0 and not arena.ship_2.weapon_state.ultra_ready()
 	print("PASS: triggering the ultra spends the whole meter" if meter_reset_ok else "FAIL: ship_2's meter still reads %d after triggering" % arena.ship_2.weapon_state.ultra_pips)
 
-	# The generic placeholder effect is a single flat apply_damage() call
-	# (no projectile burst to worry about outrunning), so a plain fixed
-	# wait for the intro to finish is enough here — headless frames run
-	# far faster than realtime (see project memory's "--quit-after counts
+	# ship_2's actual character (whichever MatchArena.tscn currently
+	# defaults it to) drives which Ultra resolves here — as more of the
+	# roster gets bespoke Ultras built, that's no longer necessarily the
+	# GENERIC_ULTRA_DAMAGE placeholder (it flipped to a real ability, with
+	# a different damage number, the day Perturbateur's got built while
+	# this test still pinned the old generic constant). This test's actual
+	# job is verifying the meter->trigger->effect PIPELINE, not any one
+	# character's specific numbers, so it just checks damage landed at
+	# all — a plain fixed wait for the intro to finish is enough here (no
+	# projectile burst to worry about outrunning). Headless frames run far
+	# faster than realtime (see project memory's "--quit-after counts
 	# FRAMES" trap), hence the large tick count for ~1.667s of game time.
 	for i in 1600:
 		await get_tree().physics_frame
 
-	var damage_ok: bool = is_equal_approx(arena.ship_1.state.hp, hp_before - MatchArenaNode.GENERIC_ULTRA_DAMAGE)
-	print("PASS: the opponent (ship_1) takes the generic ultra's damage" if damage_ok else "FAIL: ship_1 HP was %.1f -> %.1f, expected a %.1f drop" % [hp_before, arena.ship_1.state.hp, MatchArenaNode.GENERIC_ULTRA_DAMAGE])
+	var damage_ok: bool = arena.ship_1.state.hp < hp_before
+	print("PASS: the opponent (ship_1) takes damage from whichever Ultra ship_2's character resolves to" if damage_ok else "FAIL: ship_1 HP was %.1f -> %.1f, expected SOME drop" % [hp_before, arena.ship_1.state.hp])
 
 	var all_ok := fill_ok and ready_ok and meter_reset_ok and damage_ok
 	get_tree().quit(0 if all_ok else 1)

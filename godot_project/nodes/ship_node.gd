@@ -106,6 +106,17 @@ func apply_external_slow(duration: float, multiplier: float) -> void:
 	_external_slow_timer = maxf(_external_slow_timer, duration)
 	_external_slow_multiplier = multiplier
 
+## Perturbateur's Ultra "brouillage de commandes" (2026-08-14 Epic 4
+## memlog: "scramble les controles adverses") — inverts movement input
+## for a duration (see _read_input()). A skilled player can consciously
+## compensate by inverting their OWN inputs back, matching the locked
+## Ultra design pattern's "reducible by skill" half even though this one
+## isn't a damage burst like the others.
+var _controls_scrambled_timer := 0.0
+
+func apply_control_scramble(duration: float) -> void:
+	_controls_scrambled_timer = maxf(_controls_scrambled_timer, duration)
+
 const FIRE_HOLD_SPEED_MULTIPLIER := 0.5 # -50% while the fire button is held (2026-08-01 — "balance la sauce", was -40%)
 
 # Lift/spin charge (redesigned 2026-08-01, retuned 2026-08-13 — Camil:
@@ -504,6 +515,7 @@ func _physics_process(delta: float) -> void:
 	_vulnerability_timer = maxf(_vulnerability_timer - delta, 0.0)
 	_charged_beam_slow_timer = maxf(_charged_beam_slow_timer - delta, 0.0)
 	_external_slow_timer = maxf(_external_slow_timer - delta, 0.0)
+	_controls_scrambled_timer = maxf(_controls_scrambled_timer - delta, 0.0)
 	_flash_timer = maxf(_flash_timer - delta, 0.0)
 	var visual := get_node_or_null("Visual") as Polygon2D
 	if visual:
@@ -595,6 +607,7 @@ func reset_for_new_round() -> void:
 	_vulnerability_timer = 0.0
 	_charged_beam_slow_timer = 0.0
 	_external_slow_timer = 0.0
+	_controls_scrambled_timer = 0.0
 	# 2026-08-08 bug report: weapon gauges carried over between rounds
 	# (a maxed gauge from round 1's rally could open round 2 with a free
 	# shot). Rebuild fresh — same kit, gauges/cooldown back to 0 — keeping
@@ -660,7 +673,18 @@ func _gamepad_device() -> int:
 ## an Xbox 360 / XInput-compatible left-stick reading OR'd in (2026-08-01).
 ## A future pass can replace this with a proper InputMap-based scheme
 ## so key bindings are configurable.
+## Perturbateur's Ultra "brouillage de commandes" (2026-08-14) wraps the
+## real reading rather than living inside it — inverting the OUTPUT
+## keeps this the one single place the scramble applies, regardless of
+## keyboard/gamepad/AI, without duplicating the invert into every input
+## branch below.
 func _read_input() -> Vector2:
+	var dir := _read_raw_input()
+	if _controls_scrambled_timer > 0.0:
+		dir = -dir
+	return dir
+
+func _read_raw_input() -> Vector2:
 	if ai_controlled:
 		return _ai_read_input()
 	var dir := Vector2.ZERO

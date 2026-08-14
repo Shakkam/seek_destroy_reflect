@@ -329,6 +329,8 @@ func _resolve_ultra_effect(ship: ShipNode) -> void:
 			_ultra_grille_laser(ship, opponent)
 		"controleur": # Contrôleur
 			_ultra_trou_noir(ship, opponent)
+		"perturbateur": # Perturbateur
+			_ultra_brouillage_de_commandes(ship, opponent)
 		_:
 			opponent.apply_damage(GENERIC_ULTRA_DAMAGE) # placeholder until this character's Ultra is designed/built
 
@@ -468,6 +470,19 @@ func _ultra_trou_noir(ship: ShipNode, opponent: ShipNode) -> void:
 	black_hole.duration = TROU_NOIR_DURATION
 	black_hole.target = opponent
 	add_child(black_hole)
+
+## Perturbateur's Ultra — "Brouillage de commandes" (2026-08-13 Epic 4
+## memlog: "scramble les controles adverses"). Guaranteed floor, then the
+## opponent's own movement input inverts for a duration
+## (ShipNode.apply_control_scramble()) — a skilled player can consciously
+## counter-invert their own inputs, matching the "reducible by skill"
+## half of the locked Ultra pattern even without a projectile burst.
+const BROUILLAGE_GUARANTEED_DAMAGE := 8.0
+const BROUILLAGE_DURATION := 2.5
+
+func _ultra_brouillage_de_commandes(ship: ShipNode, opponent: ShipNode) -> void:
+	opponent.apply_damage(BROUILLAGE_GUARANTEED_DAMAGE)
+	opponent.apply_control_scramble(BROUILLAGE_DURATION)
 
 # Placeholder R-Type sprites (2026-08-02) — replace with final art later.
 # Machine-gun shots are colored per-shooter (matches ship colors) so a spray
