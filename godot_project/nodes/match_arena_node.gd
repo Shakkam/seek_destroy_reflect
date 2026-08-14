@@ -280,6 +280,7 @@ const ULTRA_LA_MEUTE := preload("res://data/weapons/ultra_la_meute.tres")
 const ULTRA_PLUIE_DE_SCUDS := preload("res://data/weapons/ultra_pluie_de_scuds.tres")
 const ULTRA_PLUIE_DE_BONBONS := preload("res://data/weapons/ultra_pluie_de_bonbons.tres")
 const ULTRA_MITRAILLEUSES_SATELLITES := preload("res://data/weapons/ultra_mitrailleuses_satellites.tres")
+const ULTRA_GRILLE_LASER := preload("res://data/weapons/ultra_grille_laser.tres")
 
 ## 2026-08-14 (Camil): "quand un ultra se declenche, le jeu se met en
 ## pause. une barre blanche et le mot 'ultra' arrivent de la droite, le
@@ -324,6 +325,8 @@ func _resolve_ultra_effect(ship: ShipNode) -> void:
 			_ultra_pluie_de_bonbons(ship, opponent)
 		"mitrailleur": # Mitrailleur
 			_ultra_mitrailleuses_satellites(ship, opponent)
+		"zoneur": # Zoneur
+			_ultra_grille_laser(ship, opponent)
 		_:
 			opponent.apply_damage(GENERIC_ULTRA_DAMAGE) # placeholder until this character's Ultra is designed/built
 
@@ -403,6 +406,42 @@ func _ultra_mitrailleuses_satellites(ship: ShipNode, opponent: ShipNode) -> void
 		turret.target = opponent
 		turret.owner_side = ship.side
 		add_child(turret)
+
+## Zoneur's Ultra — "Grille Laser" (2026-08-13 Epic 4 memlog: "grille
+## laser (motif de faisceaux lisible, des trous a trouver)"). Guaranteed
+## floor, then GRILLE_LASER_BAND_COUNT evenly-spaced fixed-Y beams span
+## the arena's height (BeamNode.freeze_position=true — a battlefield
+## hazard, not a ray that follows the shooter) with GRILLE_LASER_GAP_COUNT
+## of them left as safe lanes each cast — the band POSITIONS are always
+## the same evenly-spaced pattern (the "lisible" part), but which ones
+## are gaps varies, so the player has to actually look rather than
+## memorize one fixed layout.
+const GRILLE_LASER_GUARANTEED_DAMAGE := 8.0
+const GRILLE_LASER_BAND_COUNT := 5
+const GRILLE_LASER_GAP_COUNT := 2
+const GRILLE_LASER_DURATION := 1.5
+const GRILLE_LASER_BAND_MARGIN := 40.0 # keeps the outermost bands off the arena's top/bottom walls
+
+func _ultra_grille_laser(ship: ShipNode, opponent: ShipNode) -> void:
+	opponent.apply_damage(GRILLE_LASER_GUARANTEED_DAMAGE)
+	var bounds := Rect2(arena_origin, arena_size)
+	var band_indices: Array = range(GRILLE_LASER_BAND_COUNT)
+	band_indices.shuffle()
+	var gap_indices := band_indices.slice(0, GRILLE_LASER_GAP_COUNT)
+	for i in GRILLE_LASER_BAND_COUNT:
+		if i in gap_indices:
+			continue
+		var t := float(i) / float(GRILLE_LASER_BAND_COUNT - 1)
+		var band_y := lerpf(bounds.position.y + GRILLE_LASER_BAND_MARGIN, bounds.position.y + bounds.size.y - GRILLE_LASER_BAND_MARGIN, t)
+		var beam := BeamNode.new()
+		beam.shooter = ship
+		beam.target = opponent
+		beam.arena_bounds = bounds
+		beam.weapon = ULTRA_GRILLE_LASER # must be set before add_child() — add_child() calls _ready() synchronously, which reads weapon.beam_range
+		beam.freeze_position = true
+		beam.position = Vector2(ship.position.x, band_y) # also before add_child() — freeze_position captures this in _ready()
+		beam.lifetime = GRILLE_LASER_DURATION
+		add_child(beam)
 
 # Placeholder R-Type sprites (2026-08-02) — replace with final art later.
 # Machine-gun shots are colored per-shooter (matches ship colors) so a spray
