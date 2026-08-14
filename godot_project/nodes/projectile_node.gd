@@ -135,6 +135,7 @@ const ANIM_FRAME_DURATION := 0.1
 func _ready() -> void:
 	if is_looping or is_sine:
 		_drift_velocity = velocity
+		
 	if is_boomerang:
 		# Captured once here — the arc always rotates around this baseline,
 		# never accumulates frame to frame (see the field's comment above).

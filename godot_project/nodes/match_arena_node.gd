@@ -279,6 +279,7 @@ const GENERIC_ULTRA_DAMAGE := 25.0 # fallback for any character without a bespok
 const ULTRA_LA_MEUTE := preload("res://data/weapons/ultra_la_meute.tres")
 const ULTRA_PLUIE_DE_SCUDS := preload("res://data/weapons/ultra_pluie_de_scuds.tres")
 const ULTRA_PLUIE_DE_BONBONS := preload("res://data/weapons/ultra_pluie_de_bonbons.tres")
+const ULTRA_MITRAILLEUSES_SATELLITES := preload("res://data/weapons/ultra_mitrailleuses_satellites.tres")
 
 ## 2026-08-14 (Camil): "quand un ultra se declenche, le jeu se met en
 ## pause. une barre blanche et le mot 'ultra' arrivent de la droite, le
@@ -321,6 +322,8 @@ func _resolve_ultra_effect(ship: ShipNode) -> void:
 			_ultra_pluie_de_scuds(ship, opponent)
 		"mini": # Spreader
 			_ultra_pluie_de_bonbons(ship, opponent)
+		"mitrailleur": # Mitrailleur
+			_ultra_mitrailleuses_satellites(ship, opponent)
 		_:
 			opponent.apply_damage(GENERIC_ULTRA_DAMAGE) # placeholder until this character's Ultra is designed/built
 
@@ -381,6 +384,25 @@ func _ultra_pluie_de_bonbons(ship: ShipNode, opponent: ShipNode) -> void:
 			get_tree().create_timer(i * ULTRA_PLUIE_DE_BONBONS.burst_stagger).timeout.connect(_spawn_projectile.bind(ULTRA_PLUIE_DE_BONBONS, ship, angle_offset))
 		else:
 			_spawn_projectile(ULTRA_PLUIE_DE_BONBONS, ship, angle_offset)
+
+## Mitrailleur's Ultra — "Mitrailleuses Satellites" (2026-08-13 Epic 4
+## memlog: "double full-auto temporaire"). Same guaranteed-floor pattern,
+## then two autonomous TurretNodes (reusing the existing turret auto-fire
+## system, effect_type "turret") spawn flanking him above/below and fire
+## on their own at a fast rate for a short lifetime — not a player-held
+## buff, actual satellite guns.
+const MITRAILLEUSES_SATELLITES_GUARANTEED_DAMAGE := 8.0
+const MITRAILLEUSES_SATELLITES_OFFSET_Y := 50.0
+
+func _ultra_mitrailleuses_satellites(ship: ShipNode, opponent: ShipNode) -> void:
+	opponent.apply_damage(MITRAILLEUSES_SATELLITES_GUARANTEED_DAMAGE)
+	for offset_y in [-MITRAILLEUSES_SATELLITES_OFFSET_Y, MITRAILLEUSES_SATELLITES_OFFSET_Y]:
+		var turret := TurretNode.new()
+		turret.position = ship.position + Vector2(0.0, offset_y)
+		turret.weapon = ULTRA_MITRAILLEUSES_SATELLITES
+		turret.target = opponent
+		turret.owner_side = ship.side
+		add_child(turret)
 
 # Placeholder R-Type sprites (2026-08-02) — replace with final art later.
 # Machine-gun shots are colored per-shooter (matches ship colors) so a spray
