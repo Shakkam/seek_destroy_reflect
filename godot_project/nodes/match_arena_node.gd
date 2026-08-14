@@ -264,27 +264,78 @@ func _on_gauge_filled(amount: float, ship: ShipNode) -> void:
 	popup.text = "+%d" % int(amount)
 	add_child(popup)
 
-# "Systeme des 5 balles" (2026-08-13, project memory super-meter-backlog-
-# idea) — generic placeholder ultra, SAME for all 8 characters until each
-# gets an individualized design (Camil: "on verra ce qu'est le super de
-# chaque perso" — explicitly deferred, separate pass per character like
-# the charged-fire rollout). A flat, unavoidable chunk of damage straight
-# to the opponent (bypasses weapons/projectiles entirely, same direct-
-# state path as ShipNode.apply_damage()), plus an "ULTRA !" popup so
-# triggering it reads as a real event even with zero bespoke VFX yet.
-# Named "ultra" not "super" — collides with the GDD's existing "arme
-# 'super'/lourde" weapon-tier naming otherwise (separate party-mode
-# brainstorm, Epic 4 memlog).
-const GENERIC_ULTRA_DAMAGE := 25.0
+# "Systeme des 5 balles" (2026-08-13 party-mode brainstorm, Epic 4 memlog)
+# — per-character Ultra dispatch. Roster locked in that session; built
+# incrementally here, one character at a time (same cadence as the
+# original per-character weapon rollout), falling back to a flat generic
+# placeholder for anyone not implemented yet. Named "ultra" not "super"
+# — collides with the GDD's existing "arme 'super'/lourde" weapon-tier
+# naming otherwise. Locked design pattern for every Ultra: always some
+# guaranteed damage (applied directly, bypassing weapons/projectiles) +
+# a larger, genuinely dodgeable-by-movement part — never 100% avoidable,
+# never a pure coin-flip.
+const GENERIC_ULTRA_DAMAGE := 25.0 # fallback for any character without a bespoke Ultra yet
+const ULTRA_LA_MEUTE := preload("res://data/weapons/ultra_la_meute.tres")
+const ULTRA_PLUIE_DE_SCUDS := preload("res://data/weapons/ultra_pluie_de_scuds.tres")
 
 func _on_ultra_triggered(ship: ShipNode) -> void:
 	var opponent := ship_2 if ship == ship_1 else ship_1
-	opponent.apply_damage(GENERIC_ULTRA_DAMAGE)
+	var character_id := ship.character.id if ship.character else ""
+	var ultra_name := "ULTRA"
+	match character_id:
+		"missiles": # Traqueur
+			ultra_name = "La Meute"
+			_ultra_la_meute(ship, opponent)
+		"lourd": # Lourd
+			ultra_name = "Pluie de Scuds"
+			_ultra_pluie_de_scuds(ship, opponent)
+		_:
+			opponent.apply_damage(GENERIC_ULTRA_DAMAGE) # placeholder until this character's Ultra is designed/built
 	var popup := FloatingTextNode.new()
 	popup.position = ship.position + Vector2(0.0, -40.0)
-	popup.text = "ULTRA !"
+	popup.text = "%s !" % ultra_name
 	popup.lifetime = 1.2
 	add_child(popup)
+
+## Traqueur's Ultra — "La Meute" (2026-08-13 Epic 4 memlog: "missiles qui
+## pourchassent, resserrent avec le temps"). A guaranteed-floor hit (the
+## pack always gets at least one bite in) plus a big, more aggressively-
+## homing missile swarm than her base kit (ultra_la_meute.tres:
+## homing_strength 3.2 vs. homing_missile.tres's 2.0) — ProjectileNode's
+## homing already re-reads the live target position every tick, so the
+## stronger value alone reads as the pack "tightening" its aim as it
+## closes in, no new engine code needed.
+const LA_MEUTE_GUARANTEED_DAMAGE := 8.0
+
+func _ultra_la_meute(ship: ShipNode, opponent: ShipNode) -> void:
+	opponent.apply_damage(LA_MEUTE_GUARANTEED_DAMAGE)
+	for i in ULTRA_LA_MEUTE.projectile_count:
+		var p := float(i) / float(maxi(ULTRA_LA_MEUTE.projectile_count - 1, 1))
+		var angle_offset := lerpf(-ULTRA_LA_MEUTE.burst_spread_deg / 2.0, ULTRA_LA_MEUTE.burst_spread_deg / 2.0, p)
+		if ULTRA_LA_MEUTE.burst_stagger > 0.0 and i > 0:
+			get_tree().create_timer(i * ULTRA_LA_MEUTE.burst_stagger).timeout.connect(_spawn_projectile.bind(ULTRA_LA_MEUTE, ship, angle_offset))
+		else:
+			_spawn_projectile(ULTRA_LA_MEUTE, ship, angle_offset)
+
+## Lourd's Ultra — "Pluie de Scuds" (2026-08-13 Epic 4 memlog: "bombardement
+## lourd imprecis"). Same guaranteed-floor-plus-dodgeable-bulk pattern as
+## every Ultra: a flat hit, then heavy (bazooka-tier) shells scattered
+## with real random jitter per shot — not the deliberate fan every other
+## burst weapon uses, since the imprecision IS the point — across a wide
+## spread.
+const PLUIE_DE_SCUDS_SHELL_COUNT := 5
+const PLUIE_DE_SCUDS_SPREAD_DEG := 55.0
+const PLUIE_DE_SCUDS_STAGGER := 0.15
+const PLUIE_DE_SCUDS_GUARANTEED_DAMAGE := 8.0
+
+func _ultra_pluie_de_scuds(ship: ShipNode, opponent: ShipNode) -> void:
+	opponent.apply_damage(PLUIE_DE_SCUDS_GUARANTEED_DAMAGE)
+	for i in PLUIE_DE_SCUDS_SHELL_COUNT:
+		var angle_offset := randf_range(-PLUIE_DE_SCUDS_SPREAD_DEG / 2.0, PLUIE_DE_SCUDS_SPREAD_DEG / 2.0)
+		if i > 0:
+			get_tree().create_timer(i * PLUIE_DE_SCUDS_STAGGER).timeout.connect(_spawn_projectile.bind(ULTRA_PLUIE_DE_SCUDS, ship, angle_offset))
+		else:
+			_spawn_projectile(ULTRA_PLUIE_DE_SCUDS, ship, angle_offset)
 
 # Placeholder R-Type sprites (2026-08-02) — replace with final art later.
 # Machine-gun shots are colored per-shooter (matches ship colors) so a spray
@@ -513,8 +564,8 @@ func _weapon_tint(weapon_id: String) -> Color:
 			# for a purely cosmetic mismatch, and the stun idea itself isn't
 			# dead, just parked for a different character.
 			return Color(0.6, 0.8, 1.0)
-		"homing_missile":
-			return Color(1.0, 0.6, 0.2) # orange
+		"homing_missile", "ultra_la_meute":
+			return Color(1.0, 0.6, 0.2) # orange — same as her base missiles, "La Meute" reads as a bigger pack of the same thing
 		"laser":
 			return Color(0.4, 1.0, 0.5) # green
 		"mini_shot":

@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="WeaponData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://simulation/weapon_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "ultra_pluie_de_scuds"
+display_name = "Pluie de Scuds"
+; Lourd's Ultra (2026-08-13 party-mode brainstorm, Epic 4 memlog):
+; "bombardement lourd imprecis" — heavy (bazooka-tier) shells, but
+; scattered with real random jitter per shot (see
+; MatchArenaNode._ultra_pluie_de_scuds()) rather than the clean,
+; deliberate fan every other burst weapon uses — "imprecis" is the point.
+damage = 10
+is_heavy = true

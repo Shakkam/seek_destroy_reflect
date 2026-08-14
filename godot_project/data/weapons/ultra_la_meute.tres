@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="WeaponData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://simulation/weapon_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "ultra_la_meute"
+display_name = "La Meute"
+; Traqueur's Ultra (2026-08-13 party-mode brainstorm, Epic 4 memlog):
+; "missiles qui pourchassent, resserrent avec le temps" — a bigger, more
+; aggressively-homing burst than her base homing_missile.tres (2.0
+; homing_strength, 3 projectiles). ProjectileNode's homing already
+; re-reads the live target position every tick, so a stronger value here
+; naturally reads as the pack "tightening" its aim as it closes in — no
+; new engine code needed, just tuning against the existing mechanic.
+damage = 3
+homing_strength = 3.2
+projectile_count = 8
+burst_spread_deg = 80.0
+burst_stagger = 0.05
