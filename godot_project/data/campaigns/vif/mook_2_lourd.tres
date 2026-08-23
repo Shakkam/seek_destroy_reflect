@@ -9,3 +9,8 @@ opponent = ExtResource("2")
 is_mook = true
 mook_hp_multiplier = 0.6
 reward_currency = 100
+; 2026-08-22 — second real tile using the new Space Invaders mini-jeu
+; (Camil: "on peut faire maintenant le 'space invaders' ?"). Same branch
+; as Breakout's own test tile (mook_1_lourd.tres) so both are reachable
+; back to back for easy testing.
+challenge_type = "space_invaders"
