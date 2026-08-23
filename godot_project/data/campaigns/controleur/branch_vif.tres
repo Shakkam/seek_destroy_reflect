@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="MiniBranchData" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://simulation/mini_branch_data.gd" id="1"]
+[ext_resource type="Resource" path="res://data/campaigns/controleur/mook_1_vif.tres" id="2"]
+[ext_resource type="Resource" path="res://data/campaigns/controleur/mook_2_vif.tres" id="3"]
+[ext_resource type="Resource" path="res://data/campaigns/controleur/rival_vif.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+id = "vs_vif"
+display_name = "Contre Vif"
+mook_1 = ExtResource("2")
+mook_2 = ExtResource("3")
+rival = ExtResource("4")

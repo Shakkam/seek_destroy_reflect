@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="MiniBranchData" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://simulation/mini_branch_data.gd" id="1"]
+[ext_resource type="Resource" path="res://data/campaigns/mitrailleur/mook_1_perturbateur.tres" id="2"]
+[ext_resource type="Resource" path="res://data/campaigns/mitrailleur/mook_2_perturbateur.tres" id="3"]
+[ext_resource type="Resource" path="res://data/campaigns/mitrailleur/rival_perturbateur.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+id = "vs_perturbateur"
+display_name = "Contre Perturbateur"
+prerequisite_ids = ["vs_vif"]
+mook_1 = ExtResource("2")
+mook_2 = ExtResource("3")
+rival = ExtResource("4")

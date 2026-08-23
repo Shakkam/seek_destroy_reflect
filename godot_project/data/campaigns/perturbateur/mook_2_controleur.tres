@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="RivalEncounterData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://simulation/rival_encounter_data.gd" id="1"]
+[ext_resource type="Resource" path="res://data/characters/controleur.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+opponent = ExtResource("2")
+is_mook = true
+mook_hp_multiplier = 0.6
+reward_currency = 100
+; 2026-08-22 (Camil: "appliquer les regles de campagne a tous les joueurs,
+; qu'il n'y ait pas que Vif qui ait les modes speciaux") — same branch as
+; this character's mook_1 above, other mini-jeu slot.
+challenge_type = "space_invaders"
