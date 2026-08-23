@@ -53,6 +53,15 @@ func _clamp_from_vertical(v: Vector2) -> Vector2:
 func bounced_off_wall(clamped_y: float) -> BallState:
 	return BallState.new(Vector2(position.x, clamped_y), Vector2(velocity.x, -velocity.y), spin, rally_count)
 
+## Breakout mini-jeu (2026-08-18, Camil: "il faudrait que la balle
+## rebondisse aussi au fond oppose, au lieu de reapparaitre au milieu
+## comme dans une game classique") — the horizontal mirror of
+## bounced_off_wall's vertical one. Opt-in (BallNode.bounces_off_right_wall),
+## never used by the normal 2-ship game (there, reaching either side
+## unreturned is a miss/score event, not a wall).
+func bounced_off_side_wall(clamped_x: float) -> BallState:
+	return BallState.new(Vector2(clamped_x, position.y), Vector2(-velocity.x, velocity.y), spin, rally_count)
+
 ## Epic 4, Story 4.5 — "hazard_zones" twist: reflects velocity off a
 ## circular obstacle's surface normal (same speed, new direction), the
 ## "billard volontaire" deflection called for in the brainstorm.
@@ -67,7 +76,13 @@ func bounced_off_hazard(hazard_center: Vector2) -> BallState:
 ## lift_charge: 0.0-1.0, how charged the lift/spin was (see WeaponSystemState-adjacent
 ## charge tiers on ShipNode: hold-to-charge, 0/33/66/100%).
 ## outgoing_side: +1 to send the ball right, -1 to send it left.
-func returned(aim_direction: Vector2, lift_charge: float, outgoing_side: int) -> BallState:
+## speed_increment: how much faster each successive return makes the ball,
+## defaulting to the normal match's own SPEED_INCREMENT_PER_RETURN. Breakout
+## mini-jeu (2026-08-18, Camil: "le taux d'acceleration de la balle au
+## rebond doit etre moins fort dans ce mode de jeu uniquement") passes a
+## reduced value instead (see BallNode.speed_increment_multiplier) — every
+## other call site keeps the exact same escalation it always had.
+func returned(aim_direction: Vector2, lift_charge: float, outgoing_side: int, speed_increment: float = SPEED_INCREMENT_PER_RETURN) -> BallState:
 	var dir: Vector2
 	if aim_direction.length() > 0.01:
 		dir = Vector2(outgoing_side, clampf(aim_direction.y, -1.0, 1.0)).normalized()
@@ -83,5 +98,5 @@ func returned(aim_direction: Vector2, lift_charge: float, outgoing_side: int) ->
 		new_spin = -new_spin
 
 	var new_rally_count := rally_count + 1
-	var speed := BASE_SPEED + SPEED_INCREMENT_PER_RETURN * new_rally_count
+	var speed := BASE_SPEED + speed_increment * new_rally_count
 	return BallState.new(position, dir * speed, new_spin, new_rally_count)

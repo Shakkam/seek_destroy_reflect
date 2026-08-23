@@ -254,6 +254,17 @@ func _ready() -> void:
 	print("PASS: shrinking_arena stops advancing past MAX_SHRINK_STEPS (6)" if shrink_cap_ok else "FAIL: _shrink_step ended at %d, expected %d" % [shrink_arena._shrink_step, MatchArenaNode.MAX_SHRINK_STEPS])
 	var shrink_not_a_sliver_ok: bool = shrink_arena._shrink_target_bounds.size.x > 0.0 and shrink_arena._shrink_target_bounds.size.y > 0.0
 	print("PASS: even at the cap, the arena is never shrunk into an unplayable sliver" if shrink_not_a_sliver_ok else "FAIL: target bounds were %s" % shrink_arena._shrink_target_bounds)
+
+	# 2026-08-22 bug report (Camil: "deuxieme game contre mon rival, la zone
+	# est toujours retrecie, elle devrait revenir a l'origine") —
+	# _reset_shrinking_arena() (called from _check_round_end()'s round-
+	# continuation branch) must put the arena fully back to its original size.
+	shrink_arena._reset_shrinking_arena()
+	var shrink_reset_ok: bool = shrink_arena._shrink_step == 0 and not shrink_arena._shrink_animating \
+		and shrink_arena._current_arena_bounds.position.is_equal_approx(shrink_arena.arena_origin) \
+		and shrink_arena._current_arena_bounds.size.is_equal_approx(shrink_arena.arena_size)
+	print(("PASS: a fresh round resets the shrunk arena back to full size" if shrink_reset_ok else "FAIL: expected bounds back to %s at origin %s, got %s" % [shrink_arena.arena_size, shrink_arena.arena_origin, shrink_arena._current_arena_bounds]))
+
 	shrink_arena.queue_free()
 	await get_tree().process_frame
 
@@ -356,7 +367,12 @@ func _ready() -> void:
 	# fan (2026-08-10 bug: the shrink was keyed off the NORMAL projectile_
 	# count, which wrongly shrank this single charged shot too).
 	var expected_charged_damage := int(round(stun_boomerang.damage * stun_boomerang.charged_damage_multiplier))
-	var expected_charged_scale := 1.4 * stun_boomerang.charged_visual_scale_multiplier # 1.4 = the boomerang's base visual_scale set in _spawn_projectile()
+	# 1.4 = the boomerang's base visual_scale set in _spawn_projectile();
+	# visual_scale_multiplier (2026-08-18, Camil: "grossir un peu x1.3")
+	# applies on top of both normal AND charged releases, same as every
+	# other weapon's own visual_scale_multiplier — was implicitly 1.0 (a
+	# no-op) when this formula was first written, so it wasn't in it yet.
+	var expected_charged_scale := 1.4 * stun_boomerang.visual_scale_multiplier * stun_boomerang.charged_visual_scale_multiplier
 	var boomerang_giant_ok: bool = spawned_charged_boomerang != null \
 		and spawned_charged_boomerang.damage == expected_charged_damage \
 		and is_equal_approx(spawned_charged_boomerang.visual_scale, expected_charged_scale)
@@ -370,8 +386,17 @@ func _ready() -> void:
 	charge_arena._on_weapon_fired(stun_boomerang, charge_arena.ship_1)
 	await get_tree().process_frame
 	var immediate_boomerangs := charge_arena.get_child_count() - children_before_boomerang_burst
-	var boomerang_burst_ok: bool = immediate_boomerangs == 1 and stun_boomerang.projectile_count == 3
-	print("PASS: Perturbateur's normal throw fires 3 boomerangs (1 immediate + 2 staggered) before cooldown" if boomerang_burst_ok else "FAIL: expected 1 immediate projectile + projectile_count 3, got %d immediate, count=%d" % [immediate_boomerangs, stun_boomerang.projectile_count])
+	# 2026-08-18: the staggered shots are real SceneTreeTimers (0.08s/
+	# 0.16s) racing real wall-clock time against a single awaited process
+	# frame — by this point in a long, growing test file (many checks'
+	# worth of accumulated per-frame overhead ahead of this one), that
+	# frame can itself take long enough for the SECOND stagger to also
+	# land, not just the first. Confirmed live: 1 immediate for a while,
+	# then a reproducible 2. The actual thing worth checking is "staggered,
+	# not all 3 at once" — tolerate 1 OR 2 rather than pinning an exact
+	# count real-clock timing doesn't actually guarantee.
+	var boomerang_burst_ok: bool = immediate_boomerangs >= 1 and immediate_boomerangs < 3 and stun_boomerang.projectile_count == 3
+	print(("PASS: Perturbateur's normal throw fires 3 staggered boomerangs, not all at once (%d landed immediately)" % immediate_boomerangs) if boomerang_burst_ok else "FAIL: expected 1-2 immediate projectiles + projectile_count 3, got %d immediate, count=%d" % [immediate_boomerangs, stun_boomerang.projectile_count])
 	# 2 more still-pending staggered shots (real timers at 0.08s/0.16s) —
 	# see the mini_shot fresh-arena note above for why this swaps the arena
 	# instead of waiting them out.
@@ -567,6 +592,6 @@ func _ready() -> void:
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
 		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and boomerang_charge_ok and boomerang_giant_ok and boomerang_burst_ok and missile_charge_ok and turret_charge_ok and mg_charge_ok and double_fire_ok \
-		and shrink_step1_ok and shrink_cap_ok and shrink_not_a_sliver_ok and return_to_map_ok \
+		and shrink_step1_ok and shrink_cap_ok and shrink_not_a_sliver_ok and shrink_reset_ok and return_to_map_ok \
 		and depth_ok and lourd_available_ok and controleur_locked_ok and locked_confirm_ignored_ok and controleur_unlocked_ok
 	get_tree().quit(0 if all_ok else 1)

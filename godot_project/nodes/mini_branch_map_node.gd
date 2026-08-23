@@ -56,8 +56,30 @@ func _process(delta: float) -> void:
 	var confirm := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_ENTER) \
 		or Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) > 0.4
 	if confirm and not _confirm_prev:
-		get_tree().change_scene_to_file("res://scenes/MatchArena.tscn")
+		_confirm()
 	_confirm_prev = confirm
+
+	# 2026-08-18 (Camil: "dans les menus, quand je fais Echap, que ca
+	# revienne en arriere") — one-shot, no edge-guard needed (same as
+	# CampaignCheatMenuNode's own Escape handling).
+	if Input.is_physical_key_pressed(KEY_ESCAPE):
+		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
+
+## 2026-08-18 (Camil: "un monde par rival... on peut inventer plein de
+## mini jeux sympa") — a mook-slot encounter can route somewhere other
+## than a plain 1v1 fight; the rival/organizer slot is never anything but
+## "combat" (RivalEncounterData.challenge_type's own doc comment), so this
+## only ever needs to check the CURRENT step's encounter, not the whole
+## branch.
+func _confirm() -> void:
+	var encounter := CampaignContext.current_encounter()
+	match encounter.challenge_type if encounter else "combat":
+		"breakout":
+			get_tree().change_scene_to_file("res://scenes/Breakout.tscn")
+		"space_invaders":
+			get_tree().change_scene_to_file("res://scenes/SpaceInvaders.tscn")
+		_:
+			get_tree().change_scene_to_file("res://scenes/MatchArena.tscn")
 
 func _refresh() -> void:
 	node1_name_label.text = "Sous-adversaire 1"

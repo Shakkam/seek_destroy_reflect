@@ -122,6 +122,13 @@ func _process(delta: float) -> void:
 	if _p1_confirmed and _p2_confirmed:
 		_start_match()
 
+	# 2026-08-18 (Camil: "dans les menus, quand je fais Echap, que ca
+	# revienne en arriere") — one-shot, no edge-guard needed (same as
+	# CampaignCheatMenuNode's own Escape handling): the scene changes
+	# immediately, so a held key can't double-fire.
+	if Input.is_physical_key_pressed(KEY_ESCAPE):
+		get_tree().change_scene_to_file("res://scenes/TitleScreen.tscn")
+
 func _process_player(player_index: int) -> void:
 	var device := player_index - 1
 	var move := Vector2.ZERO
@@ -321,4 +328,9 @@ func _draw_centered_text(text: String, top_center: Vector2, font_size: int, colo
 func _start_match() -> void:
 	MatchSetup.p1_character = CHARACTERS[_p1_index]
 	MatchSetup.p2_character = CHARACTERS[_p2_index]
+	# 2026-08-18 — the title theme (TitleMusic autoload) plays on through
+	# this whole screen; stop it here, leaving for a real Versus match.
+	# Harmless no-op if it's already stopped (e.g. a rematch that never
+	# passed back through the title screen at all).
+	TitleMusic.stop()
 	get_tree().change_scene_to_file("res://scenes/MatchArena.tscn")

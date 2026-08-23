@@ -72,5 +72,36 @@ func _ready() -> void:
 	var slow_ok: bool = arena.ship_2._external_slow_timer > 0.0 and is_equal_approx(arena.ship_2._external_slow_multiplier, MatchArenaNode.TROU_NOIR_SLOW_MULTIPLIER)
 	print("PASS: the opponent's external slow is applied while inside the field" if slow_ok else "FAIL: external slow wasn't applied correctly")
 
-	var all_ok := floor_ok and spawn_ok and pull_ok and slow_ok
+	# 2026-08-15 (Camil, screenshot): a fainter OUTER halo, bigger than the
+	# pull radius, that only applies a milder slow — no pull out there.
+	# Checked via ship_2's OWN position, not its distance to the black
+	# hole: drift_speed (added the same day, "on pourrait aussi faire
+	# avancer legerement le tourbillon vers le joueur adverse") means the
+	# HOLE ITSELF creeps toward the opponent now, which legitimately
+	# shrinks that distance even with zero pull on the opponent — the
+	# thing that must stay untouched out here is ship_2.position itself.
+	arena.ship_2.position = black_hole.position + Vector2((black_hole.radius + black_hole.outer_radius) / 2.0, 0.0) # squarely between the two radii
+	arena.ship_2.state.position = arena.ship_2.position
+	arena.ship_2._external_slow_timer = 0.0
+	var outer_pos_before := arena.ship_2.position
+	for i in 5:
+		await get_tree().physics_frame
+	var outer_pos_after := arena.ship_2.position
+	var outer_no_pull_ok: bool = outer_pos_after.is_equal_approx(outer_pos_before)
+	print(("PASS: the outer halo doesn't pull (opponent stayed at %s)" % outer_pos_after) if outer_no_pull_ok else ("FAIL: the outer halo pulled the opponent (%s -> %s)" % [outer_pos_before, outer_pos_after]))
+	var outer_slow_ok: bool = arena.ship_2._external_slow_timer > 0.0 and is_equal_approx(arena.ship_2._external_slow_multiplier, MatchArenaNode.TROU_NOIR_OUTER_SLOW_MULTIPLIER) and MatchArenaNode.TROU_NOIR_OUTER_SLOW_MULTIPLIER > MatchArenaNode.TROU_NOIR_SLOW_MULTIPLIER
+	print("PASS: the outer halo applies its own milder slow (a higher multiplier = less slowing)" if outer_slow_ok else "FAIL: the outer halo's slow was wrong (or not actually milder than the inner one)")
+
+	# 2026-08-15 bug report (Camil): "quand un joueur perd un round il faut
+	# remettre tous les compteurs a 0 y compris les effets d'ultra" —
+	# _clear_round_entities() used to have no idea BlackHoleNode existed at
+	# all, so a round ending mid-Trou-noir left it alive (still pulling)
+	# into the next round. is_queued_for_deletion() reads true the instant
+	# queue_free() is called — no need to wait a frame for the actual
+	# removal to confirm the fix took effect.
+	arena._clear_round_entities()
+	var cleared_ok: bool = black_hole.is_queued_for_deletion()
+	print("PASS: _clear_round_entities() frees the BlackHoleNode" if cleared_ok else "FAIL: the BlackHoleNode survived _clear_round_entities()")
+
+	var all_ok := floor_ok and spawn_ok and pull_ok and slow_ok and outer_no_pull_ok and outer_slow_ok and cleared_ok
 	get_tree().quit(0 if all_ok else 1)

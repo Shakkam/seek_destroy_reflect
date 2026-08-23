@@ -12,8 +12,6 @@ extends Node2D
 @onready var ship_2: ShipNode = $Ship2
 @onready var ball: BallNode = $Ball
 
-@onready var p1_label: Label = $DebugHUD/P1Label
-@onready var p2_label: Label = $DebugHUD/P2Label
 @onready var round_label: Label = $DebugHUD/RoundLabel
 @onready var match_label: Label = $DebugHUD/MatchLabel
 @onready var ai_status_label: Label = $DebugHUD/AIStatusLabel
@@ -24,6 +22,33 @@ extends Node2D
 @onready var ready_label: Label = $DebugHUD/ReadyLabel
 @onready var campaign_label: Label = $DebugHUD/CampaignLabel
 @onready var debug_hud: CanvasLayer = $DebugHUD
+# 2026-08-16 UX audit (Sally) — replaces the old "PV: 100 / Mitraillette /
+# Jauge: 0/100" plain-text readout (see the removed _debug_text()) with a
+# per-weapon color swatch + a real gauge bar, same bar language the HP
+# bar/ultra meter already use. See _update_weapon_hud().
+@onready var p1_weapon_swatch: ColorRect = $DebugHUD/P1WeaponSwatch
+@onready var p1_weapon_name: Label = $DebugHUD/P1WeaponName
+@onready var p1_gauge_fill: ColorRect = $DebugHUD/P1GaugeBarFill
+@onready var p1_heat_fill: ColorRect = $DebugHUD/P1HeatBarFill
+@onready var p1_buff_label: Label = $DebugHUD/P1BuffLabel
+@onready var p2_weapon_swatch: ColorRect = $DebugHUD/P2WeaponSwatch
+@onready var p2_weapon_name: Label = $DebugHUD/P2WeaponName
+@onready var p2_gauge_fill: ColorRect = $DebugHUD/P2GaugeBarFill
+@onready var p2_heat_fill: ColorRect = $DebugHUD/P2HeatBarFill
+@onready var p2_buff_label: Label = $DebugHUD/P2BuffLabel
+# 2026-08-16 UX audit (Sally) — "Versus mode ends in a dead screen": see
+# _show_post_match_choice()/_process_post_match_choice().
+@onready var post_match_label: Label = $DebugHUD/PostMatchLabel
+# 2026-08-16 (Camil: "on pourrait ajouter 'vous avez gagne XXXXX' => icone
+# + nom + description de l'arme") — shown alongside "Rival vaincu !" on a
+# real rival win, see _resolve_campaign_result().
+@onready var reward_icon: ColorRect = $DebugHUD/RewardIcon
+@onready var reward_label: Label = $DebugHUD/RewardLabel
+# 2026-08-16 UX audit (Sally) — "the full control legend is glued to the
+# screen, forever": see _begin_round_ready_gate(), now hides these after
+# round 1.
+@onready var controls_p1: Label = $DebugHUD/ControlsP1
+@onready var controls_p2: Label = $DebugHUD/ControlsP2
 @onready var background: ColorRect = $Background
 @onready var neutral_zone_visual: ColorRect = $NeutralZone
 @onready var center_line: Line2D = $CenterLine
@@ -38,6 +63,18 @@ const GO_FLASH_DURATION := 1.0 # was a single 0.6s flash before the two-phase sp
 var match_state: MatchState = MatchState.new()
 var _round_active := true
 var _ai_toggle_prev := false
+
+# 2026-08-16 UX audit (Sally): "Versus mode ends in a dead screen" — on a
+# non-campaign match end, the arena used to just sit on "Match termine..."
+# forever with no way back to anything. Same up/down + confirm scheme as
+# every other menu in the project (TitleScreenNode/CampaignMapNode), shown
+# a beat after the result so it reads on its own first — see
+# _show_post_match_choice()/_process_post_match_choice().
+const POST_MATCH_CHOICES := ["Revanche", "Choix des personnages"]
+var _post_match_choice_active := false
+var _post_match_choice_index := 0
+var _post_match_move_prev := 0.0
+var _post_match_confirm_prev := true # seeded true — same held-key carryover guard as every other menu (2026-08-08 bug pattern)
 
 # Dev-only in-match cheat keys (2026-08-13, Camil: "des cheats shortcuts
 # pour tests ingame") — global, not per-player-device-scoped, same
@@ -119,6 +156,13 @@ func _ready() -> void:
 			active_twist = encounter.twist
 		_update_campaign_label()
 
+	# Epic 4 reward system (2026-08-16) — after every character-assignment
+	# path above has settled (MatchSetup/CharacterSelect, or the campaign
+	# override just above), wire up whatever each ship's character has
+	# unlocked so far.
+	_setup_passive_rewards(ship_1)
+	_setup_passive_rewards(ship_2)
+
 	var bounds := Rect2(arena_origin, arena_size)
 	var frontier_x := arena_origin.x + arena_size.x / 2.0
 	_base_frontier_x = frontier_x
@@ -134,6 +178,10 @@ func _ready() -> void:
 	ball.arena_bounds = bounds
 	ball.frontier_x = frontier_x
 	ball.ships = [ship_1, ship_2]
+	# 2026-08-15 (Camil): the gauge-fill effect's yellow ball needs to aim
+	# at the actual next-empty ultra pip, not an approximate anchor point.
+	ball.p1_ultra_meter = p1_ultra_meter
+	ball.p2_ultra_meter = p2_ultra_meter
 
 	if active_twist:
 		apply_twist(active_twist)
@@ -156,8 +204,8 @@ func _ready() -> void:
 	_begin_round_ready_gate()
 
 func _process(delta: float) -> void:
-	p1_label.text = _debug_text(ship_1)
-	p2_label.text = _debug_text(ship_2)
+	_update_weapon_hud(ship_1, p1_weapon_swatch, p1_weapon_name, p1_gauge_fill, p1_heat_fill, p1_buff_label)
+	_update_weapon_hud(ship_2, p2_weapon_swatch, p2_weapon_name, p2_gauge_fill, p2_heat_fill, p2_buff_label)
 	p1_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_1.state.hp / ship_1.max_hp_override, 0.0, 1.0)
 	p2_hp_fill.size.x = HP_BAR_WIDTH * clampf(ship_2.state.hp / ship_2.max_hp_override, 0.0, 1.0)
 	p1_ultra_meter.pips = ship_1.weapon_state.ultra_pips
@@ -166,6 +214,10 @@ func _process(delta: float) -> void:
 	_process_ai_toggle()
 	_process_cheat_keys()
 	_sync_twist_visuals()
+
+	if _post_match_choice_active:
+		_process_post_match_choice()
+		return
 
 	if not _round_playing:
 		_process_ready_gate(delta)
@@ -197,6 +249,14 @@ func _begin_round_ready_gate() -> void:
 	ready_label.remove_theme_color_override("font_color")
 	var round_number := match_state.rounds_won[0] + match_state.rounds_won[1] + 1
 	ready_label.text = "Round %d\nPret ? (appuyez sur Tir pour commencer)" % round_number
+	# 2026-08-16 UX audit (Sally): "the full control legend is glued to the
+	# screen, forever" — both players' entire key list used to sit fixed at
+	# the bottom of every single match. Round 1 still gets the full
+	# reference (that's exactly when it's needed); round 2 onward, players
+	# already know their keys, so it steps aside instead of sitting as
+	# permanent clutter under the action.
+	controls_p1.visible = round_number == 1
+	controls_p2.visible = round_number == 1
 
 ## Pre-round gate — waits for either player's fire input (keyboard or
 ## gamepad trigger, device 0 or 1), then runs the two-phase "Ready...Go!"
@@ -238,26 +298,43 @@ func _unfreeze_round() -> void:
 			extra.active = true
 	ready_label.text = ""
 
-func _debug_text(ship: ShipNode) -> String:
-	var lines := ["PV: %d" % int(ship.state.hp)]
-	for i in ship.weapon_state.kit.size():
-		var weapon: WeaponData = ship.weapon_state.kit[i]
-		var gauge := ship.weapon_state.gauges[i]
-		var marker := "> " if i == ship.weapon_state.selected_index else "  "
-		var line := "%s%s: %d / %d" % [marker, weapon.display_name, int(gauge), int(weapon.gauge_max)]
-		# 2026-08-09 (Camil: "il faudrait une petite jauge de cooldown qui
-		# descend des qu'on tire") — visible heat readout, weapons without
-		# heat_max (most of them) never show it.
-		if weapon.heat_max > 0.0:
-			line += " [chauffe %d/%d]" % [int(ship.weapon_state.heats[i]), int(weapon.heat_max)]
-		lines.append(line)
+## 2026-08-16 UX audit (Sally): "the entire in-match HUD is a literal node
+## named DebugHUD" — replaces the old plain-text "PV: 100 / Mitraillette /
+## Jauge: 0/100" readout (the removed _debug_text()) with a color swatch
+## (the SAME tint _weapon_tint() already gives that weapon's own
+## projectiles, so the HUD and the actual shots on screen read as the same
+## thing) and a real gauge bar instead of a bare fraction — same bar
+## language the HP bar/ultra meter already use.
+## Always reads the SELECTED weapon only, not the whole kit: every roster
+## character carries exactly one weapon (see smoke_test.gd's "no two
+## characters share the same weapon" check) — the multi-weapon kit is Epic
+## 1 placeholder scaffolding that only shows up running MatchArena.tscn
+## directly with no character assigned, not something a real player sees.
+func _update_weapon_hud(ship: ShipNode, swatch: ColorRect, name_label: Label, gauge_fill: ColorRect, heat_fill: ColorRect, buff_label: Label) -> void:
+	var index := ship.weapon_state.selected_index
+	if index < 0 or index >= ship.weapon_state.kit.size():
+		return
+	var weapon: WeaponData = ship.weapon_state.kit[index]
+	var tint := _weapon_tint(weapon.id)
+	swatch.color = tint
+	name_label.text = weapon.display_name
+	var gauge_ratio := clampf(ship.weapon_state.gauges[index] / weapon.gauge_max, 0.0, 1.0) if weapon.gauge_max > 0.0 else 0.0
+	gauge_fill.color = tint
+	gauge_fill.size.x = HP_BAR_WIDTH * gauge_ratio
+	# 2026-08-09 (Camil: "il faudrait une petite jauge de cooldown qui
+	# descend des qu'on tire") — a real bar now instead of the old
+	# "[chauffe %d/%d]" text tag; only Mitraillette (machine_gun) carries
+	# heat_max > 0, everyone else's bar just stays hidden.
+	if weapon.heat_max > 0.0:
+		heat_fill.visible = true
+		heat_fill.size.x = HP_BAR_WIDTH * clampf(ship.weapon_state.heats[index] / weapon.heat_max, 0.0, 1.0)
+	else:
+		heat_fill.visible = false
 	# Mitrailleur's charged-fire buff (2026-08-09): "un petit icone se met a
-	# cote de la barre pour indiquer qu'on est en mode double tir" — a text
-	# tag next to the weapon line, same placeholder-HUD convention as the
-	# heat readout above (no icon-graphics system exists yet).
-	if ship._double_fire_shots_remaining > 0:
-		lines.append("  [DOUBLE x%d]" % ship._double_fire_shots_remaining)
-	return "\n".join(lines)
+	# cote de la barre pour indiquer qu'on est en mode double tir" — still a
+	# text tag (no icon-graphics system exists yet), but it's the only text
+	# left in this whole widget now instead of three lines of readout.
+	buff_label.text = "DOUBLE x%d" % ship._double_fire_shots_remaining if ship._double_fire_shots_remaining > 0 else ""
 
 func _on_gauge_filled(amount: float, ship: ShipNode) -> void:
 	var popup := FloatingTextNode.new()
@@ -277,10 +354,8 @@ func _on_gauge_filled(amount: float, ship: ShipNode) -> void:
 # never a pure coin-flip.
 const GENERIC_ULTRA_DAMAGE := 25.0 # fallback for any character without a bespoke Ultra yet
 const ULTRA_LA_MEUTE := preload("res://data/weapons/ultra_la_meute.tres")
-const ULTRA_PLUIE_DE_SCUDS := preload("res://data/weapons/ultra_pluie_de_scuds.tres")
 const ULTRA_PLUIE_DE_BONBONS := preload("res://data/weapons/ultra_pluie_de_bonbons.tres")
 const ULTRA_MITRAILLEUSES_SATELLITES := preload("res://data/weapons/ultra_mitrailleuses_satellites.tres")
-const ULTRA_GRILLE_LASER := preload("res://data/weapons/ultra_grille_laser.tres")
 
 ## 2026-08-14 (Camil): "quand un ultra se declenche, le jeu se met en
 ## pause. une barre blanche et le mot 'ultra' arrivent de la droite, le
@@ -312,6 +387,24 @@ func _on_ultra_triggered(ship: ShipNode) -> void:
 		if is_instance_valid(extra):
 			extra.active = true
 	_resolve_ultra_effect(ship)
+	_apply_perturbateur_ultra_passive(ship)
+
+## Epic 4 reward system (2026-08-16, Camil: "lors de l'ultra du joueur,
+## applique aussi le brouillage, mais uniquement 5 sec") — Perturbateur's
+## passive, unlike every other reward, isn't tied to a timer or a weapon
+## id at all: reactive, re-checked live every time THIS ship triggers ITS
+## OWN Ultra (any character's), stacking a short control-scramble onto
+## whatever that Ultra already did. No state needs to persist between
+## casts, so this just re-queries CampaignSave directly rather than
+## caching anything from _setup_passive_rewards().
+func _apply_perturbateur_ultra_passive(ship: ShipNode) -> void:
+	if not is_instance_valid(ship) or not ship.character:
+		return
+	if "stun_boomerang" not in CampaignSave.unlocks_for(ship.character.id):
+		return
+	var opponent := ship_2 if ship == ship_1 else ship_1
+	if is_instance_valid(opponent):
+		opponent.apply_control_scramble(PASSIVE_PERTURBATEUR_ULTRA_SCRAMBLE_DURATION)
 
 func _resolve_ultra_effect(ship: ShipNode) -> void:
 	var opponent := ship_2 if ship == ship_1 else ship_1
@@ -331,6 +424,8 @@ func _resolve_ultra_effect(ship: ShipNode) -> void:
 			_ultra_trou_noir(ship, opponent)
 		"perturbateur": # Perturbateur
 			_ultra_brouillage_de_commandes(ship, opponent)
+		"vif": # Vif
+			_ultra_bourrasque(ship, opponent)
 		_:
 			opponent.apply_damage(GENERIC_ULTRA_DAMAGE) # placeholder until this character's Ultra is designed/built
 
@@ -343,6 +438,9 @@ func _resolve_ultra_effect(ship: ShipNode) -> void:
 ## stronger value alone reads as the pack "tightening" its aim as it
 ## closes in, no new engine code needed.
 const LA_MEUTE_GUARANTEED_DAMAGE := 8.0
+# LA_MEUTE_LIFETIME/EXPLOSION_RADIUS/EXPLOSION_DAMAGE (missile lifetime x2,
+# small on-timeout blast) moved to ProjectileFactory.spawn() 2026-08-18 —
+# only ever consumed there, see its own doc comments for the history.
 
 func _ultra_la_meute(ship: ShipNode, opponent: ShipNode) -> void:
 	opponent.apply_damage(LA_MEUTE_GUARANTEED_DAMAGE)
@@ -354,119 +452,289 @@ func _ultra_la_meute(ship: ShipNode, opponent: ShipNode) -> void:
 		else:
 			_spawn_projectile(ULTRA_LA_MEUTE, ship, angle_offset)
 
-## Lourd's Ultra — "Pluie de Scuds" (2026-08-13 Epic 4 memlog: "bombardement
-## lourd imprecis"). Same guaranteed-floor-plus-dodgeable-bulk pattern as
-## every Ultra: a flat hit, then heavy (bazooka-tier) shells scattered
-## with real random jitter per shot — not the deliberate fan every other
-## burst weapon uses, since the imprecision IS the point — across a wide
-## spread.
-const PLUIE_DE_SCUDS_SHELL_COUNT := 5
-const PLUIE_DE_SCUDS_SPREAD_DEG := 55.0
-const PLUIE_DE_SCUDS_STAGGER := 0.15
+## Lourd's Ultra — "Pluie de Scuds" (reworked 2026-08-15, Camil: "il
+## envoie juste quelques missiles: bof. j'aurais plus vu une pluie de
+## missiles qui arrivent du haut... ca doit etre tres dur a eviter. On peut
+## faire apparaitre petit a petit des cibles au sol, et le missile arrive du
+## haut et tombe dans la cible en 1/2s. L'explosion de chaque missile
+## pourrait provoquer une petite vague de push autour du point d'impact,
+## donc degats de zone."). Same guaranteed-floor-plus-dodgeable-bulk
+## pattern as every Ultra, but the bulk is now a genuine field bombardment:
+## MISSILE_COUNT reticles land across the opponent's ENTIRE half (not a
+## narrow spread from Lourd's own position like the old shell burst), each
+## telegraphed for FALL_DURATION by a MissileStrikeNode (closing ring +
+## shrinking shell), staggered STAGGER apart so they keep raining down
+## rather than all landing near-simultaneously — one alone is trivial to
+## sidestep, but weaving between 20 is the actual challenge.
 const PLUIE_DE_SCUDS_GUARANTEED_DAMAGE := 8.0
+const PLUIE_DE_SCUDS_MISSILE_COUNT := 50 # 2026-08-15 playtest (Camil): 20 -> 25 ("5 de plus"), then "j'arrive encore a eviter. Multiplie par 2 le nombre de scuds. C'est un ultra, faut que ca poutre." -> x2
+const PLUIE_DE_SCUDS_STAGGER := 0.1
+const PLUIE_DE_SCUDS_FALL_DURATION := 1.0 / 3.0 # 2026-08-15 playtest: "au lieu de 1/2 seconde pour tomber, tu peux faire 1/3 de seconde. Plus dur a eviter." — was 0.5
+const PLUIE_DE_SCUDS_IMPACT_RADIUS := 82.5 # 2026-08-15 playtest: bumped from 40 then 55, now x1.5 again ("cercles rouge plus gros x1.5, zone d'impact x1.5") — the closing ring and the hit radius are the same field, so one bump covers both
+const PLUIE_DE_SCUDS_IMPACT_DAMAGE := 6.0 # 2026-08-15 playtest: x1.5 ("degats x1.5 aussi") — was 4.0
+const PLUIE_DE_SCUDS_IMPACT_PUSH := 30.0
+const PLUIE_DE_SCUDS_TARGET_MARGIN := 40.0 # keeps target reticles off the arena's outer walls
 
 func _ultra_pluie_de_scuds(ship: ShipNode, opponent: ShipNode) -> void:
 	opponent.apply_damage(PLUIE_DE_SCUDS_GUARANTEED_DAMAGE)
-	for i in PLUIE_DE_SCUDS_SHELL_COUNT:
-		var angle_offset := randf_range(-PLUIE_DE_SCUDS_SPREAD_DEG / 2.0, PLUIE_DE_SCUDS_SPREAD_DEG / 2.0)
+	var bounds := Rect2(arena_origin, arena_size)
+	var min_x := bounds.position.x + PLUIE_DE_SCUDS_TARGET_MARGIN if opponent.side == 0 else _current_frontier_x
+	var max_x := _current_frontier_x if opponent.side == 0 else bounds.position.x + bounds.size.x - PLUIE_DE_SCUDS_TARGET_MARGIN
+	var min_y := bounds.position.y + PLUIE_DE_SCUDS_TARGET_MARGIN
+	var max_y := bounds.position.y + bounds.size.y - PLUIE_DE_SCUDS_TARGET_MARGIN
+	for i in PLUIE_DE_SCUDS_MISSILE_COUNT:
+		var target := Vector2(randf_range(min_x, max_x), randf_range(min_y, max_y))
 		if i > 0:
-			get_tree().create_timer(i * PLUIE_DE_SCUDS_STAGGER).timeout.connect(_spawn_projectile.bind(ULTRA_PLUIE_DE_SCUDS, ship, angle_offset))
+			get_tree().create_timer(i * PLUIE_DE_SCUDS_STAGGER).timeout.connect(_spawn_missile_strike.bind(target, opponent))
 		else:
-			_spawn_projectile(ULTRA_PLUIE_DE_SCUDS, ship, angle_offset)
+			_spawn_missile_strike(target, opponent)
+
+func _spawn_missile_strike(target: Vector2, opponent: ShipNode) -> void:
+	if not is_instance_valid(opponent):
+		return # the round/rally ended mid-rain (K cheat, a real KO from something else) — don't strike a freed/reset ship
+	var missile := MissileStrikeNode.new()
+	missile.target_position = target
+	missile.fall_duration = PLUIE_DE_SCUDS_FALL_DURATION
+	missile.impact_radius = PLUIE_DE_SCUDS_IMPACT_RADIUS
+	missile.impact_damage = PLUIE_DE_SCUDS_IMPACT_DAMAGE
+	missile.impact_push_distance = PLUIE_DE_SCUDS_IMPACT_PUSH
+	missile.opponent = opponent
+	add_child(missile)
 
 ## Spreader's Ultra — "Pluie de Bonbons" (2026-08-13 Epic 4 memlog: "pluie
-## de bonbons (saturation totale de l'arene, contraste mignon/letal)").
-## Same guaranteed-floor-plus-dodgeable-bulk pattern: a flat hit, then a
-## much bigger fan than her base mini_shot (14 projectiles across 80deg,
-## vs. mini_shot's 5 across 35deg) — wide enough to read as covering the
-## whole vertical span of the arena rather than a narrow spray.
+## de bonbons (saturation totale de l'arene, contraste mignon/letal)");
+## reworked 2026-08-15 (Camil: "je ne m'y suis toujours pas fait. Idee :
+## faire tomber verticalement des eventails sur le champ adverse, en
+## grand nombre et toujours avec un petit decalage (genre pluie verticale
+## qui traverse l'ecran de haut en bas)"). The old horizontal fan
+## diverged from Spreader's own fixed position — same core problem as
+## Lourd's original shell burst — so most candies never got anywhere near
+## a target at range. This drops PLUIE_DE_BONBONS_COUNT candies from
+## above the OPPONENT's half, each at a random X with a random spawn
+## delay ("petit decalage"), falling straight down — plain ProjectileNode
+## instances built directly (not via _spawn_projectile(), which always
+## launches horizontally off the shooter's own side) so "down" doesn't
+## depend on shooter side at all. Then, same day: "j'en ferai tomber 2x
+## plus. J'accelererai legerement la vitesse (1.3x plus rapide)."
 const PLUIE_DE_BONBONS_GUARANTEED_DAMAGE := 8.0
+const PLUIE_DE_BONBONS_COUNT := 40 # 2026-08-15 playtest: "j'en ferai tomber 2x plus" — was 20
+const PLUIE_DE_BONBONS_SPAWN_WINDOW := 1.5
+const PLUIE_DE_BONBONS_FALL_SPEED := 546.0 # 2026-08-15 playtest: "j'accelererai legerement la vitesse (1.3x plus rapide)" — was 420
+const PLUIE_DE_BONBONS_MARGIN := 30.0 # keeps drops off the arena's left/right walls
+# 2026-08-15 playtest: "je laisserai [les eventails] a taille normale" —
+# already the case (visual_scale below reads ULTRA_PLUIE_DE_BONBONS.
+# visual_scale_multiplier = 1.4, same as mini_shot.tres's normal fire),
+# noted here so it's obvious this was a deliberate confirm, not an
+# oversight, if it comes up again. "Attention a ne pas modifier le tir
+# normal !" — this whole function/its helper are the only things that
+# touch this Ultra; mini_shot.tres itself is never written to.
 
 func _ultra_pluie_de_bonbons(ship: ShipNode, opponent: ShipNode) -> void:
 	opponent.apply_damage(PLUIE_DE_BONBONS_GUARANTEED_DAMAGE)
-	for i in ULTRA_PLUIE_DE_BONBONS.projectile_count:
-		var p := float(i) / float(maxi(ULTRA_PLUIE_DE_BONBONS.projectile_count - 1, 1))
-		var angle_offset := lerpf(-ULTRA_PLUIE_DE_BONBONS.burst_spread_deg / 2.0, ULTRA_PLUIE_DE_BONBONS.burst_spread_deg / 2.0, p)
-		if ULTRA_PLUIE_DE_BONBONS.burst_stagger > 0.0 and i > 0:
-			get_tree().create_timer(i * ULTRA_PLUIE_DE_BONBONS.burst_stagger).timeout.connect(_spawn_projectile.bind(ULTRA_PLUIE_DE_BONBONS, ship, angle_offset))
+	var bounds := Rect2(arena_origin, arena_size)
+	var min_x := bounds.position.x + PLUIE_DE_BONBONS_MARGIN if opponent.side == 0 else _current_frontier_x
+	var max_x := _current_frontier_x if opponent.side == 0 else bounds.position.x + bounds.size.x - PLUIE_DE_BONBONS_MARGIN
+	for i in PLUIE_DE_BONBONS_COUNT:
+		var x := randf_range(min_x, max_x)
+		var delay := randf_range(0.0, PLUIE_DE_BONBONS_SPAWN_WINDOW) # random, not evenly staggered — "un petit decalage" reads more like rain than a metronome
+		if delay > 0.0:
+			get_tree().create_timer(delay).timeout.connect(_spawn_bonbon_raindrop.bind(x, opponent))
 		else:
-			_spawn_projectile(ULTRA_PLUIE_DE_BONBONS, ship, angle_offset)
+			_spawn_bonbon_raindrop(x, opponent)
+
+func _spawn_bonbon_raindrop(x: float, opponent: ShipNode) -> void:
+	if not is_instance_valid(opponent):
+		return # round/rally ended mid-spawn-window
+	var bounds := Rect2(arena_origin, arena_size)
+	var drop := ProjectileNode.new()
+	drop.position = Vector2(x, bounds.position.y - 20.0)
+	drop.velocity = Vector2(0.0, PLUIE_DE_BONBONS_FALL_SPEED)
+	drop.damage = ULTRA_PLUIE_DE_BONBONS.damage
+	drop.textures = ProjectileFactory.BONBON_TEXTURES
+	drop.visual_scale = ULTRA_PLUIE_DE_BONBONS.visual_scale_multiplier
+	drop.spin_speed = ULTRA_PLUIE_DE_BONBONS.projectile_spin_speed
+	drop.target = opponent
+	drop.lifetime = 3.0
+	add_child(drop)
 
 ## Mitrailleur's Ultra — "Mitrailleuses Satellites" (2026-08-13 Epic 4
-## memlog: "double full-auto temporaire"). Same guaranteed-floor pattern,
-## then two autonomous TurretNodes (reusing the existing turret auto-fire
-## system, effect_type "turret") spawn flanking him above/below and fire
-## on their own at a fast rate for a short lifetime — not a player-held
-## buff, actual satellite guns.
+## memlog: "double full-auto temporaire"; reworked 2026-08-15, Camil: "les
+## petites tourelles se mettent au bon endroit mais doivent suivre le
+## vaisseau. Ensuite elles ne doivent pas tirer toutes seules : elles
+## envoient des tirs de mitraillette quand on tire normalement", then
+## again same day: "les tirs doivent etre des tirs normaux de
+## mitraillette (la tu as mis des carres verts qui visent l'ennemi =>
+## non)". Same guaranteed-floor pattern, then two escort TurretNodes
+## spawn flanking him above/below purely as a visual/destructible
+## presence (follow_ship keeps them locked to his position every tick,
+## autofire=false — they never fire themselves via TurretNode._fire_at_
+## target(), which aims directly at the target and has no sprite,
+## reading as the reported "green squares that aim at the enemy").
+## Actual shots are real _spawn_projectile() calls with his own weapon —
+## same machine-gun sprite/straight-forward trajectory as his normal
+## fire, just offset to originate from each satellite — triggered by his
+## weapon_fired signal (NOT charged_weapon_fired — only normal fire
+## echoes to the satellites).
 const MITRAILLEUSES_SATELLITES_GUARANTEED_DAMAGE := 8.0
 const MITRAILLEUSES_SATELLITES_OFFSET_Y := 50.0
 
+## ship -> Array[TurretNode], the CURRENT set of live satellites for
+## whichever ship last cast this Ultra. 2026-08-15 bug report (Camil):
+## "quand il a utilise son ultra, s'il le reutilise, les tirs des modules
+## ne marchent plus" — the previous design connected a freshly-bind()'d
+## _on_satellite_fire to ship.weapon_fired on every single cast, but
+## connecting the same (self, "_on_satellite_fire") method to the same
+## signal twice ERRORS in Godot (regardless of different bind() args, the
+## duplicate check is keyed on the base method) — so the SECOND cast's
+## connect() call silently failed, leaving the second wave of satellites
+## permanently unwired. Fixed by wiring each ship's signals ONCE ever
+## (guarded by set_meta(), checked below — a plain is_connected() can't
+## guard a lambda the same way since each lambda is a distinct Callable
+## every time one is created) and keeping the live turret list in this
+## dictionary instead — re-casting just overwrites the entry.
+var _satellite_turrets_by_ship: Dictionary = {}
+const SATELLITE_FIRE_WIRED_META := "_satellite_fire_wired"
+
 func _ultra_mitrailleuses_satellites(ship: ShipNode, opponent: ShipNode) -> void:
 	opponent.apply_damage(MITRAILLEUSES_SATELLITES_GUARANTEED_DAMAGE)
+	var turrets: Array[TurretNode] = []
 	for offset_y in [-MITRAILLEUSES_SATELLITES_OFFSET_Y, MITRAILLEUSES_SATELLITES_OFFSET_Y]:
 		var turret := TurretNode.new()
-		turret.position = ship.position + Vector2(0.0, offset_y)
+		turret.follow_ship = ship
+		turret.follow_offset = Vector2(0.0, offset_y)
+		turret.autofire = false
 		turret.weapon = ULTRA_MITRAILLEUSES_SATELLITES
 		turret.target = opponent
 		turret.owner_side = ship.side
 		add_child(turret)
+		turrets.append(turret)
+	_satellite_turrets_by_ship[ship] = turrets
+	# 2026-08-15 (Camil): "si on est en ultra + tir charge, il faut bien les
+	# tirs sur les modules + les 2 tirs classiques du tir chargee" — echo on
+	# BOTH normal fire and a charged release, not just normal fire. Lambdas
+	# (not a bound method reference) so `ship` travels with the connection
+	# without needing .bind() — .bind()'d or not, reconnecting the SAME
+	# method to the SAME signal twice still errors, but a lambda is a
+	# fresh, distinct Callable every time one is created, so set_meta() is
+	# the actual guard here, not is_connected().
+	if not ship.has_meta(SATELLITE_FIRE_WIRED_META):
+		ship.set_meta(SATELLITE_FIRE_WIRED_META, true)
+		ship.weapon_fired.connect(func(weapon: WeaponData): _on_satellite_fire(weapon, ship))
+		ship.charged_weapon_fired.connect(func(weapon: WeaponData): _on_satellite_fire(weapon, ship))
 
-## Zoneur's Ultra — "Grille Laser" (2026-08-13 Epic 4 memlog: "grille
-## laser (motif de faisceaux lisible, des trous a trouver)"). Guaranteed
-## floor, then GRILLE_LASER_BAND_COUNT evenly-spaced fixed-Y beams span
-## the arena's height (BeamNode.freeze_position=true — a battlefield
-## hazard, not a ray that follows the shooter) with GRILLE_LASER_GAP_COUNT
-## of them left as safe lanes each cast — the band POSITIONS are always
-## the same evenly-spaced pattern (the "lisible" part), but which ones
-## are gaps varies, so the player has to actually look rather than
-## memorize one fixed layout.
+## Fires a real normal-looking shot (correct machine-gun sprite, straight
+## trajectory, via the shared _spawn_projectile() every other shot uses)
+## from each satellite's position, instead of TurretNode's own aimed/no-
+## sprite _fire_at_target(). `weapon` is whatever the ship actually fired
+## (always machine_gun for Mitrailleur today, since every character's kit
+## is currently a single weapon) — not hardcoded to a specific resource,
+## so this keeps working if his kit ever grows. Silently does nothing if
+## every satellite for this ship has expired (turret_lifetime) or none
+## were ever cast this match — no need to disconnect anything, the
+## connection is meant to be permanent and harmless while inactive.
+func _on_satellite_fire(weapon: WeaponData, ship: ShipNode) -> void:
+	if not is_instance_valid(ship) or not _satellite_turrets_by_ship.has(ship):
+		return
+	var any_satellite_alive := false
+	for turret in _satellite_turrets_by_ship[ship]:
+		if is_instance_valid(turret):
+			any_satellite_alive = true
+			break
+	if not any_satellite_alive:
+		return
+	for offset_y in [-MITRAILLEUSES_SATELLITES_OFFSET_Y, MITRAILLEUSES_SATELLITES_OFFSET_Y]:
+		_spawn_projectile(weapon, ship, 0.0, 1.0, Vector2(0.0, offset_y))
+
+## Zoneur's Ultra rework — "Grille Laser" (2026-08-15, Camil: "ca fait
+## trois lasers horizontaux. On avait dit que ca devait faire des laser en
+## maillage, qui apparaissent au fur et a mesure (10 lasers sur 1
+## seconde), dans tous les sens, et uniquement dans le champ adverse,
+## direction random"). Guaranteed floor, then GRILLE_LASER_COUNT diagonal
+## LaserMeshNode segments (see that file — BeamNode's horizontal-only
+## model doesn't support arbitrary angles), each a random angle through a
+## random point, clipped to the OPPONENT's half only, staggered over
+## GRILLE_LASER_SPAWN_WINDOW so the web visibly builds up. Each segment
+## outlives the spawn window (GRILLE_LASER_LIFETIME > the per-laser
+## stagger), so by the time the last one lands, most of the earlier ones
+## are still up — that's what makes it read as a dense mesh instead of a
+## sequence of single lines.
 const GRILLE_LASER_GUARANTEED_DAMAGE := 8.0
-const GRILLE_LASER_BAND_COUNT := 5
-const GRILLE_LASER_GAP_COUNT := 2
-const GRILLE_LASER_DURATION := 1.5
-const GRILLE_LASER_BAND_MARGIN := 40.0 # keeps the outermost bands off the arena's top/bottom walls
+const GRILLE_LASER_COUNT := 14 # 2026-08-15 playtest ("c'est parfait :)", then "je rajouterai 4 lasers") — was 10
+const GRILLE_LASER_SPAWN_WINDOW := 1.0
+const GRILLE_LASER_LIFETIME := 1.5
+const GRILLE_LASER_DAMAGE_PER_TICK := 1.0
+const GRILLE_LASER_THICKNESS := 5.0
 
 func _ultra_grille_laser(ship: ShipNode, opponent: ShipNode) -> void:
 	opponent.apply_damage(GRILLE_LASER_GUARANTEED_DAMAGE)
+	var full_bounds := Rect2(arena_origin, arena_size)
+	var half_bounds := Rect2(full_bounds)
+	if opponent.side == 0:
+		half_bounds.size.x = _current_frontier_x - full_bounds.position.x
+	else:
+		half_bounds.position.x = _current_frontier_x
+		half_bounds.size.x = full_bounds.position.x + full_bounds.size.x - _current_frontier_x
+	var stagger := GRILLE_LASER_SPAWN_WINDOW / float(GRILLE_LASER_COUNT - 1)
+	for i in GRILLE_LASER_COUNT:
+		if i > 0:
+			get_tree().create_timer(i * stagger).timeout.connect(_spawn_laser_mesh_segment.bind(half_bounds, opponent))
+		else:
+			_spawn_laser_mesh_segment(half_bounds, opponent)
+
+func _spawn_laser_mesh_segment(bounds: Rect2, opponent: ShipNode) -> void:
+	if not is_instance_valid(opponent):
+		return # round/rally ended mid-spawn-stagger
+	var endpoints := LaserMeshNode.random_clipped_to(bounds)
+	var laser := LaserMeshNode.new()
+	laser.start = endpoints[0]
+	laser.end = endpoints[1]
+	laser.lifetime = GRILLE_LASER_LIFETIME
+	laser.damage_per_tick = GRILLE_LASER_DAMAGE_PER_TICK
+	laser.thickness = GRILLE_LASER_THICKNESS
+	laser.target = opponent
+	add_child(laser)
+
+## Center of the given ship's own playable half — used by area-hazard
+## Ultras (Trou noir, Bourrasque) that need to open where the OPPONENT
+## actually spends their time, not at the frontier. 2026-08-15 playtest
+## (Camil): the frontier spot both used originally is often nowhere near
+## wherever the opponent happens to be standing, especially for a PUSH
+## effect (self-limiting — the target leaves the radius the moment it's
+## pushed, unlike a pull which drags them back in) — Vif's Bourrasque read
+## as "does nothing at all" because of exactly this.
+func _half_center(for_ship: ShipNode) -> Vector2:
 	var bounds := Rect2(arena_origin, arena_size)
-	var band_indices: Array = range(GRILLE_LASER_BAND_COUNT)
-	band_indices.shuffle()
-	var gap_indices := band_indices.slice(0, GRILLE_LASER_GAP_COUNT)
-	for i in GRILLE_LASER_BAND_COUNT:
-		if i in gap_indices:
-			continue
-		var t := float(i) / float(GRILLE_LASER_BAND_COUNT - 1)
-		var band_y := lerpf(bounds.position.y + GRILLE_LASER_BAND_MARGIN, bounds.position.y + bounds.size.y - GRILLE_LASER_BAND_MARGIN, t)
-		var beam := BeamNode.new()
-		beam.shooter = ship
-		beam.target = opponent
-		beam.arena_bounds = bounds
-		beam.weapon = ULTRA_GRILLE_LASER # must be set before add_child() — add_child() calls _ready() synchronously, which reads weapon.beam_range
-		beam.freeze_position = true
-		beam.position = Vector2(ship.position.x, band_y) # also before add_child() — freeze_position captures this in _ready()
-		beam.lifetime = GRILLE_LASER_DURATION
-		add_child(beam)
+	var x := (bounds.position.x + _current_frontier_x) / 2.0 if for_ship.side == 0 else (_current_frontier_x + bounds.position.x + bounds.size.x) / 2.0
+	return Vector2(x, bounds.position.y + bounds.size.y / 2.0)
 
 ## Contrôleur's Ultra — "Trou noir" (2026-08-13 Epic 4 memlog: "champ
 ## continu, attire+ralentit, synergie avec ses tourelles"). Guaranteed
-## floor, then a BlackHoleNode opens at a fixed spot — the frontier,
-## vertically centered — rather than on top of the opponent (which would
-## give the pull nothing to actually pull FROM) or chasing them, so it
-## reads as a real battlefield hazard the opponent has to fight the pull
-## of, not a homing effect.
+## floor, then a BlackHoleNode opens in the middle of the OPPONENT's own
+## half (2026-08-15 playtest: was the frontier — "il faut qu'il apparaisse
+## au milieu du terrain adverse, et dure au moins 2x plus longtemps"),
+## rather than on top of the opponent (which would give the pull nothing
+## to actually pull FROM) or chasing them, so it reads as a real
+## battlefield hazard the opponent has to fight the pull of, not a homing
+## effect.
 const TROU_NOIR_GUARANTEED_DAMAGE := 8.0
-const TROU_NOIR_RADIUS := 110.0
+const TROU_NOIR_RADIUS := 165.0 # 2026-08-15 playtest: x1.5 ("vortex x1.5") — was 110
 const TROU_NOIR_PULL_SPEED := 140.0
 const TROU_NOIR_SLOW_MULTIPLIER := 0.5
-const TROU_NOIR_DURATION := 3.0
+const TROU_NOIR_DURATION := 6.0 # 2026-08-15 playtest: at least 2x the old 3.0
+# 2026-08-15 (Camil, screenshot): a second, fainter outer halo — slow only
+# (no pull), milder than the inner zone's slow.
+const TROU_NOIR_OUTER_RADIUS := 260.0
+const TROU_NOIR_OUTER_SLOW_MULTIPLIER := 0.6 # 2026-08-15 playtest: "on ne se sent pas ralenti" — was 0.75
 
 func _ultra_trou_noir(ship: ShipNode, opponent: ShipNode) -> void:
 	opponent.apply_damage(TROU_NOIR_GUARANTEED_DAMAGE)
 	var black_hole := BlackHoleNode.new()
-	black_hole.position = Vector2(_current_frontier_x, arena_origin.y + arena_size.y / 2.0)
+	black_hole.position = _half_center(opponent)
 	black_hole.radius = TROU_NOIR_RADIUS
 	black_hole.pull_speed = TROU_NOIR_PULL_SPEED
 	black_hole.slow_multiplier = TROU_NOIR_SLOW_MULTIPLIER
+	black_hole.outer_radius = TROU_NOIR_OUTER_RADIUS
+	black_hole.outer_slow_multiplier = TROU_NOIR_OUTER_SLOW_MULTIPLIER
 	black_hole.duration = TROU_NOIR_DURATION
 	black_hole.target = opponent
 	add_child(black_hole)
@@ -478,30 +746,299 @@ func _ultra_trou_noir(ship: ShipNode, opponent: ShipNode) -> void:
 ## counter-invert their own inputs, matching the "reducible by skill"
 ## half of the locked Ultra pattern even without a projectile burst.
 const BROUILLAGE_GUARANTEED_DAMAGE := 8.0
-const BROUILLAGE_DURATION := 2.5
+const BROUILLAGE_DURATION := 12.5 # 2026-08-15 playtest: x5 ("ca dure 5x plus longtemps") — was 2.5
 
 func _ultra_brouillage_de_commandes(ship: ShipNode, opponent: ShipNode) -> void:
 	opponent.apply_damage(BROUILLAGE_GUARANTEED_DAMAGE)
 	opponent.apply_control_scramble(BROUILLAGE_DURATION)
 
-# Placeholder R-Type sprites (2026-08-02) — replace with final art later.
-# Machine-gun shots are colored per-shooter (matches ship colors) so a spray
-# from both sides stays readable; bazooka keeps its own look, already
-# distinct by size, plus a 2-frame flicker (see ProjectileNode).
-const MACHINE_GUN_TEX_P1 := preload("res://assets/art/vfx/mitraillette_shot_bleu.png")
-const MACHINE_GUN_TEX_P2 := preload("res://assets/art/vfx/mitraillette_shot_rose.png")
-const BAZOOKA_TEXTURES := [
-	preload("res://assets/art/vfx/bazook.png"), # single custom sprite, replaced the extracted 2-frame R-Type version
-]
-const VORTEX_TEXTURES := [
+## Vif's Ultra rework — "Bourrasque" (2026-08-15, Camil, with a reference
+## image): the old fixed-point wind vortex (WindVortexNode, "ca fait just
+## un espece de rond bleu au milieu") is gone entirely. Now: 10 slightly
+## bigger Tourbillon vortices appear from OFF-SCREEN behind the caster's
+## own outer wall, at FIXED (not random) vertical slots matching the
+## reference image's layout — see BOURRASQUE_VORTEX_Y_FRACTIONS — then
+## race straight across toward the opponent's half, speeding up the whole
+## way (ProjectileNode.acceleration, not constant velocity). Alongside
+## them, a WindGustNode shoves the opponent toward THEIR OWN outer wall
+## for the whole attack — a continuous positioning debuff distinct from
+## the vortices' own damage.
+const BOURRASQUE_GUARANTEED_DAMAGE := 8.0
+const BOURRASQUE_VORTEX_COUNT := 10
+# Fixed vertical spawn slots, as a fraction of the arena's height (0 =
+# top wall, 1 = bottom wall) — read off Camil's reference screenshot,
+# NOT randomized per cast ("pas de random, respecte bien l'emplacement
+# que j'ai mis").
+const BOURRASQUE_VORTEX_Y_FRACTIONS: Array[float] = [0.21, 0.17, 0.12, 0.38, 0.50, 0.67, 0.63, 0.79, 0.91, 0.91]
+# 2026-08-15 playtest: "attention avec l'apparition, c'est comme dans mon
+# screenshot : les tourbillons ne doivent pas etre sur le meme axe
+# vertical" — same order as Y_FRACTIONS above, read off the same
+# reference image; varies how far off-screen each one starts (see
+# BOURRASQUE_VORTEX_MIN/MAX_SPAWN_OFFSET below) so they don't all pop in
+# on a single vertical line.
+const BOURRASQUE_VORTEX_DEPTH_FRACTIONS: Array[float] = [0.24, 0.63, 0.93, 0.87, 0.40, 0.26, 0.73, 0.90, 0.55, 0.17]
+const BOURRASQUE_VORTEX_MIN_SPAWN_OFFSET := 40.0 # px off-screen behind the caster's own outer wall, nearest
+# 2026-08-15 playtest, re-sharing the reference screenshot: "pas mal MAIS
+# il faut beaucoup plus d'espace horizontalement entre les tourbillons."
+# 180 was too shallow — every vortex shares the same start speed and
+# acceleration, so a small depth gap collapses almost instantly once
+# they're moving, reading as clustered rather than spread. Widened a lot
+# (was 180) so the horizontal spacing seen in the reference actually
+# lasts while they cross the arena, not just at the very first instant.
+const BOURRASQUE_VORTEX_MAX_SPAWN_OFFSET := 600.0 # px off-screen, furthest back
+const BOURRASQUE_VORTEX_START_SPEED := 200.0
+const BOURRASQUE_VORTEX_ACCELERATION := 220.0 # px/s^2 — "avancent de plus en plus vite"
+const BOURRASQUE_VORTEX_VISUAL_SCALE := 3.2 # "un peu plus gros" than the normal Tourbillon's 2.4 (see _spawn_projectile())
+# 2026-08-16 playtest: "les tourbillons ne doivent pas tourner sur eux meme" -
+# node self-rotation is gone (no more spin_speed assignment below); the
+# tornado read now comes purely from the wind1/wind2/wind3 texture cycle,
+# see BOURRASQUE_VORTEX_TEXTURES.
+const BOURRASQUE_VORTEX_DAMAGE := 4
+const BOURRASQUE_VORTEX_LIFETIME := 4.0
+# 2026-08-16 playtest: "Animation c'est enchainement des 3 states wind1 wind2
+# wind3" - a dedicated 3-frame cycle for Bourrasque only. Deliberately
+# separate from VORTEX_TEXTURES (the base Tourbillon weapon), which stays
+# single-frame per the 2026-08-09 decision noted on that constant - these
+# vortices are slower/bigger and read fine with a real animation.
+const BOURRASQUE_VORTEX_TEXTURES := [
 	preload("res://assets/art/vfx/wind1.png"),
-] # Vif's Tourbillon (2026-08-09, Camil: "vu la vitesse, pour le tourbillon, pas d'anim : garde uniquement wind1") — dropped the wind1-3 cycle, too fast to read once the loop motion was tuned up; the looping path itself carries the "spinning" read now.
-const BONBON_TEXTURES := [
-	preload("res://assets/art/vfx/bonbon.png"),
-] # Mini/Éventail's fan shot (2026-08-09) — single sprite, spins via WeaponData.projectile_spin_speed (mini_shot.tres) since there's no multi-frame cycle for this one, unlike the Tourbillon.
-const BOOMERANG_TEXTURES := [
-	preload("res://assets/art/vfx/boomerang.png"),
-] # Perturbateur's stun_boomerang (2026-08-10) — used to reuse the tinted machine-gun sprite; dedicated art now, spins via projectile_spin_speed (stun_boomerang.tres).
+	preload("res://assets/art/vfx/wind2.png"),
+	preload("res://assets/art/vfx/wind3.png"),
+]
+const BOURRASQUE_GUST_DURATION := 3.0
+# 2026-08-16 playtest correction: "bourrasque ne pousse pas au contact, ca
+# pousse tout le temps de l'ultra. Et plus les tourbillons avancent vite,
+# plus la poussee est forte (a la fin ... il doit meme un poil reculer)" —
+# the push IS the WindGustNode's continuous every-frame shove (already
+# running for the whole attack), not a one-off on-hit effect; it just
+# needed to ramp up instead of holding a flat speed. Strength is derived
+# straight from the vortices' OWN accelerating speed formula
+# (BOURRASQUE_VORTEX_START_SPEED + BOURRASQUE_VORTEX_ACCELERATION * t —
+# see the spawn loop below) so it literally reads "the vortices are moving
+# faster, so the wind is stronger", scaled down so the ultra opens with a
+# mild nudge but by BOURRASQUE_GUST_DURATION comfortably clears
+# ShipState.SPEED (420 px/s) — the opponent can't advance at all by then
+# and actually drifts backward while holding forward.
+const BOURRASQUE_GUST_PUSH_SCALE := 0.55
+
+func _ultra_bourrasque(ship: ShipNode, opponent: ShipNode) -> void:
+	opponent.apply_damage(BOURRASQUE_GUARANTEED_DAMAGE)
+	var bounds := Rect2(arena_origin, arena_size)
+	var direction := 1.0 if ship.side == 0 else -1.0
+	for i in BOURRASQUE_VORTEX_Y_FRACTIONS.size():
+		var y_fraction: float = BOURRASQUE_VORTEX_Y_FRACTIONS[i]
+		var depth_offset := lerpf(BOURRASQUE_VORTEX_MIN_SPAWN_OFFSET, BOURRASQUE_VORTEX_MAX_SPAWN_OFFSET, BOURRASQUE_VORTEX_DEPTH_FRACTIONS[i])
+		var spawn_x := bounds.position.x - depth_offset if ship.side == 0 else bounds.position.x + bounds.size.x + depth_offset
+		var vortex := ProjectileNode.new()
+		vortex.position = Vector2(spawn_x, bounds.position.y + bounds.size.y * y_fraction)
+		vortex.velocity = Vector2(direction * BOURRASQUE_VORTEX_START_SPEED, 0.0)
+		vortex.acceleration = BOURRASQUE_VORTEX_ACCELERATION
+		vortex.textures = BOURRASQUE_VORTEX_TEXTURES
+		vortex.visual_scale = BOURRASQUE_VORTEX_VISUAL_SCALE
+		vortex.damage = BOURRASQUE_VORTEX_DAMAGE
+		vortex.target = opponent
+		vortex.lifetime = BOURRASQUE_VORTEX_LIFETIME
+		add_child(vortex)
+
+	var gust := WindGustNode.new()
+	gust.duration = BOURRASQUE_GUST_DURATION
+	gust.push_speed_start = BOURRASQUE_VORTEX_START_SPEED * BOURRASQUE_GUST_PUSH_SCALE
+	gust.push_speed_end = (BOURRASQUE_VORTEX_START_SPEED + BOURRASQUE_VORTEX_ACCELERATION * BOURRASQUE_GUST_DURATION) * BOURRASQUE_GUST_PUSH_SCALE
+	gust.target = opponent
+	add_child(gust)
+
+# Placeholder R-Type sprites (2026-08-02) — replace with final art later.
+# 2026-08-18: the actual texture consts (MACHINE_GUN_TEX_P1/P2, BAZOOKA_/
+# VORTEX_/BONBON_/BOOMERANG_TEXTURES) moved to ProjectileFactory, the only
+# place that still directly assigns them — BONBON_TEXTURES' one other call
+# site (the Pluie de Bonbons drop, above) now reads ProjectileFactory.
+# BONBON_TEXTURES directly.
+
+## Epic 4 reward system (2026-08-16, Camil: "on va mettre des trucs en
+## face des recompenses. pour chaque rival vaincu.") — the 8 base kit
+## weapons, keyed by WeaponData.id, the exact same string CampaignSave.
+## unlocks_for(character_id) stores (see RivalEncounterData.unlock_reward
+## being set to the defeated rival's own weapon resource, and
+## _resolve_campaign_result() recording its `.id`). Used to resolve an
+## unlocked id back into the real resource (with its passive_interval)
+## when wiring up passive rewards for a ship — see _setup_passive_rewards().
+const BASE_WEAPONS_BY_ID := {
+	"bazooka": preload("res://data/weapons/bazooka.tres"),
+	"turret": preload("res://data/weapons/turret.tres"),
+	"machine_gun": preload("res://data/weapons/machine_gun.tres"),
+	"vortex": preload("res://data/weapons/vortex.tres"),
+	"laser": preload("res://data/weapons/laser.tres"),
+	"stun_boomerang": preload("res://data/weapons/stun_boomerang.tres"),
+	"homing_missile": preload("res://data/weapons/homing_missile.tres"),
+	"mini_shot": preload("res://data/weapons/mini_shot.tres"),
+}
+# Controleur's own passive turret ("dure 6s", distinct from the normal 25s
+# and the charged 5s) — the one number from Camil's original example that
+# isn't just weapon.passive_interval, so it lives here instead of on the
+# .tres.
+const PASSIVE_TURRET_LIFETIME := 6.0
+# 2026-08-16 playtest: "on est un peu sur le meme pattern (une arme qui
+# apparait tous les X). Il faut etre plus creatif" — the first pass had
+# all 8 passives reduce to the exact same verb. 2026-08-16 same-day
+# follow-up gave each of the 7 (Controleur's turret was already fine, its
+# own idea from the very start) a bespoke effect instead — see
+# _fire_passive_reward()'s dispatch for the full rundown. These are the
+# tuning for the non-weapon-.tres effects (a lone satellite module, one
+# Scud strike, a vertical laser wall, a lone homing missile, Perturbateur's
+# Ultra-linked scramble, Spreader's heal) that don't belong on a
+# WeaponData.tres since most aren't shot patterns at all.
+# 2026-08-22 (Camil: "ca ne me plait pas. Il faudrait finalement que ce soit
+# exactement le tir de mitrailleur (avec le meme sprite), mais lance
+# automatiquement, salve de 4 [tirs], toutes les 3 secondes. Pas de
+# module.") — replaces the old self-firing satellite TurretNode module
+# entirely (that const/behavior is gone, see _fire_passive_reward()).
+const PASSIVE_MITRAILLEUR_BURST_COUNT := 4
+const PASSIVE_ZONEUR_LASER_LIFETIME := GRILLE_LASER_LIFETIME # reuses Grille Laser's own tick rate/fade, just one segment
+const PASSIVE_PERTURBATEUR_ULTRA_SCRAMBLE_DURATION := 5.0 # "lors de l'ultra du joueur, applique aussi le brouillage, mais uniquement 5 sec"
+const PASSIVE_VIF_SPEED_MULTIPLIER := 1.2 # "une acceleration de +20%, tout le temps" — PERMANENT, see ShipNode.apply_permanent_speed_bonus()
+const PASSIVE_SPREADER_HEAL_FRACTION := 0.15 # "lui redonne 15% de PV" — of max_hp_override, not a flat number
+# 2026-08-22 (Camil: "la rotation de l'eventail devrait durer 2x plus
+# longtemps, on n'a pas le temps de le voir") — was 1.0.
+const PASSIVE_SPREADER_FAN_DURATION := 2.0 # "un eventail apparait et tourne autour du joueur pendant 1 sec"
+const PASSIVE_HEAL_POPUP_COLOR := Color(0.35, 0.9, 0.35, 1.0) # green, distinct from the gold gauge-fill "+X" popup — this one's HP, not weapon charge
+
+## Wires up every reward this ship's CURRENT character has unlocked (scope
+## locked 2026-08-11: always active for that character, campaign AND
+## Versus, forever; multiple unlocked rewards stack — no equip screen).
+## Called once per ship right after its character is finalized in
+## _ready() (covers both the MatchSetup/CharacterSelect path and the
+## campaign-override path, since this runs after both).
+## Most rewards are periodic — one repeating Timer per unlocked passive
+## weapon, parented to the ship itself so it naturally lives/dies with the
+## ship's own lifetime (spans the whole match, survives round transitions)
+## without needing round-reset code. Two are NOT periodic (2026-08-16
+## same-day rework) and are handled here directly instead of via a timer:
+## Vif's is a permanent stat applied once; Perturbateur's is reactive,
+## re-checked live at Ultra-trigger time in _on_ultra_triggered() instead
+## of needing any state kept here at all.
+func _setup_passive_rewards(ship: ShipNode) -> void:
+	if not ship.character:
+		return
+	for unlock_id in CampaignSave.unlocks_for(ship.character.id):
+		if unlock_id == "vortex":
+			ship.apply_permanent_speed_bonus(PASSIVE_VIF_SPEED_MULTIPLIER)
+			continue
+		if unlock_id == "stun_boomerang":
+			continue # reactive, nothing to wire up in advance — see _on_ultra_triggered()
+		var weapon: WeaponData = BASE_WEAPONS_BY_ID.get(unlock_id)
+		if not weapon or weapon.passive_interval <= 0.0:
+			continue
+		var timer := Timer.new()
+		timer.wait_time = weapon.passive_interval
+		timer.autostart = true
+		timer.timeout.connect(_fire_passive_reward.bind(ship, weapon))
+		ship.add_child(timer)
+
+## Fires one unlocked PERIODIC passive reward, no player input at all —
+## Vif's permanent bonus and Perturbateur's Ultra-linked scramble never
+## reach this function at all (see _setup_passive_rewards()/
+## _on_ultra_triggered()). Dispatches by weapon id into 6 different
+## bespoke effects (2026-08-16 same-day rework, "il faut etre plus
+## creatif" — the first pass had every one reduce to "auto-fire this
+## weapon's own shot"), each still tied to that character's own
+## established identity/Ultra:
+##   - Controleur (turret): the entity itself, own short 6s lifetime.
+##   - Mitrailleur (machine_gun): a real 4-shot burst of the exact normal
+##     machine_gun projectile (2026-08-22 rework — was a self-firing
+##     satellite module; Camil: "pas de module").
+##   - Lourd (bazooka): two Pluie-de-Scuds-style missile strikes (reticle +
+##     falling shell), each on its own random point in the opponent's half.
+##   - Zoneur (laser): one vertical LaserMeshNode wall, top to bottom of
+##     the opponent's half, spawning at a random X and sweeping toward
+##     whichever edge (center line or back wall) it's farther from.
+##   - Traqueur (homing_missile): a single real homing missile (not the
+##     normal 3-burst, not the 6-missile charged rafale).
+##   - Spreader (mini_shot): a self-heal (15% of max HP) with a cosmetic
+##     orbiting-fan flourish — flips her own stated weakness ("no
+##     defensive tool of her own") into exactly that.
+## Weapon/entity-based ones fire/land with no aim assist, same "never
+## guaranteed" spirit as every other damage source in this game (the
+## vertical laser and the satellite module are the exception — both cover
+## real space rather than needing to be aimed at all); the heal always lands.
+func _fire_passive_reward(ship: ShipNode, weapon: WeaponData) -> void:
+	if not _round_playing or not is_instance_valid(ship) or not ship.active:
+		return
+	var opponent := ship_2 if ship == ship_1 else ship_1
+	if not is_instance_valid(opponent):
+		return
+	match weapon.id:
+		"turret":
+			_spawn_turret(weapon, ship, false, PASSIVE_TURRET_LIFETIME)
+		"machine_gun":
+			# 2026-08-22 (Camil: "ca ne me plait pas. Il faudrait finalement
+			# que ce soit exactement le tir de mitrailleur (avec le meme
+			# sprite), mais lance automatiquement, salve de 4 [tirs], toutes
+			# les 3 secondes. Pas de module.") — was a self-firing satellite
+			# TurretNode module; now just the real machine_gun projectile
+			# (same _spawn_projectile() every normal press uses, same
+			# sprite/damage) fired 4 times in a row, staggered at the gun's
+			# own natural fire interval so it reads as a real burst, not a
+			# single reskinned shot.
+			var stagger := 1.0 / weapon.fire_rate
+			for i in PASSIVE_MITRAILLEUR_BURST_COUNT:
+				if i == 0:
+					_spawn_projectile(weapon, ship, 0.0)
+				else:
+					get_tree().create_timer(i * stagger).timeout.connect(_spawn_projectile.bind(weapon, ship, 0.0))
+		"bazooka":
+			# 2026-08-22 (Camil: "Passer a 2 scuds qui tombent aleatoirement
+			# toutes les 3 secondes") — was one strike per interval; now two,
+			# each its own independently-randomized point.
+			var bounds := Rect2(arena_origin, arena_size)
+			var min_x := bounds.position.x + PLUIE_DE_SCUDS_TARGET_MARGIN if opponent.side == 0 else _current_frontier_x
+			var max_x := _current_frontier_x if opponent.side == 0 else bounds.position.x + bounds.size.x - PLUIE_DE_SCUDS_TARGET_MARGIN
+			var min_y := bounds.position.y + PLUIE_DE_SCUDS_TARGET_MARGIN
+			var max_y := bounds.position.y + bounds.size.y - PLUIE_DE_SCUDS_TARGET_MARGIN
+			for i in 2:
+				_spawn_missile_strike(Vector2(randf_range(min_x, max_x), randf_range(min_y, max_y)), opponent)
+		"laser":
+			var full_bounds := Rect2(arena_origin, arena_size)
+			var half_bounds := Rect2(full_bounds)
+			if opponent.side == 0:
+				half_bounds.size.x = _current_frontier_x - full_bounds.position.x
+			else:
+				half_bounds.position.x = _current_frontier_x
+				half_bounds.size.x = full_bounds.position.x + full_bounds.size.x - _current_frontier_x
+			var random_x := randf_range(half_bounds.position.x, half_bounds.position.x + half_bounds.size.x)
+			var wall := LaserMeshNode.new()
+			wall.start = Vector2(random_x, half_bounds.position.y)
+			wall.end = Vector2(random_x, half_bounds.position.y + half_bounds.size.y)
+			wall.lifetime = PASSIVE_ZONEUR_LASER_LIFETIME
+			wall.damage_per_tick = GRILLE_LASER_DAMAGE_PER_TICK
+			wall.thickness = GRILLE_LASER_THICKNESS
+			wall.target = opponent
+			# 2026-08-22 (Camil: "il faudrait que le laser se deplace jusqu'au
+			# centre (s'il apparait vers le fond) ou vers le fond (s'il
+			# apparait vers le centre)") — was a static wall; now it always
+			# sweeps toward whichever edge of the half it did NOT spawn
+			# closer to, timed to arrive exactly as its lifetime runs out.
+			var center_edge_x := _current_frontier_x
+			var back_edge_x := half_bounds.position.x if is_equal_approx(center_edge_x, half_bounds.position.x + half_bounds.size.x) else half_bounds.position.x + half_bounds.size.x
+			var target_edge_x := back_edge_x if absf(random_x - center_edge_x) < absf(random_x - back_edge_x) else center_edge_x
+			wall.horizontal_velocity = (target_edge_x - random_x) / PASSIVE_ZONEUR_LASER_LIFETIME
+			add_child(wall)
+		"homing_missile":
+			_spawn_projectile(weapon, ship, 0.0)
+		"mini_shot":
+			var heal_amount := ship.max_hp_override * PASSIVE_SPREADER_HEAL_FRACTION
+			ship.apply_heal(heal_amount)
+			# 2026-08-22 (Camil: "on devrait voir un '+X' en vert qui monte
+			# pour indiquer qu'on gagne des PV") — same FloatingTextNode the
+			# gauge-fill "+X" popup already uses (_on_gauge_filled() above),
+			# just green instead of gold so it reads as HP, not weapon charge.
+			var popup := FloatingTextNode.new()
+			popup.position = ship.position + Vector2(0.0, -16.0)
+			popup.text = "+%d" % int(heal_amount)
+			popup.color = PASSIVE_HEAL_POPUP_COLOR
+			add_child(popup)
+			var fx := PassiveHealFxNode.new()
+			fx.duration = PASSIVE_SPREADER_FAN_DURATION
+			ship.add_child(fx)
 
 ## Epic 2 — the signal carries the full WeaponData resource so this handler
 ## can branch on effect_type instead of a bare damage/is_heavy pair.
@@ -594,85 +1131,16 @@ func _on_charged_weapon_fired(weapon: WeaponData, ship: ShipNode) -> void:
 		else:
 			_spawn_projectile(weapon, ship, angle_offset, weapon.charged_speed_multiplier, Vector2.ZERO, 0.0, weapon.charged_damage_multiplier, weapon.charged_visual_scale_multiplier)
 
+## 2026-08-18 — extracted into ProjectileFactory.spawn() so BreakoutNode
+## can reuse the EXACT same per-weapon texture/trajectory logic (Camil,
+## after Breakout's first-pass generic visuals: "il faut que le joueur
+## garde ses armes habituelles"). This is now a thin wrapper preserving
+## every existing call site's signature/behavior unchanged.
 func _spawn_projectile(weapon: WeaponData, ship: ShipNode, angle_offset_deg: float, speed_multiplier: float = 1.0, position_offset: Vector2 = Vector2.ZERO, boomerang_out_duration_override: float = 0.0, damage_multiplier: float = 1.0, size_multiplier: float = 1.0, force_no_burst_shrink: bool = false) -> void:
 	if not is_instance_valid(ship):
 		return # round may have reset mid-burst-stagger
-
-	var projectile := ProjectileNode.new()
-	projectile.position = ship.position + position_offset # Mitrailleur's double-fire (2026-08-09): two parallel shots, offset vertically instead of angularly
-	var direction := 1.0 if ship.side == 0 else -1.0
-	var spread_deg := angle_offset_deg
-	# Random per-shot jitter is for single-projectile sprays (machine gun) —
-	# a multi-projectile burst already has its own deliberate fan geometry
-	# (burst_spread_deg), so layering jitter on top just made it wobble
-	# instead of reading as a clean, repeatable pattern (2026-08-06 playtest:
-	# "pas de random sur les angles" for the Éventail fan).
-	if not weapon.is_heavy and weapon.projectile_count <= 1:
-		spread_deg += randf_range(-weapon.spread_deg, weapon.spread_deg)
-	var shot_velocity := Vector2(direction * weapon.projectile_speed * speed_multiplier, 0.0).rotated(deg_to_rad(spread_deg))
-	projectile.velocity = shot_velocity
-	projectile.spin_speed = weapon.projectile_spin_speed
-	projectile.is_looping = weapon.is_looping
-	projectile.loop_radius = weapon.loop_radius
-	projectile.loop_angular_speed = weapon.loop_angular_speed
-	projectile.is_sine = weapon.is_sine
-	projectile.sine_amplitude = weapon.sine_amplitude
-	projectile.sine_angular_speed = weapon.sine_angular_speed
-	projectile.flip_h = direction < 0.0
-	if weapon.id == "vortex":
-		projectile.textures = VORTEX_TEXTURES # Vif's Tourbillon — 3-frame spin animation (wind1-3), rides a sine wave via is_sine instead of a node rotation (2026-08-13 rework, was is_looping)
-		projectile.visual_scale = 2.4 # 2026-08-09 playtest: "tu peux doubler la taille des tourbillons" (was 1.2)
-	elif weapon.id == "mini_shot" or weapon.id == "ultra_pluie_de_bonbons":
-		projectile.textures = BONBON_TEXTURES # Mini/Éventail (base weapon + her Ultra) — spins via projectile_spin_speed, no multi-frame cycle
-		projectile.visual_scale = 1.0
-	elif weapon.id == "stun_boomerang":
-		projectile.textures = BOOMERANG_TEXTURES
-		projectile.visual_scale = 1.4
-	elif weapon.is_heavy:
-		projectile.textures = BAZOOKA_TEXTURES
-		# bazook.png's fireball ("front") points LEFT natively — opposite of the
-		# machine-gun sprites — so it needs the inverse of the shared flip_h set
-		# above (2026-08-02: confirmed by inspecting the sprite directly).
-		projectile.flip_h = direction > 0.0
-		projectile.visual_scale = 1.4 # +40% (2026-08-02 — reverted, stays consistent with the other projectiles)
-	else:
-		projectile.textures = [MACHINE_GUN_TEX_P1] if ship.side == 0 else [MACHINE_GUN_TEX_P2]
-		projectile.visual_scale = 1.4 # native 16x10 is hard to read orientation on at real game scale
-		# Verified 2026-08-02 by inspecting both sprites at 12x zoom: the colored
-		# tip (the bullet's "front") points RIGHT natively in both files, so the
-		# base flip_h = direction < 0.0 (set above) is already correct — the
-		# earlier toggle here was a wrong guess and has been reverted.
-	if weapon.projectile_count > 1 and not force_no_burst_shrink:
-		# 2026-08-10: gated on the NORMAL-fire projectile_count, which used to
-		# also (wrongly) shrink Perturbateur's single giant CHARGED boomerang
-		# ("5 fois la taille") just because the weapon's normal fire is a
-		# 3-burst — force_no_burst_shrink lets the single-charged-shot call
-		# site below opt out without touching any other weapon's behavior.
-		projectile.visual_scale *= 0.7 # each unit in a burst reads smaller than a lone shot
-	projectile.visual_scale *= weapon.visual_scale_multiplier * size_multiplier
-	projectile.homing_strength = weapon.homing_strength
-	projectile.damage = int(round(weapon.damage * damage_multiplier))
-	projectile.effect_type = weapon.effect_type
-	projectile.effect_duration = weapon.effect_duration
-	projectile.tint = _weapon_tint(weapon.id)
-	projectile.target = ship_2 if ship == ship_1 else ship_1
-	if weapon.is_boomerang:
-		projectile.is_boomerang = true
-		projectile.shooter = ship
-		# 2026-08-10: "par defaut ca part du haut (30 -> -30). Si je
-		# descends, ca part du bas (-30 -> 30)." — Godot's y-down convention,
-		# so "descending" is a positive y in the ship's last move direction.
-		projectile.boomerang_descending_throw = ship.get_last_move_direction().y > 0.01
-		var out_duration := boomerang_out_duration_override
-		if out_duration <= 0.0:
-			out_duration = weapon.boomerang_out_duration # 0 here too just leaves ProjectileNode's own built-in default in place
-		if out_duration > 0.0:
-			projectile.boomerang_out_duration = out_duration
-		# 2026-08-10: lifetime needs to scale with range — a charged throw
-		# that goes "jusqu'au fond du camp adverse" needs a lot more than the
-		# flat 3.0s a normal short arc gets, or it expires mid-flight home.
-		var effective_out := projectile.boomerang_out_duration
-		projectile.lifetime = maxf(3.0, effective_out * 4.0 + 1.0)
+	var target := ship_2 if ship == ship_1 else ship_1
+	var projectile := ProjectileFactory.spawn(weapon, ship, target, angle_offset_deg, speed_multiplier, position_offset, boomerang_out_duration_override, damage_multiplier, size_multiplier, force_no_burst_shrink)
 	add_child(projectile)
 
 ## 2026-08-09 redesign (Zoneur: "un laser qui traverse toute la map, mais
@@ -699,30 +1167,15 @@ func _spawn_timed_beam(weapon: WeaponData, ship: ShipNode, duration: float, thic
 ## each other while playtesting (2026-08-02, "ça tire juste une balle
 ## normale" — the boomerang was functionally correct but visually identical
 ## to the machine gun).
+## 2026-08-18 — moved to ProjectileFactory.weapon_tint() (BreakoutNode
+## needs the exact same per-weapon color); kept as a thin wrapper since
+## every existing call site here calls it as a bound instance method.
 func _weapon_tint(weapon_id: String) -> Color:
-	match weapon_id:
-		"stun_boomerang":
-			# 2026-08-10, Camil: "enlever le freeze quand perturbateur touche
-			# => c'est trop puissant. On verra pour le mettre sur un autre
-			# joueur" — stun_boomerang.tres switched effect_type from "stun"
-			# to "damage" (pure chip damage now, no more freeze). Kept the
-			# resource id/filename and this pale-blue tint as-is — renaming
-			# would touch every match_arena_node.gd id string match below
-			# for a purely cosmetic mismatch, and the stun idea itself isn't
-			# dead, just parked for a different character.
-			return Color(0.6, 0.8, 1.0)
-		"homing_missile", "ultra_la_meute":
-			return Color(1.0, 0.6, 0.2) # orange — same as her base missiles, "La Meute" reads as a bigger pack of the same thing
-		"laser":
-			return Color(0.4, 1.0, 0.5) # green
-		"mini_shot", "ultra_pluie_de_bonbons":
-			return Color(1.0, 1.0, 0.4) # yellow — same as her base bonbons
-		_:
-			return Color.WHITE # machine_gun / bazooka — unchanged
+	return ProjectileFactory.weapon_tint(weapon_id)
 
 ## Story 2.4 — turret weapons spawn a persistent autonomous-firing node at
 ## the shooter's position instead of a traveling projectile.
-func _spawn_turret(weapon: WeaponData, ship: ShipNode, is_charged: bool = false) -> void:
+func _spawn_turret(weapon: WeaponData, ship: ShipNode, is_charged: bool = false, lifetime_override: float = 0.0) -> void:
 	var turret := TurretNode.new()
 	turret.position = ship.position
 	turret.weapon = weapon
@@ -733,6 +1186,11 @@ func _spawn_turret(weapon: WeaponData, ship: ShipNode, is_charged: bool = false)
 		# plus vite, mais ne dure que 5 secondes".
 		turret.fire_rate_multiplier = weapon.charged_turret_fire_rate_multiplier
 		turret.lifetime_override = weapon.charged_turret_lifetime
+	elif lifetime_override > 0.0:
+		# 2026-08-16 reward system — Controleur's passive turret gets its
+		# own short lifetime (6s), distinct from both the normal 25s and
+		# the charged 5s above. See _fire_passive_reward().
+		turret.lifetime_override = lifetime_override
 	add_child(turret)
 
 ## Story 1.9 — a round ends when a ship's HP reaches 0; award the round,
@@ -763,6 +1221,7 @@ func _check_round_end() -> void:
 				_resolve_campaign_result(match_state.winner_side)
 			else:
 				match_label.text = "Match termine - Joueur %d gagne !" % (match_state.winner_side + 1)
+				_show_post_match_choice()
 		else:
 			ship_1.reset_for_new_round()
 			ship_2.reset_for_new_round()
@@ -770,8 +1229,67 @@ func _check_round_end() -> void:
 			for extra in _extra_balls: # "multi_ball" twist — extra balls persist across rounds within the same twisted encounter, just re-center like the primary
 				if is_instance_valid(extra):
 					extra.reset_to_center()
+			# 2026-08-22 bug report (Camil: "deuxieme game contre mon rival,
+			# la zone est toujours retrecie, elle devrait revenir a
+			# l'origine") — shrinking_arena's accumulated _shrink_step/
+			# _current_arena_bounds carried over from round 1 into round 2/3
+			# untouched; nothing here ever put the arena back to full size
+			# for a fresh round.
+			_reset_shrinking_arena()
 			_round_active = true
 			_begin_round_ready_gate() # 2026-08-13: round 2/3 used to start the instant round 1 ended — no freeze, no "Pret ?" gate at all
+
+## 2026-08-16 UX audit (Sally): "Versus mode ends in a dead screen" — a
+## short beat to let "Match termine..." read on its own, then the same
+## up/down + confirm menu every other screen already uses, offering a
+## rematch or a trip back to character select. Never runs in campaign mode
+## (_resolve_campaign_result() already bounces onward on its own).
+func _show_post_match_choice() -> void:
+	await get_tree().create_timer(1.2).timeout
+	if not is_instance_valid(self) or _campaign_mode:
+		return # round/match got reset from under us mid-wait (K cheat etc.) — bail rather than showing a stale menu
+	_post_match_choice_active = true
+	_post_match_choice_index = 0
+	_post_match_move_prev = 0.0
+	_post_match_confirm_prev = true # seeded true — the SAME keypress that just confirmed the last "Ready ?" gate must not immediately confirm this menu's default entry
+	_refresh_post_match_choice_label()
+
+func _refresh_post_match_choice_label() -> void:
+	var lines: Array[String] = []
+	for i in POST_MATCH_CHOICES.size():
+		var marker := "> " if i == _post_match_choice_index else "  "
+		lines.append("%s%s" % [marker, POST_MATCH_CHOICES[i]])
+	post_match_label.text = "\n".join(lines)
+
+## Same physical-key convention as TitleScreenNode/CampaignMapNode (Up/Down
+## to navigate, Space/Enter or either gamepad's right trigger to confirm) —
+## safe to reuse P1's fire key (Space) and P2's fire key (Enter) here since
+## both ships are frozen (active = false) by the time this menu shows.
+func _process_post_match_choice() -> void:
+	var move := 0.0
+	if Input.is_physical_key_pressed(KEY_DOWN):
+		move += 1.0
+	if Input.is_physical_key_pressed(KEY_UP):
+		move -= 1.0
+	var stick_y := Input.get_joy_axis(0, JOY_AXIS_LEFT_Y)
+	if absf(stick_y) > 0.3:
+		move = stick_y
+	if absf(move) > 0.5 and absf(_post_match_move_prev) <= 0.5:
+		var step := 1 if move > 0.0 else -1
+		_post_match_choice_index = wrapi(_post_match_choice_index + step, 0, POST_MATCH_CHOICES.size())
+		_refresh_post_match_choice_label()
+	_post_match_move_prev = move
+
+	var confirm := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_ENTER) \
+		or Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) > 0.4 \
+		or Input.get_joy_axis(1, JOY_AXIS_TRIGGER_RIGHT) > 0.4
+	if confirm and not _post_match_confirm_prev:
+		match _post_match_choice_index:
+			0: # Revanche — MatchSetup still holds both picks, _ready() re-applies them on reload
+				get_tree().reload_current_scene()
+			1: # Choix des personnages
+				get_tree().change_scene_to_file("res://scenes/CharacterSelect.tscn")
+	_post_match_confirm_prev = confirm
 
 ## Epic 4, Story 4.4/4.6/4.8 — records the outcome to CampaignSave (mooks
 ## grant currency, the "real" rival grants a branch completion + unlock,
@@ -806,12 +1324,24 @@ func _resolve_campaign_result(winner_side: int) -> void:
 	if CampaignContext.is_organizer_fight:
 		CampaignSave.mark_organizer_defeated(character_id)
 		match_label.text = "Tournoi remporte !"
-		await get_tree().create_timer(2.0).timeout
-		CampaignContext.return_to_map()
-		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
+		# 2026-08-16 UX audit (Sally): "'Rival vaincu !' gets the same second
+		# and a half as a routine mook kill" — the whole campaign's biggest
+		# beat used to hold for barely longer than a throwaway fight. Bigger
+		# flash (same "big moment" font-bump the round-start GO! beat already
+		# uses) plus a real hold to let it land.
+		match_label.add_theme_font_size_override("font_size", 48)
+		await get_tree().create_timer(3.0).timeout
+		match_label.remove_theme_font_size_override("font_size")
+		# 2026-08-22 (Camil: "fin du tournoi => Tournoi remporte, il
+		# faudrait revenir a l'accueil ensuite") — was CampaignMap.tscn
+		# (this character's own map, nothing left to do there once its
+		# organizer is beaten); TitleScreen is the actual home screen.
+		CampaignContext.clear()
+		get_tree().change_scene_to_file("res://scenes/TitleScreen.tscn")
 		return
 
 	var current_encounter := CampaignContext.current_encounter()
+	var hold_duration := 1.5
 	if current_encounter.is_mook:
 		CampaignSave.add_currency(character_id, current_encounter.reward_currency)
 		match_label.text = "Victoire (+%d)" % current_encounter.reward_currency
@@ -822,8 +1352,23 @@ func _resolve_campaign_result(winner_side: int) -> void:
 			unlock_id = current_encounter.unlock_reward.id
 		CampaignSave.mark_branch_completed(character_id, CampaignContext.branch.id, unlock_id)
 		match_label.text = "Rival vaincu !"
+		# 2026-08-16 UX audit (Sally) — same reasoning as the organizer win
+		# above, one notch smaller: a branch rival is a real story beat, not
+		# routine mook progress, so it gets its own weight instead of
+		# sharing the flat 1.5s hold every mook kill uses.
+		match_label.add_theme_font_size_override("font_size", 40)
+		hold_duration = 2.6
+		# 2026-08-16 (Camil): "on pourrait ajouter la recompense: icone + nom + description" - shown alongside "Rival vaincu !", see WeaponData.passive_description.
+		if current_encounter.unlock_reward:
+			var reward: WeaponData = current_encounter.unlock_reward
+			reward_icon.color = _weapon_tint(reward.id)
+			reward_icon.visible = true
+			reward_label.text = "Vous avez gagne : %s\n%s" % [reward.display_name, reward.passive_description]
+			reward_label.visible = true
+			hold_duration = 3.4
 
-	await get_tree().create_timer(1.5).timeout
+	await get_tree().create_timer(hold_duration).timeout
+	match_label.remove_theme_font_size_override("font_size")
 	if CampaignContext.advance_branch_step():
 		get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn") # visible progress, per Camil's mini-map request — not a silent reload straight into the next fight
 	else:
@@ -834,13 +1379,28 @@ func _resolve_campaign_result(winner_side: int) -> void:
 ## restent, elles devraient disparaître"): turrets, in-flight projectiles, and
 ## beams are all round-scoped side effects of weapon fire; none of them
 ## should survive into the next round (or linger past match end).
+## 2026-08-15 bug report (Camil): "quand un joueur perd un round il faut
+## remettre tous les compteurs a 0 y compris les effets d'ultra" —
+## BlackHoleNode/WindGustNode/LaserMeshNode/MissileStrikeNode/
+## GaugeFillEffectNode were missing from this list entirely, so a round
+## ending mid-Ultra (Trou noir still pulling, a wind gust still blowing,
+## laser mesh segments still landing) would leave those hazards alive and
+## running into the next round.
 func _clear_round_entities() -> void:
 	for child in get_children():
-		if child is TurretNode or child is ProjectileNode or child is BeamNode or child is HazardZoneNode or child is EnergyOrbNode:
+		if child is TurretNode or child is ProjectileNode or child is BeamNode or child is HazardZoneNode or child is EnergyOrbNode or child is BlackHoleNode or child is WindGustNode or child is LaserMeshNode or child is MissileStrikeNode or child is GaugeFillEffectNode:
 			child.queue_free()
 	if is_instance_valid(_decoy):
 		_decoy.queue_free()
 	_decoy = null
+	# The Ultra satellite-fire bookkeeping (Mitrailleur) tracks turrets that
+	# just got queue_free()'d above — is_instance_valid() in _on_satellite_
+	# fire() will correctly read them as gone from here on, so no explicit
+	# clear is needed, but the dictionary itself should still drop stale
+	# ship keys (e.g. a ship freed between matches) rather than grow forever.
+	for ship_key in _satellite_turrets_by_ship.keys():
+		if not is_instance_valid(ship_key):
+			_satellite_turrets_by_ship.erase(ship_key)
 
 func _update_round_label() -> void:
 	round_label.text = "Round %d - %d" % [match_state.rounds_won[0], match_state.rounds_won[1]]
@@ -1006,6 +1566,21 @@ func _process_shrinking_arena(delta: float) -> void:
 		if t >= 1.0:
 			_shrink_animating = false
 		_sync_arena_bounds_to_entities()
+
+## 2026-08-22 (Camil: "deuxieme game contre mon rival, la zone est toujours
+## retrecie, elle devrait revenir a l'origine") — puts the arena back to its
+## full, un-shrunk size and clears every bit of shrink progress, so a fresh
+## round of the SAME encounter starts exactly like round 1 did. Called from
+## _check_round_end()'s round-continuation branch; harmless to call even
+## when shrinking_arena was never the active twist (every field it touches
+## already defaults to "untwisted").
+func _reset_shrinking_arena() -> void:
+	_shrink_step = 0
+	_shrink_step_timer = 0.0
+	_shrink_anim_elapsed = 0.0
+	_shrink_animating = false
+	_current_arena_bounds = Rect2(arena_origin, arena_size)
+	_sync_arena_bounds_to_entities()
 
 func _start_next_shrink_step() -> void:
 	_shrink_step += 1

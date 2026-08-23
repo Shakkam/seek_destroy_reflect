@@ -13,9 +13,50 @@ var lifetime: float = 2.0
 var damage: int = 0
 var target: ShipNode = null
 var homing_strength: float = 0.0 # 0 = straight line; >0 = gently steers toward target (bazooka only)
+# 2026-08-15 (Camil, Traqueur's La Meute ultra): "il faut vraiment que les
+# missiles cherchent l'ennemi (quitte a revenir en arriere...)" — true 2D
+# pursuit (full velocity vector rotates toward the target, can reverse
+# direction) instead of the base homing_missile's gentler Y-only steering.
+# Then same day: "attention, sur traqueur en touchant a l'ultra tu as
+# egalement modifie le comportement du tir normal ! il faut revenir en
+# arriere, et garder le cote 'dur a esquiver' uniquement pour l'ultra" —
+# so this is an opt-in flag (default false = the original Y-only
+# behavior, still used by the base homing_missile), set true only for
+# ultra_la_meute (see MatchArenaNode._spawn_projectile()), not a change
+# to what plain `homing_strength > 0.0` means everywhere.
+var homing_full_turn: bool = false
 var effect_type: String = "damage" # Epic 2 — "damage" (default) or "stun"
 var effect_duration: float = 0.0 # Epic 2 — stun length applied on hit when effect_type == "stun"
+# 2026-08-16 (Camil, Traqueur's La Meute): "quand ils disparaissent, on
+# pourrait mettre une petite explosion, petit degat de zone (genre 2X la
+# taille du missile) avec particules" — fires once, when a missile times
+# out WITHOUT ever landing a direct hit (see the lifetime<=0.0 branch
+# below), not on contact (contact already applies `damage` via
+# _apply_hit_effect() and despawns immediately, no double-dip). 0 (default,
+# every other weapon) = just vanishes silently, unchanged.
+var expiry_explosion_damage: float = 0.0
+var expiry_explosion_radius: float = 0.0
 var spin_speed: float = 0.0 # deg/sec — rotates the whole node; unused by the Tourbillon (its 3-frame texture cycle already reads as spinning) but left generic for any future weapon that wants it
+
+# Perturbateur's charged Boomerang de Feu (2026-08-17, Camil: "le tir
+# charge n'est pas bien... on lance un gros boomerang, mais il laisse une
+# trainee de feu (particules) derriere lui, qui font des degats si on les
+# touche. Les trainees durent 3s") — replaces the flat "5x damage/5x size"
+# charged release's own identity with a real over-time threat. Opt-in
+# (false for every other weapon/release), set only on the charged
+# stun_boomerang spawn (MatchArenaNode._on_charged_weapon_fired). Drops a
+# FireTrailNode hazard every FIRE_TRAIL_DROP_INTERVAL of flight — both
+# legs, since "derriere lui" doesn't distinguish outbound from return —
+# targeting `target` (the opponent, never the shooter).
+var leaves_fire_trail: bool = false
+# 2026-08-18 (Camil, live feedback: "je ferais [...] une ligne continue et
+# pas les ronds marron") — at 0.12s and ~620px/s travel speed, consecutive
+# FireTrailNode puddles (radius 24 -> 48px wide) landed ~74px apart,
+# clearly separate dots. Halved so they land ~37px apart, comfortably
+# inside each other's radius — reads as one continuous strip instead of a
+# dotted line.
+const FIRE_TRAIL_DROP_INTERVAL := 0.06
+var _fire_trail_timer := 0.0
 
 # Vif's Tourbillon (2026-08-09) — Camil's drawing: not a straight line, small
 # forward-advancing loops the whole way. A trochoid: constant drift velocity
@@ -27,6 +68,13 @@ var is_looping := false
 var loop_radius: float = 18.0 # px
 var loop_angular_speed: float = 1080.0 # deg/sec — how fast/tight each loop is
 var _loop_elapsed := 0.0
+
+# Vif's Ultra "Bourrasque" rework (2026-08-15, Camil: "les tourbillons
+# avancent de plus en plus vite") — a straight line that speeds up over
+# time instead of holding constant speed, distinct from every other
+# motion mode (no turning, no wave, no loop). 0 = no effect (every other
+# weapon), so this is purely additive/opt-in.
+var acceleration: float = 0.0 # px/s^2, applied along the current velocity direction
 var _drift_velocity := Vector2.ZERO # the straight-line velocity captured at spawn; is_looping's loop AND is_sine's wave both orbit/ride this drifting reference
 
 # 2026-08-13, Vif's Tourbillon rework (Camil: "je n'aime pas [l'arme de
@@ -187,15 +235,47 @@ func _physics_process(delta: float) -> void:
 		var perp_dir := _drift_velocity.normalized().orthogonal()
 		var lateral_speed := sine_amplitude * deg_to_rad(sine_angular_speed) * cos(wave_angle) # d/dt of amplitude*sin(w*t) = amplitude*w*cos(w*t)
 		velocity = _drift_velocity + perp_dir * lateral_speed
+	elif target and homing_strength > 0.0 and homing_full_turn:
+		# True 2D pursuit (Traqueur's La Meute only, see the field comment
+		# above) — the FULL velocity vector rotates toward the target at up
+		# to `homing_strength` rad/s, speed preserved, so a target that
+		# ends up behind the missile genuinely pulls it into a U-turn
+		# instead of just tracking its height. flip_h follows the sign of
+		# the resulting horizontal speed every frame (not just once at
+		# spawn) so the sprite's nose always faces the actual direction of
+		# travel, mirroring mid-flight exactly when a turn crosses 90deg.
+		var speed := velocity.length()
+		if speed > 0.01:
+			var current_dir := velocity / speed
+			var desired_dir := (target.position - position).normalized()
+			var max_turn := homing_strength * delta
+			var turn := clampf(current_dir.angle_to(desired_dir), -max_turn, max_turn)
+			velocity = current_dir.rotated(turn) * speed
+			if _sprite:
+				_sprite.flip_h = velocity.x < 0.0
 	elif target and homing_strength > 0.0:
-		# Only steer vertically — horizontal (left/right) speed stays constant.
+		# Original behavior (base homing_missile, and anything else that
+		# doesn't opt into homing_full_turn): only steer vertically —
+		# horizontal (left/right) speed stays constant, so it can never
+		# actually turn around.
 		var desired_vy := clampf((target.position.y - position.y) * 2.0, -260.0, 260.0)
 		velocity.y = lerpf(velocity.y, desired_vy, clampf(homing_strength * delta, 0.0, 1.0))
+	elif acceleration != 0.0 and velocity.length() > 0.01:
+		velocity += velocity.normalized() * acceleration * delta
 
 	position += velocity * delta
 	lifetime -= delta
 	if spin_speed != 0.0:
 		rotation += deg_to_rad(spin_speed) * delta
+
+	if leaves_fire_trail and get_parent():
+		_fire_trail_timer -= delta
+		if _fire_trail_timer <= 0.0:
+			_fire_trail_timer = FIRE_TRAIL_DROP_INTERVAL
+			var puddle := FireTrailNode.new()
+			puddle.position = position
+			puddle.victim = target
+			get_parent().add_child(puddle)
 
 	# 2026-08-10 bug report: "j'ai l'impression que tous les tirs ne touchent
 	# pas les tourelles de controleur" — same tunneling class as the vortex
@@ -218,7 +298,7 @@ func _physics_process(delta: float) -> void:
 			# RECT test reduces to a swept POINT vs (RECT grown by the moving
 			# rect's own half-size) test, so a big sprite (e.g. the 5x charged
 			# boomerang) actually hits as easily as it visually looks like it should.
-			var turret_rect := Rect2(turret.position - TurretNode.HALF_EXTENTS - hit_half_size, TurretNode.HALF_EXTENTS * 2.0 + hit_half_size * 2.0)
+			var turret_rect := Rect2(turret.position - turret.half_extents - hit_half_size, turret.half_extents * 2.0 + hit_half_size * 2.0)
 			if _segment_crosses_rect(position_before, position, turret_rect):
 				turret.take_damage(damage)
 				queue_free()
@@ -251,7 +331,10 @@ func _physics_process(delta: float) -> void:
 				return
 
 	if lifetime <= 0.0:
+		if expiry_explosion_radius > 0.0:
+			_explode_on_expiry()
 		queue_free()
+		return
 
 	if textures.size() > 1:
 		_anim_timer += delta
@@ -313,6 +396,48 @@ func _apply_hit_effect() -> void:
 			target.apply_damage(damage)
 	else:
 		target.apply_damage(damage)
+
+const EXPIRY_EXPLOSION_PARTICLE_COUNT := 14
+const EXPIRY_EXPLOSION_LIFETIME := 0.3
+
+## 2026-08-16 (Traqueur's La Meute): a missile that times out without ever
+## landing a hit still goes out with a small area-damage puff instead of
+## just vanishing. Same CPUParticles2D-burst recipe as MissileStrikeNode's
+## impact explosion (see that file), independently duplicated rather than
+## shared — this project's other placeholder VFX (BlackHoleNode's swirl,
+## MissileStrikeNode's burst) each own their particle setup rather than
+## going through a shared helper, so this follows the same pattern.
+## Parented to get_parent(), not self: self calls queue_free() right after
+## this returns, which would free the burst mid-animation if it were a
+## child of self.
+func _explode_on_expiry() -> void:
+	if is_instance_valid(target) and target.position.distance_to(position) < expiry_explosion_radius:
+		target.apply_damage(expiry_explosion_damage)
+	if not get_parent():
+		return # tests that drive _physics_process() directly without adding this to a tree
+	var img := Image.create(4, 4, false, Image.FORMAT_RGBA8)
+	img.fill(Color(1.0, 1.0, 1.0, 1.0))
+	var particles := CPUParticles2D.new()
+	particles.texture = ImageTexture.create_from_image(img)
+	particles.position = position
+	particles.amount = EXPIRY_EXPLOSION_PARTICLE_COUNT
+	particles.lifetime = EXPIRY_EXPLOSION_LIFETIME
+	particles.one_shot = true
+	particles.explosiveness = 1.0
+	particles.direction = Vector2.RIGHT
+	particles.spread = 180.0 # full radial burst, not a directional cone
+	particles.gravity = Vector2.ZERO
+	particles.initial_velocity_min = 40.0
+	particles.initial_velocity_max = 110.0
+	particles.scale_amount_min = 1.5
+	particles.scale_amount_max = 3.0
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(1.0, 0.55, 0.15, 1.0))
+	gradient.set_color(1, Color(0.4, 0.1, 0.05, 0.0))
+	particles.color_ramp = gradient
+	get_parent().add_child(particles)
+	particles.emitting = true
+	particles.finished.connect(particles.queue_free)
 
 ## Outbound leg: a FIXED, deterministic banana arc — velocity is recomputed
 ## every frame straight from _boomerang_base_velocity (captured at spawn)

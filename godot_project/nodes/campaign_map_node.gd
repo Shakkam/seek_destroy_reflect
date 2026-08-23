@@ -76,6 +76,14 @@ func _ready() -> void:
 	title_label.text = CampaignContext.campaign.character.display_name
 	_refresh()
 
+	# 2026-08-16 UX audit (Sally): "the cheat menu is one keypress away, and
+	# the game tells you so" — the static .tscn text advertised "T : menu
+	# cheat" to every player unconditionally; now it only appears alongside
+	# the key actually working (see the OS.is_debug_build() gate below).
+	hint_label.text = "Fleches : naviguer | Espace/Entree : lancer le combat"
+	if OS.is_debug_build():
+		hint_label.text += " | T : menu cheat"
+
 func _process(delta: float) -> void:
 	if not CampaignContext.campaign:
 		return # queue_free()'d but still processing this frame (e.g. CampaignContext.clear() ran right after) — _draw() reads campaign state, nothing left to safely draw/navigate
@@ -106,9 +114,22 @@ func _process(delta: float) -> void:
 	# campagne, pour que je puisse tester tous les twists ?") — dev/debug
 	# entry point, physical "T" (Test), same "physical key" convention as
 	# the rest of the project so it's unaffected by AZERTY/QWERTY labeling.
-	if Input.is_physical_key_pressed(KEY_T) and not _cheat_prev:
+	# 2026-08-16 UX audit (Sally): "the cheat menu is one keypress away, and
+	# the game tells you so" — was reachable (and advertised in HintLabel's
+	# own text, see the .tscn) from any build at all. OS.is_debug_build() is
+	# false in an exported release build, true from the editor or a debug
+	# export template — same gate condition HintLabel's text now checks.
+	if OS.is_debug_build() and Input.is_physical_key_pressed(KEY_T) and not _cheat_prev:
 		get_tree().change_scene_to_file("res://scenes/CampaignCheatMenu.tscn")
 	_cheat_prev = Input.is_physical_key_pressed(KEY_T)
+
+	# 2026-08-18 (Camil: "dans les menus, quand je fais Echap, que ca
+	# revienne en arriere") — reachable from several entry points
+	# (CampaignCharacterSelect, "Continuer la partie", back from a
+	# branch/organizer fight), so the title screen is the one universal,
+	# unambiguous "back" target rather than trying to track provenance.
+	if Input.is_physical_key_pressed(KEY_ESCAPE):
+		get_tree().change_scene_to_file("res://scenes/TitleScreen.tscn")
 
 func _organizer_unlocked() -> bool:
 	var character_id: String = CampaignContext.campaign.character.id

@@ -18,15 +18,21 @@ points = PackedVector2Array(640, 0, 640, 720)
 width = 2.0
 default_color = Color(0.27, 0.85, 1, 0.25)
 
-[node name="TitleTop" type="Label" parent="."]
-offset_left = 0.0
+[node name="TitleWordSeek" type="Label" parent="."]
 offset_top = 220.0
-offset_right = 1280.0
 offset_bottom = 280.0
 horizontal_alignment = 1
 theme_override_colors/font_color = Color(0.65, 0.9, 1, 1)
 theme_override_font_sizes/font_size = 40
-text = "SEEK AND DESTROY"
+text = "SEEK"
+
+[node name="TitleWordAndDestroy" type="Label" parent="."]
+offset_top = 220.0
+offset_bottom = 280.0
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.65, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 40
+text = "AND DESTROY"
 
 [node name="TitleBottom" type="Label" parent="."]
 offset_left = 0.0

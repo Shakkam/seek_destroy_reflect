@@ -18,6 +18,13 @@ signal ultra_triggered # 2026-08-13 "systeme des 5 balles" — meter's full and 
 var _mobility_boost_timer := 0.0
 var _mobility_boost_multiplier := 1.0
 var _mobility_boost_active_multiplier := 1.0 # the multiplier captured at the moment the boost fired
+# Epic 4 reward system (2026-08-16) — Vif's passive: "le joueur a une
+# acceleration de +20%, tout le temps." Unlike _mobility_boost_multiplier
+# above (which decays back to 1.0 once its timer runs out), this is set
+# once (apply_permanent_speed_bonus()) and never decays — applied as its
+# own multiplicative factor in _physics_process(), on top of whatever
+# else is happening that tick.
+var _passive_speed_multiplier := 1.0
 var _stun_timer := 0.0 # Epic 2, Story 2.6 — movement and firing disabled while > 0
 
 # Mitrailleur's charged fire (2026-08-09) — "les 10 missiles suivants
@@ -107,14 +114,23 @@ func apply_external_slow(duration: float, multiplier: float) -> void:
 	_external_slow_multiplier = multiplier
 
 ## Perturbateur's Ultra "brouillage de commandes" (2026-08-14 Epic 4
-## memlog: "scramble les controles adverses") — inverts movement input
-## for a duration (see _read_input()). A skilled player can consciously
-## compensate by inverting their OWN inputs back, matching the locked
-## Ultra design pattern's "reducible by skill" half even though this one
-## isn't a damage burst like the others.
+## memlog: "scramble les controles adverses"; reworked 2026-08-15, Camil:
+## "j'aime beaucoup l'idee, mais il faudrait que ca dure 5x plus longtemps
+## et que ca random les directions completement (la ca les inverse
+## juste)") — rotates movement input by a random angle for a duration
+## (see _read_input()), instead of a flat inversion. The rotation angle
+## is rolled ONCE per application, not every frame/tick: a single
+## consistent-but-unpredictable "wrong way" a player can still learn and
+## fight against within the duration reads as an actual scramble, where
+## re-rolling every tick would just be unresponsive noise for 12.5s
+## straight — still matches the locked Ultra design pattern's "reducible
+## by skill" half, just a harder puzzle to solve than a plain inversion.
 var _controls_scrambled_timer := 0.0
+var _controls_scramble_angle := 0.0
 
 func apply_control_scramble(duration: float) -> void:
+	if _controls_scrambled_timer <= 0.0:
+		_controls_scramble_angle = randf() * TAU # only reroll on a fresh application, not a re-applied/refreshed one still running
 	_controls_scrambled_timer = maxf(_controls_scrambled_timer, duration)
 
 const FIRE_HOLD_SPEED_MULTIPLIER := 0.5 # -50% while the fire button is held (2026-08-01 — "balance la sauce", was -40%)
@@ -169,6 +185,7 @@ const DASH_LIFT_CHARGE := 0.33 # "un leger lift" — fixed, since there's no cha
 # attempt — releasing at/after it fires the empowered burst instead.
 var _fire_held_duration := 0.0 # how long the CURRENT press has been held, resets to 0 the instant fire is released
 const CHARGE_READY_BLINK_PERIOD := 0.15 # seconds per full on/off cycle once fully charged (2026-08-09 playtest: "pas mal le clignotement, tu peux le faire beaucoup plus rapide" — was 0.5)
+const CONTROL_SCRAMBLE_BLINK_PERIOD := 0.2 # seconds per on/off cycle while Perturbateur's Brouillage de commandes is active
 const NORMAL_FIRE_GRACE := 1.0 # seconds of normal fire before a sustained hold starts charging
 # 2026-08-09: a "release grace" (forgiving a brief fire_held dip so a charge
 # attempt wouldn't lose its slow for one frame) was tried here and reverted
@@ -195,7 +212,16 @@ var ai_controlled := false
 var ball_ref: BallNode
 var opponent_ref: ShipNode
 var _ai_vertical_dir := 0.0 # persists between frames — hysteresis avoids jittery on/off "freeze"
-const AI_LOOKAHEAD := 0.15 # seconds — anticipates where the ball is heading, not just where it is
+# 2026-08-16 playtest: "elle la rate encore beaucoup" (still missing a lot,
+# even after the ball-tracking-weight and net-camping fixes) — a flat
+# 0.15s lookahead barely nudges the predicted Y at all for a ball that's
+# actually still a second or more away, so by the time it arrives she's
+# aiming at where it WAS, not where it WILL BE. See _ai_ball_time_to_
+# arrival() — a real intercept estimate (distance / closing speed) instead
+# of a fixed nudge, capped at AI_MAX_LOOKAHEAD so a ball crawling almost
+# straight up/down (near-zero horizontal speed) doesn't predict wildly far
+# out.
+const AI_MAX_LOOKAHEAD := 1.2 # seconds
 const AI_DEADZONE_STOP := 4.0
 const AI_DEADZONE_START := 14.0
 
@@ -223,6 +249,21 @@ const AI_APPROACH_DISTANCE := 260.0
 var _ai_horizontal_dir := 0.0
 const AI_H_DEADZONE_STOP := 6.0
 const AI_H_DEADZONE_START := 18.0
+
+# 2026-08-16 (Camil: "l'IA n'est pas tres maline. Il faudrait qu'elle
+# cherche vraiment a renvoyer la balle au maximum, c'est sa priorite.
+# Deuxieme priorite: esquiver les tirs. 3eme prio: faire des degats. Moins
+# elle a de PV, plus elle va essayer de securiser: ses prios vont devenir:
+# eviter les tirs, et taper l'adversaire => elle sera moins regardante sur
+# le fait de renvoyer la balle.") — dodge detection, see
+# _ai_dodge_direction(). Both widen as HP drops, same "securiser" idea.
+const AI_DODGE_DETECT_RANGE := 260.0 # px — a threat further than this isn't worth reacting to yet
+const AI_DODGE_MARGIN := 50.0 # px — how close a threat's Y needs to sit to this ship's own Y to count as "lined up to hit me"
+# 2026-08-17 — while actively hunting a live enemy turret, dodge is
+# suppressed above this HP fraction so the AI presses in instead of
+# flinching from every shot the turret fires back (see _ai_read_input()).
+# Self-preservation reasserts itself once HP drops below this floor.
+const AI_TURRET_HUNT_HP_FLOOR := 0.4
 
 # Epic 2, Story 2.7 — per-archetype AI tuning, keyed by CharacterData.id.
 # Reuses the exact heuristic framework above (wander/depth/lift/weapon-switch)
@@ -295,10 +336,13 @@ func _update_character_art() -> void:
 	var sprite := get_node_or_null("Visual/CharacterArt") as Sprite2D
 	if not sprite:
 		return
+	var visual := sprite.get_parent() as Polygon2D # the flat team-colored rectangle CharacterArt sits on top of
 	var path := "res://assets/art/characters/%s/ship.png" % character.id if character else ""
 	if path == "" or not ResourceLoader.exists(path):
 		sprite.visible = false
 		sprite.texture = null
+		if visual:
+			visual.color.a = 1.0 # falling back to the flat rectangle — it must actually be opaque to show
 		return
 	var texture: Texture2D = load(path)
 	sprite.texture = texture
@@ -306,6 +350,16 @@ func _update_character_art() -> void:
 	var tex_size := texture.get_size()
 	if tex_size.x > 0.0 and tex_size.y > 0.0:
 		sprite.scale = (half_extents * 2.0) / tex_size
+	if visual:
+		# 2026-08-15 bug report (Camil, screenshot): the ship art's rounded/
+		# chamfered corners are properly transparent now, but Visual's own
+		# flat fill was still opaque underneath — corners showed the plain
+		# team-color rectangle bleeding through instead of the actual arena
+		# background. Hiding Visual's fill (not the node itself) once real
+		# art is showing fixes that while leaving it as CharacterArt's
+		# modulate-inheriting parent (state-tint feedback keeps working) and
+		# as the trail ghost's polygon source (_spawn_trail_ghost()).
+		visual.color.a = 0.0
 
 ## Story 2.7 — loads this ship's AI tuning from AI_PROFILES if its character
 ## has one, else falls back to the original Story 1.12 defaults.
@@ -445,6 +499,7 @@ func _physics_process(delta: float) -> void:
 		# dash speed bump above), not multiplied/stacked with them.
 		var recoil_fraction := _fire_recoil_boost_timer / selected.fire_recoil_boost_decay_time
 		speed_multiplier = maxf(speed_multiplier, 1.0 + selected.fire_recoil_speed_boost * recoil_fraction)
+	speed_multiplier *= _passive_speed_multiplier # Vif's passive reward — permanent, stacks multiplicatively on top of everything else above
 	state = state.update(input_direction, delta, arena_bounds, frontier_x, speed_multiplier)
 	position = state.position
 	_dash_timer = maxf(_dash_timer - delta, 0.0)
@@ -524,6 +579,16 @@ func _physics_process(delta: float) -> void:
 			visual.modulate = Color(1.0, 1.0, 1.0, 0.0) # "invisible_opponent" twist — rendering only; targeting (homing/turrets) still uses the real position
 		elif _stun_timer > 0.0:
 			visual.modulate = Color(0.75, 0.75, 1.0) # pale blue-white — distinct from vulnerability/lift tints
+		elif _controls_scrambled_timer > 0.0:
+			# 2026-08-15 bug report (Camil): "Perturbateur ne fait rien du tout ?"
+			# — apply_control_scramble() was always inverting movement input
+			# correctly (_read_input()), it just had ZERO visual feedback, so a
+			# scrambled opponent (especially the AI) just looked like normal
+			# play with no visible cause. A fast violet flicker (Perturbateur's
+			# own accent hue) makes the debuff actually readable, same idea as
+			# the charge-ready blink below.
+			var scramble_blink_on := fmod(_controls_scrambled_timer, CONTROL_SCRAMBLE_BLINK_PERIOD) < CONTROL_SCRAMBLE_BLINK_PERIOD / 2.0
+			visual.modulate = Color(0.6, 0.5, 0.9) if scramble_blink_on else Color(1.0, 0.6, 1.0)
 		elif _vulnerability_timer > 0.0:
 			visual.modulate = Color(1.0, 0.45, 0.45) # reddish tint while vulnerable
 		elif dashing:
@@ -601,6 +666,16 @@ func _spawn_trail_ghost() -> void:
 	tween.finished.connect(ghost.queue_free)
 
 ## Story 1.9 (partial) — resets HP and position for a new round.
+## 2026-08-15 bug report (Camil): "quand un joueur perd un round il faut
+## remettre tous les compteurs a 0 y compris les effets d'ultra" — this
+## used to only clear a handful of timers (vulnerability/charged-beam-
+## slow/external-slow/scramble), missing several others that could leak a
+## still-active buff/debuff into the next round: Mitrailleur's double-fire
+## buff, a stun, a fire-recoil boost, the flash tint timer, a mid-charge
+## lift, and Vif's dash state. See also MatchArenaNode._clear_round_
+## entities() for the matching cleanup of round-scoped Ultra HAZARD NODES
+## (BlackHoleNode/WindGustNode/LaserMeshNode/MissileStrikeNode), which is
+## a separate fix — this function only owns per-ship fields.
 func reset_for_new_round() -> void:
 	position = _spawn_position
 	state = ShipState.new(_spawn_position, side, half_extents, max_hp_override)
@@ -608,6 +683,15 @@ func reset_for_new_round() -> void:
 	_charged_beam_slow_timer = 0.0
 	_external_slow_timer = 0.0
 	_controls_scrambled_timer = 0.0
+	_controls_scramble_angle = 0.0
+	_mobility_boost_timer = 0.0
+	_stun_timer = 0.0
+	_double_fire_shots_remaining = 0
+	_fire_recoil_boost_timer = 0.0
+	_flash_timer = 0.0
+	_lift_charge_timer = 0.0
+	_dash_timer = 0.0
+	_dash_cooldown_timer = 0.0
 	# 2026-08-08 bug report: weapon gauges carried over between rounds
 	# (a maxed gauge from round 1's rally could open round 2 with a free
 	# shot). Rebuild fresh — same kit, gauges/cooldown back to 0 — keeping
@@ -648,7 +732,7 @@ func _read_weapon_select_pressed() -> bool:
 ## input scheme. Face button B on gamepad (A is already weapon-select).
 func _read_ultra_pressed() -> bool:
 	if ai_controlled:
-		return false # AI doesn't use its ultra yet — no per-character ultra effects exist to pick from until the individualization pass
+		return _ai_should_use_ultra()
 	if Input.is_joy_button_pressed(_gamepad_device(), JOY_BUTTON_B):
 		return true
 	if player_index == 1:
@@ -681,7 +765,7 @@ func _gamepad_device() -> int:
 func _read_input() -> Vector2:
 	var dir := _read_raw_input()
 	if _controls_scrambled_timer > 0.0:
-		dir = -dir
+		dir = dir.rotated(_controls_scramble_angle)
 	return dir
 
 func _read_raw_input() -> Vector2:
@@ -757,31 +841,136 @@ func get_lift_charge() -> float:
 ## to the frontier when the ball has actually closed in on it specifically
 ## (2026-08-01: was reflexively rushing the net any time the ball was
 ## technically on its side, which read as "glued to the net").
+## Story 1.12 original: a flat ball-tracking/wander blend. Reworked
+## 2026-08-16 (Camil — see the priority-order comment on AI_DODGE_DETECT_
+## RANGE above) into a real priority order instead: an imminent hit always
+## wins the frame it matters (see _ai_dodge_direction()); otherwise the
+## ball-return-vs-aggression balance shifts continuously with hp_fraction
+## via `defensiveness` — full HP hustles hard for the ball and barely
+## dodges anything not already lined up, low HP dodges everything close
+## and crowds the opponent for damage instead of chasing every ball.
 func _ai_read_input() -> Vector2:
 	if not ball_ref:
 		return Vector2.ZERO
 
+	var hp_fraction := clampf(state.hp / max_hp_override, 0.0, 1.0)
+	var defensiveness := 1.0 - hp_fraction # 0 at full HP, 1 near death
+	var dodge_dir := _ai_dodge_direction(defensiveness)
+
 	var ball_on_my_side := ball_ref.position.x < frontier_x if side == 0 else ball_ref.position.x > frontier_x
+	var enemy_turret := _ai_find_enemy_turret()
 
-	# Vertical: blend ball-tracking with an independent wander target so the
-	# AI doesn't read as "glued" to the ball — more wander weight when the
-	# ball isn't actually its problem right now, less (but never zero) when urgent.
-	var ball_target_y := ball_ref.position.y + ball_ref.state.velocity.y * AI_LOOKAHEAD
-	var wander_weight := 0.2 if ball_on_my_side else 0.6
-	var target_y := lerpf(ball_target_y, _ai_wander_target_y, wander_weight)
+	# 2026-08-17 (Camil: "tolerance au risque" — a targeted diagnostic test
+	# confirmed the turret-hunt blend below never actually engages in
+	# practice: a live turret shoots BACK, and every incoming shot
+	# re-triggers dodge, which unconditionally overrides everything else —
+	# the AI flinched away before it could ever close enough to line up a
+	# return shot, no matter how hard the Y-blend pulled it in. While
+	# healthy (above AI_TURRET_HUNT_HP_FLOOR) and actually hunting a turret
+	# (one alive, ball not urgently on my own side), accept the risk and
+	# keep pressing instead of flinching — a real risk/reward trade this
+	# AI never had before. Self-preservation still wins outright once HP
+	# drops below the floor, same "priority escalates as HP drops" logic
+	# used everywhere else in this function.
+	var hunting_turret := enemy_turret != null and not ball_on_my_side
+	if hunting_turret and hp_fraction > AI_TURRET_HUNT_HP_FLOOR:
+		dodge_dir = 0.0
 
-	var diff_y := target_y - position.y
-	if absf(diff_y) < AI_DEADZONE_STOP:
-		_ai_vertical_dir = 0.0
-	elif absf(diff_y) > AI_DEADZONE_START:
-		_ai_vertical_dir = signf(diff_y)
-	# else: within the hysteresis band — keep the previous direction rather
-	# than flip-flopping every frame, which is what read as a "freeze".
+	if dodge_dir != 0.0:
+		# Priority 2 overriding priority 1 for exactly the frame it applies —
+		# a dodge that arrives late is worthless, so this bypasses the
+		# hysteresis deadzone below entirely rather than competing with it.
+		_ai_vertical_dir = dodge_dir
+	else:
+		# Priority 1: "renvoyer la balle au maximum" — predicted ball Y,
+		# blended against priority 3's aggression target (the opponent's
+		# own Y, for lining up damage) and a little idle wander so the AI
+		# doesn't read as glued to the ball. ball_weight/aggression_weight
+		# always sum to 1.0: healthy leans hard on the ball, low HP leans
+		# hard on the opponent instead — "moins regardante sur le renvoi".
+		# 2026-08-16 playtest, after actually facing it: "elle rate tout le
+		# temps la balle (souvent)" — the ORIGINAL 0.85 ball_weight combined
+		# with a 0.15 wander blend on top left only ~72% real pull toward
+		# the ball even at full HP (0.85*0.85), diluted further by
+		# _ai_wander_target_y being a stale point re-picked only every
+		# 1.2-2.4s with zero relation to where the ball actually is —
+		# nowhere near decisive enough for a stated #1 priority. Sharpened
+		# hard at the healthy end (down to a near-negligible wander
+		# influence), while keeping the low-HP end shifted toward the
+		# opponent as already tuned/tested.
+		var ball_target_y := ball_ref.position.y + ball_ref.state.velocity.y * _ai_ball_time_to_arrival()
+		# 2026-08-17 (Camil: "boost l'IA pour qu'elle vise aussi les
+		# tourelles" — batch balance testing showed Controleur winning
+		# 100% of 448 AI-vs-AI matches): a placed turret is FIXED at
+		# wherever it was cast (TurretNode.position is set once in
+		# MatchArenaNode._spawn_turret(), never re-tracked to the owner),
+		# so chasing the owner ship's CURRENT Y rarely lines a shot up
+		# with it anymore once the owner has moved on. An enemy turret,
+		# while alive, replaces the opponent as this priority's target —
+		# still just feeds the exact same ball_weight blend below, so it
+		# rides the same "how aggressive right now" curve as normal.
+		# (enemy_turret is computed once, above, before the dodge check.)
+		var aggression_target_y := enemy_turret.position.y if enemy_turret else (opponent_ref.position.y if opponent_ref else ball_target_y)
+		var ball_weight := lerpf(0.97, 0.4, defensiveness)
+		var combat_target_y := lerpf(aggression_target_y, ball_target_y, ball_weight)
+		# 2026-08-17 re-test: routing the turret through aggression_target_y
+		# alone barely moved Controleur's 100% win rate (still 97-100%
+		# across re-runs) — at full HP ball_weight is 0.97, so the turret Y
+		# only ever got a ~3% pull, correctly dominated by ball-tracking but
+		# nowhere near enough to actually line up a shot. A live enemy
+		# turret isn't ambient "aggression", it's a standing threat that
+		# will keep dealing damage completely unopposed for the rest of its
+		# lifetime if never destroyed — worth a much harder pull, but ONLY
+		# while the ball isn't actually demanding an immediate return
+		# (priority 1 still wins outright the instant it does).
+		if enemy_turret and not ball_on_my_side:
+			combat_target_y = lerpf(combat_target_y, enemy_turret.position.y, 0.85)
+		var wander_weight := lerpf(0.03, 0.1, defensiveness) if ball_on_my_side else lerpf(0.2, 0.4, defensiveness)
+		var target_y := lerpf(combat_target_y, _ai_wander_target_y, wander_weight)
 
-	# Horizontal: default to a wandering point in the mid/back of the half
+		var diff_y := target_y - position.y
+		if absf(diff_y) < AI_DEADZONE_STOP:
+			_ai_vertical_dir = 0.0
+		elif absf(diff_y) > AI_DEADZONE_START:
+			_ai_vertical_dir = signf(diff_y)
+		# else: within the hysteresis band — keep the previous direction
+		# rather than flip-flopping every frame, which is what read as a
+		# "freeze".
+
+		# 2026-08-17 (Camil: "son tir part vers le haut ou vers le bas: il
+		# faut donc viser en consequence, ne pas viser en face") —
+		# Perturbateur's boomerang throws along a fixed +/-30deg banana arc
+		# whose INITIAL direction (up-then-down or down-then-up) is set by
+		# this ship's own last movement direction at the exact moment it
+		# fires (MatchArenaNode._spawn_projectile -> get_last_move_direction
+		# -> ProjectileNode.boomerang_descending_throw). Ball-tracking (the
+		# block above) points movement at the BALL, not the opponent, so
+		# the throw's curve direction was essentially uncorrelated with
+		# where the opponent actually is. Right when a throw is actually
+		# about to happen (_ai_should_fire() is pure/side-effect-free, safe
+		# to consult here too), override movement for just this frame to
+		# face the opponent's real offset so the arc curves the right way
+		# — dodging (handled above, this whole block is skipped when it
+		# applies) still wins outright over this.
+		if opponent_ref and weapon_state.selected_weapon().is_boomerang and _ai_should_fire():
+			_ai_vertical_dir = signf(opponent_ref.position.y - position.y)
+
+	# Horizontal: default to a wandering point in the mid/BACK of the half
 	# (_ai_preferred_depth), only committing to the frontier when the ball
-	# has genuinely closed the distance — approaching the net is a deliberate
-	# choice for a better angle, not a reflex.
+	# has genuinely closed the distance — approaching the net is a
+	# deliberate choice for a better angle, not a reflex.
+	# 2026-08-16 playtest, after watching her miss ~10 in a row: "quand
+	# elle perd la balle, elle doit aller en fond de court. Si elle reste
+	# devant le filet, elle est quasi sure de la louper !" — the earlier
+	# HP-scaled widening here (effective_approach_distance up to 1.6x at
+	# full HP, effective_depth pushed toward 0.85 near death) made her
+	# commit to camping the frontier far more eagerly than the original,
+	# already-tuned baseline. That's backwards for THIS game: distance
+	# from the ball IS reaction time in a Pong derivative, so camping the
+	# net trades away exactly what priority 1 needs. Reverted to the
+	# original flat behavior — no HP scaling on either the resting depth
+	# or the commit-to-frontier trigger; the Y-axis blend above already
+	# carries the "less ball-focused at low HP" requirement on its own.
 	var forward_sign := 1.0 if side == 0 else -1.0
 	var back_x := arena_bounds.position.x + half_extents.x if side == 0 else arena_bounds.position.x + arena_bounds.size.x - half_extents.x
 	var frontier_reach_x := frontier_x - ShipState.NEUTRAL_ZONE_HALF_WIDTH - half_extents.x if side == 0 else frontier_x + ShipState.NEUTRAL_ZONE_HALF_WIDTH + half_extents.x
@@ -798,6 +987,72 @@ func _ai_read_input() -> Vector2:
 		_ai_horizontal_dir = signf(diff_x)
 
 	return Vector2(_ai_horizontal_dir, _ai_vertical_dir)
+
+## Real intercept estimate for the ball-Y prediction above: how long until
+## the ball reaches roughly where this ship actually is, based on its
+## CURRENT horizontal distance and speed (a straight-line extrapolation —
+## the ball's real path can curve via lift/twists, so this is an estimate,
+## not a guarantee, but a far better one than a flat fixed nudge). Only
+## meaningful while the ball is actually heading toward this ship's own
+## wall; if it's moving away (or barely moving horizontally at all), a
+## long predicted Y drift would just be noise, so this falls back to the
+## same short base nudge AI_LOOKAHEAD used to be for everyone.
+func _ai_ball_time_to_arrival() -> float:
+	if not ball_ref:
+		return 0.0
+	var velocity_x: float = ball_ref.state.velocity.x
+	var moving_toward_my_wall := velocity_x > 0.0 if side == 1 else velocity_x < 0.0
+	if not moving_toward_my_wall or absf(velocity_x) < 10.0:
+		return 0.15
+	var dx := absf(ball_ref.position.x - position.x)
+	return clampf(dx / absf(velocity_x), 0.0, AI_MAX_LOOKAHEAD)
+
+## Priority 2: scans live projectiles targeting THIS ship (ProjectileNode.
+## target == self — the same field its own hit-detection reads, so "is
+## this actually going to hit me" and "is this worth dodging" answer the
+## same question) and, if the closest one is both near and roughly
+## Y-aligned with this ship, returns a vertical nudge away from it.
+## Detection widens as `defensiveness` rises, per "moins elle a de PV,
+## plus elle va essayer de securiser". Returns 0.0 when there's nothing
+## worth reacting to (the common case, most frames).
+func _ai_dodge_direction(defensiveness: float) -> float:
+	if not get_parent():
+		return 0.0
+	var detect_range := AI_DODGE_DETECT_RANGE * lerpf(1.0, 1.6, defensiveness)
+	var margin := AI_DODGE_MARGIN * lerpf(1.0, 1.8, defensiveness)
+	var closest: ProjectileNode = null
+	var closest_dist := INF
+	for child in get_parent().get_children():
+		if child is ProjectileNode and child.target == self:
+			var dist: float = child.position.distance_to(position)
+			if dist < detect_range and dist < closest_dist:
+				closest = child
+				closest_dist = dist
+	if closest == null:
+		return 0.0
+	# 2026-08-17 (batch balance testing put Missiles at 71% overall; Camil:
+	# "je pense que l'IA ne sait pas bien eviter des missiles a tete
+	# chercheuse. Un humain, si") — a homing projectile actively re-aims
+	# at wherever this ship moves, so the flat margin a straight shot uses
+	# isn't enough warning: react earlier/wider, or the AI only starts
+	# dodging once it's already too close to shake something that curves
+	# right back onto it.
+	var effective_margin := margin * 1.6 if closest.homing_strength > 0.0 else margin
+	if absf(closest.position.y - position.y) > effective_margin:
+		return 0.0 # not actually lined up with me — no need to react
+	return 1.0 if closest.position.y < position.y else -1.0
+
+## 2026-08-17 — scans siblings for a live enemy TurretNode (owner_side !=
+## this ship's side), same get_parent().get_children() scan pattern
+## _ai_dodge_direction() already uses for live projectiles. Returns the
+## first one found (normally at most one enemy turret exists at a time).
+func _ai_find_enemy_turret() -> TurretNode:
+	if not get_parent():
+		return null
+	for child in get_parent().get_children():
+		if child is TurretNode and child.owner_side != side:
+			return child
+	return null
 
 ## Periodically picks a new "idle" y target within the arena, so the AI
 ## keeps some independent motion instead of purely mirroring the ball.
@@ -839,6 +1094,16 @@ func _ai_update_weapon_switch(delta: float) -> void:
 	if wants_signature != has_signature:
 		_ai_pulse_select = true
 
+## 2026-08-16 (Camil: "l'IA n'utilise pas les ultra => il faut qu'elle le
+## fasse") — every character's Ultra is a real, playtested effect now (see
+## MatchArenaNode._resolve_ultra_effect's full 8-character dispatch), so
+## there's no longer a reason to hold this back. Fires the instant the
+## meter is full; _process_ultra_trigger() is edge-triggered off
+## _ultra_prev already, so returning true every frame the meter stays
+## full is safe — it can never fire twice for one ready window.
+func _ai_should_use_ultra() -> bool:
+	return weapon_state.ultra_ready()
+
 ## Rolls a chance to attempt a lift whenever the ball is closing in on this
 ## ship's side — sets _ai_lift_timer, which _read_lift_held() then reuses
 ## through the same charge/freeze machinery as the human controls.
@@ -858,15 +1123,98 @@ func _ai_update_lift_attempt(delta: float) -> void:
 		if randf() < _ai_lift_chance:
 			_ai_lift_timer = [0.35, 0.75].pick_random()
 
-## Story 1.12 — fires when roughly aligned with the opponent, basic reactive logic.
+## Story 1.12 original: fires only when roughly Y-aligned with the
+## opponent, flat 90px tolerance. 2026-08-16 (Camil, priority 3 — "faire
+## des degats", rising in urgency as HP drops per "taper l'adversaire"):
+## the alignment tolerance now widens as HP drops, so a nearly-dead AI
+## takes more speculative shots instead of holding out for a clean line.
 func _ai_should_fire() -> bool:
 	if not opponent_ref:
 		return false
-	return absf(opponent_ref.position.y - position.y) < 90.0
+
+	# 2026-08-17 (Camil, after batch balance testing showed most non-
+	# Mitrailleur characters badly under-performing their own weapon's
+	# theoretical DPS): non-full-auto weapons only fire on the RISING
+	# EDGE of fire_held (_physics_process's "is_full_auto or not
+	# _fire_prev" gate) — a human naturally releases the button between
+	# presses. This function used to return a plain alignment boolean,
+	# which stays true for many consecutive frames once aligned — after
+	# the very first shot, _fire_prev never fell back to false, so the
+	# AI could only ever land ONE shot per alignment window instead of
+	# repeating at the weapon's own fire_rate. Gating on cooldown<=0.0
+	# forces a real false frame while on cooldown, restoring a fresh
+	# edge every cycle so the AI "taps" like a human would. Harmless
+	# no-op for Mitrailleur's full-auto path, which never depended on
+	# the edge to begin with.
+	if weapon_state.cooldown > 0.0:
+		return false
+
+	var selected := weapon_state.selected_weapon()
+
+	# 2026-08-17 re-test after the cadence fix above: Perturbateur (gauge_
+	# cost_per_shot=35, one of the priciest in the roster) got WORSE
+	# (24%->11%) instead of better — fire_held slows movement
+	# (FIRE_HOLD_SPEED_MULTIPLIER, checked purely off this function's
+	# return value, whether or not a shot actually goes through) with no
+	# gauge check downstream to stop it. The AI was now "trying" to fire
+	# every cooldown cycle even while empty, eating the movement slow for
+	# nothing every single time — worse at dodging/returning than before
+	# the fix, for zero extra damage. Don't hold the trigger when there's
+	# not even enough gauge for a shot to land.
+	if weapon_state.gauges[weapon_state.selected_index] < selected.gauge_cost_per_shot:
+		return false
+
+	# Mitrailleur's Mitraillette is the only weapon with a heat gauge,
+	# and heat only drains while fire ISN'T held (WeaponSystemState.
+	# with_heat_ticked, keyed off the raw fire_held flag this function
+	# feeds). A human learns to release once overheated; the AI had no
+	# such awareness and would keep "holding" (this function returning
+	# true) for as long as it stayed Y-aligned, pinning heat at max
+	# forever — Mitrailleur could get stuck unable to fire again until
+	# the opponent happened to drift out of alignment. Release the
+	# instant heat maxes out so it can actually start draining.
+	if selected.heat_max > 0.0 and weapon_state.heats[weapon_state.selected_index] >= selected.heat_max:
+		return false
+
+	var hp_fraction := clampf(state.hp / max_hp_override, 0.0, 1.0)
+	var tolerance := lerpf(90.0, 170.0, 1.0 - hp_fraction)
+	# 2026-08-17 (Camil: "l'IA ne sait pas le jouer [Perturbateur]. Il est
+	# particulier, ses tirs ne vont pas droit, et il faut le jouer dans ce
+	# sens") — the boomerang's OUTBOUND leg is a fixed +/-30deg banana arc
+	# (ProjectileNode._update_boomerang/BOOMERANG_ARC_ANGLE_DEG), not a
+	# straight line like every other weapon; a human deliberately reads
+	# and compensates for that curve, but this alignment check treats it
+	# exactly like a straight shot. Rather than model the arc's geometry
+	# (real complexity for a deliberately not-very-skilled AI, see
+	# AI_TUNING_LOG.md's design principles), widen the tolerance band
+	# for it specifically — it can't reliably aim precisely, so don't
+	# demand precision it structurally can't deliver.
+	if selected.is_boomerang:
+		tolerance *= 1.8
+	if absf(opponent_ref.position.y - position.y) < tolerance:
+		return true
+	# 2026-08-17 — also fire on an enemy turret blocking the lane (see
+	# _ai_find_enemy_turret()/_ai_read_input()'s aggression_target_y).
+	var enemy_turret := _ai_find_enemy_turret()
+	return enemy_turret != null and absf(enemy_turret.position.y - position.y) < tolerance
 
 ## Story 1.9 (partial/test-only) — see ship_state.gd note.
 func apply_damage(amount: float) -> void:
 	state = state.damaged(amount)
+
+## Epic 4 reward system (2026-08-16) — Spreader's passive: a small HP
+## regen tick. See ShipState.healed().
+func apply_heal(amount: float) -> void:
+	state = state.healed(amount, max_hp_override)
+
+## Epic 4 reward system (2026-08-16 same-day rework, Camil: "le joueur a
+## une acceleration de +20%, tout le temps") — Vif's passive, unlike the
+## other 7, isn't a periodic proc at all: a PERMANENT speed multiplier for
+## the rest of the match, set once in MatchArenaNode._setup_passive_
+## rewards() and applied every tick in _physics_process() (see
+## _passive_speed_multiplier's own field comment).
+func apply_permanent_speed_bonus(multiplier: float) -> void:
+	_passive_speed_multiplier = multiplier
 
 ## Epic 2, Story 2.6 — disables movement and firing for `duration` seconds.
 ## HP and gauges are untouched: a stun removes agency, it is not damage.
@@ -897,6 +1245,18 @@ func _apply_passive_trickle(delta: float) -> void:
 func fill_selected_gauge(amount: float) -> void:
 	weapon_state = weapon_state.with_gauge_added(amount)
 	gauge_filled.emit(amount)
+
+## 2026-08-15 (Camil: "quand un joueur perd la balle... c'est en 'touchant'
+## le joueur que le '+50' apparait") — same gauge update as
+## fill_selected_gauge(), but withOUT emitting gauge_filled, so
+## MatchArenaNode's _on_gauge_filled() doesn't spawn its usual INSTANT "+50"
+## popup. Used by ball_node.gd's miss-fill path, which spawns its own
+## GaugeFillEffectNode instead — that node fires the popup itself once its
+## travel animation actually reaches the ship, not the instant the gauge
+## value changes. The gauge itself still updates immediately either way
+## (fair/correct for gameplay); only the popup's timing is deferred.
+func fill_selected_gauge_silently(amount: float) -> void:
+	weapon_state = weapon_state.with_gauge_added(amount)
 
 ## Epic 4, Story 4.5 — self-fill path for Story 1.7's successful-return
 ## bonus specifically. The "gauge_floor" twist locks this (self_fill_locked)

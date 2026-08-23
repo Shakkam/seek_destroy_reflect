@@ -3,15 +3,23 @@ extends Node2D
 
 ## Epic 4 — lightweight single-player character pick for campaign mode,
 ## distinct from CharacterSelectNode (which picks 2 players for a 1v1).
-## Only characters with an authored CampaignData resource are selectable;
-## authoring the other 7 rosters' campaigns is content work, tracked
-## separately from this story's engineering scope (only Vif's campaign is
-## authored so far, to prove the system end-to-end).
-
+## Only characters with an authored CampaignData resource are selectable.
+## 2026-08-16: full roster authored — Vif's campaign (2026-08-13) proved
+## the system end-to-end; the other 7 (data/campaigns/<id>_campaign.tres)
+## follow the exact same template (4 branches, 2 mooks + 1 real rival with
+## a twist each, required_branch_count=3, an organizer fight with the
+## energy_orb_pickup signature twist), generated in bulk rather than
+## hand-authored one file at a time — see [[campaign-content-2026-08-16]]
+## project memory for the branch/organizer/twist assignment table.
 const CAMPAIGNS := {
 	"vif": preload("res://data/campaigns/vif_campaign.tres"),
-	# lourd / controleur / mitrailleur / zoneur / perturbateur / missiles / mini:
-	# not authored yet — content work, not an engineering gap.
+	"lourd": preload("res://data/campaigns/lourd_campaign.tres"),
+	"controleur": preload("res://data/campaigns/controleur_campaign.tres"),
+	"mitrailleur": preload("res://data/campaigns/mitrailleur_campaign.tres"),
+	"zoneur": preload("res://data/campaigns/zoneur_campaign.tres"),
+	"perturbateur": preload("res://data/campaigns/perturbateur_campaign.tres"),
+	"missiles": preload("res://data/campaigns/missiles_campaign.tres"),
+	"mini": preload("res://data/campaigns/mini_campaign.tres"),
 }
 
 const CHARACTERS := [ # of CharacterData — same roster order as CharacterSelectNode
@@ -55,6 +63,13 @@ func _process(_delta: float) -> void:
 		_confirm_selection()
 	_confirm_prev = confirm
 
+	# 2026-08-18 (Camil: "dans les menus, quand je fais Echap, que ca
+	# revienne en arriere") — one-shot, no edge-guard needed (same as
+	# CampaignCheatMenuNode's own Escape handling): the scene changes
+	# immediately, so a held key can't double-fire.
+	if Input.is_physical_key_pressed(KEY_ESCAPE):
+		get_tree().change_scene_to_file("res://scenes/TitleScreen.tscn")
+
 func _refresh() -> void:
 	var lines := []
 	for i in CHARACTERS.size():
@@ -69,4 +84,7 @@ func _confirm_selection() -> void:
 	if not CAMPAIGNS.has(character.id):
 		return
 	CampaignContext.campaign = CAMPAIGNS[character.id]
+	# 2026-08-18 — the title theme (TitleMusic autoload) plays on through
+	# this whole screen; stop it here, leaving for real campaign gameplay.
+	TitleMusic.stop()
 	get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")

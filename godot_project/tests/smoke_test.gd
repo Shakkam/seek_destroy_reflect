@@ -14,6 +14,8 @@ func _initialize() -> void:
 	print("--- smoke test start ---")
 	_test_laser_pulse()
 	_test_missile_swarm_data()
+	_test_homing_can_reverse()
+	_test_round_reset_clears_ultra_effects()
 	_test_boomerang_motion()
 	_test_stun_also_deals_damage()
 	_test_mini_shot_data()
@@ -25,6 +27,9 @@ func _initialize() -> void:
 	_test_decoy_wander()
 	_test_energy_orb_pickup()
 	_test_ball_hazard_bounce()
+	_test_ball_spawn_direction()
+	_test_gauge_fill_effect_targets_pip()
+	_test_gauge_fill_effect()
 	_test_lift_spin_stays_returnable()
 	_test_character_ship_art()
 	_test_twist_pool_authoring()
@@ -77,6 +82,8 @@ func _test_laser_pulse() -> void:
 	_check("laser effect_type == beam", laser.effect_type == "beam")
 	_check("laser reaches across the whole arena (no more 'must close distance')", laser.beam_range > 1200.0)
 	_check("laser's normal pulse is short (~0.5s)", is_equal_approx(laser.beam_duration, 0.5))
+	# 2026-08-17: a same-day cooldown/damage tuning experiment was tried
+	# and reverted (see laser.tres) — back to the original ~0.8s.
 	_check("laser's cooldown between pulses is ~0.8s", is_equal_approx(1.0 / laser.fire_rate, 0.8))
 	_check("laser's charged pulse lasts much longer (3s)", is_equal_approx(laser.charged_beam_duration, 3.0))
 	_check("laser's charged pulse is 2x thicker", is_equal_approx(laser.charged_beam_thickness_multiplier, 2.0))
@@ -101,7 +108,11 @@ func _test_missile_swarm_data() -> void:
 	# 2026-08-10 nerf: "le missile teleguide c'est vraiment fort... en lacher
 	# que 3, et calmer le cote teleguide, -20% de precision".
 	_check("missile swarm was trimmed to 3 (was 4)", missile.projectile_count == 3)
-	_check("missile homing was calmed by 20% (was 2.5)", is_equal_approx(missile.homing_strength, 2.0))
+	# 2026-08-17 second calm-down: batch balance testing put Missiles at
+	# 71% overall, and Camil's own read matched the numbers: "je pense que
+	# l'IA ne sait pas bien eviter des missiles a tete chercheuse. Un
+	# humain, si" — another -20% (2.0 -> 1.6), paired with an AI dodge fix.
+	_check("missile homing was calmed again by 20% (was 2.0)", is_equal_approx(missile.homing_strength, 1.6))
 	# Traqueur's charged fire (2026-08-10): "le tir charge de missiles
 	# teleguides ne marche plus" — it never existed yet; a staggered rafale,
 	# double the normal count, per the original brainstorm note.
@@ -109,6 +120,95 @@ func _test_missile_swarm_data() -> void:
 	_check("Traqueur's charge actually slows movement", missile.charge_fire_slow_multiplier < 1.0)
 	_check("Traqueur's charged burst doubles the missile count", missile.charged_projectile_count == missile.projectile_count * 2)
 	_check("Traqueur's charged burst is staggered like a rafale, not simultaneous", missile.charged_stagger > 0.0)
+
+func _test_homing_can_reverse() -> void:
+	# 2026-08-15 bug report (Camil): "il faut vraiment que les missiles
+	# cherchent l'ennemi (quitte a revenir en arriere (dans ce cas il faut
+	# les mettre en miroir pour que le 'nez' du missile aille toujours
+	# vers l'avant))" — homing used to only steer velocity.y, with
+	# horizontal speed frozen forever, so a missile could never actually
+	# turn around toward a target behind it. Now the full velocity vector
+	# rotates toward the target at up to homing_strength rad/s, speed
+	# preserved, and the sprite's flip_h follows the resulting direction
+	# every frame instead of once at spawn.
+	var target := ShipNode.new()
+	target.position = Vector2(-500.0, 0.0) # directly BEHIND the missile's initial travel direction
+
+	var missile := ProjectileNode.new()
+	missile.position = Vector2.ZERO
+	missile.velocity = Vector2(400.0, 0.0) # launched rightward
+	missile.target = target
+	missile.homing_strength = 6.0 # matches ultra_la_meute.tres
+	missile.homing_full_turn = true # opt-in flag — only ultra_la_meute sets this in real gameplay (see match_arena_node.gd), so this test sets it explicitly since it builds the ProjectileNode directly
+	missile.textures = [preload("res://assets/art/vfx/bazook.png")] # real texture needed so _sprite actually exists — an empty list takes the fallback Polygon2D path instead, which would make the flip_h check a no-op
+	root.add_child(target)
+	root.add_child(missile)
+	target._ready() # 2026-08-16: with homing_full_turn actually letting the
+	# missile complete its U-turn, it can now genuinely reach the target's
+	# hitbox during the loop below, which calls target.apply_damage() ->
+	# state.damaged() — target.state stays null under -s headless mode
+	# without this (same reason missile._ready() is already called
+	# manually right below), which crashed with "Invalid call: Nonexistent
+	# function 'damaged' in base 'Nil'" every time a hit landed.
+	missile._ready()
+	_check("flip_h starts false (spawned heading right, sprite faces right by default)", not missile._sprite.flip_h)
+
+	var initial_speed := missile.velocity.length()
+	var turned_around := false
+	for _i in range(120): # 2s at 1/60 — comfortably enough time to complete a U-turn at 6 rad/s (a half-turn alone takes ~PI/6 =~ 0.52s)
+		missile._physics_process(1.0 / 60.0)
+		if missile.velocity.x < 0.0:
+			turned_around = true
+	_check("a target behind the missile actually pulls it into a U-turn (velocity.x goes negative)", turned_around)
+	_check("homing preserves speed while turning, it doesn't accelerate/decelerate", is_equal_approx(missile.velocity.length(), initial_speed))
+	_check("flip_h follows the U-turn (nose mirrors to keep facing the direction of travel)", missile._sprite.flip_h)
+
+	target.queue_free()
+	missile.queue_free()
+
+func _test_round_reset_clears_ultra_effects() -> void:
+	# 2026-08-15 bug report (Camil): "quand un joueur perd un round il faut
+	# remettre tous les compteurs a 0 y compris les effets d'ultra" —
+	# reset_for_new_round() used to only clear a handful of timers, missing
+	# several that could leak a still-active buff/debuff into the next
+	# round (Mitrailleur's double-fire, a stun, a fire-recoil boost, the
+	# flash tint, a mid-charge lift, Vif's dash state).
+	var ship := ShipNode.new()
+	ship.half_extents = Vector2(14, 28)
+	ship.weapon_state = WeaponSystemState.new([load("res://data/weapons/machine_gun.tres")])
+	ship._mobility_boost_timer = 5.0
+	ship._stun_timer = 2.0
+	ship._double_fire_shots_remaining = 10
+	ship._fire_recoil_boost_timer = 1.0
+	ship._flash_timer = 0.5
+	ship._lift_charge_timer = 1.5
+	ship._dash_timer = 0.3
+	ship._dash_cooldown_timer = 0.8
+	ship._vulnerability_timer = 0.7
+	ship._charged_beam_slow_timer = 3.0
+	ship._external_slow_timer = 0.2
+	ship._controls_scrambled_timer = 12.5
+	ship._controls_scramble_angle = 2.4
+
+	ship.reset_for_new_round()
+
+	_check("reset_for_new_round() clears the mobility boost timer", is_equal_approx(ship._mobility_boost_timer, 0.0))
+	_check("reset_for_new_round() clears a stun", is_equal_approx(ship._stun_timer, 0.0))
+	_check("reset_for_new_round() clears Mitrailleur's double-fire buff", ship._double_fire_shots_remaining == 0)
+	_check("reset_for_new_round() clears the fire-recoil boost", is_equal_approx(ship._fire_recoil_boost_timer, 0.0))
+	_check("reset_for_new_round() clears the flash tint timer", is_equal_approx(ship._flash_timer, 0.0))
+	_check("reset_for_new_round() clears a mid-charge lift", is_equal_approx(ship._lift_charge_timer, 0.0))
+	_check("reset_for_new_round() clears Vif's dash state", is_equal_approx(ship._dash_timer, 0.0) and is_equal_approx(ship._dash_cooldown_timer, 0.0))
+	_check("reset_for_new_round() still clears the pre-existing timers (vulnerability/charged-beam-slow/external-slow/scramble)", is_equal_approx(ship._vulnerability_timer, 0.0) and is_equal_approx(ship._charged_beam_slow_timer, 0.0) and is_equal_approx(ship._external_slow_timer, 0.0) and is_equal_approx(ship._controls_scrambled_timer, 0.0) and is_equal_approx(ship._controls_scramble_angle, 0.0))
+
+	ship.queue_free()
+	# _clear_round_entities()'s matching fix (freeing the round-scoped Ultra
+	# hazard nodes: BlackHole/WindGust/LaserMesh/MissileStrike) needs a real
+	# MatchArenaNode instantiated from MatchArena.tscn — a bare .new() here
+	# would leave every @onready scene reference unset, and this harness
+	# can't safely load autoload-dependent scenes (see the project's
+	# headless-testing memory) — so that check lives in
+	# ultra_trou_noir_check.gd instead, which already has a real arena.
 
 func _test_mini_shot_data() -> void:
 	# Redesigned 2026-08-06: "mini zonk" idea dropped in favor of a fan burst
@@ -354,7 +454,11 @@ func _test_stun_also_deals_damage() -> void:
 func _test_turret_destructible() -> void:
 	var turret_data: WeaponData = load("res://data/weapons/turret.tres")
 	_check("turret has HP defined", turret_data.turret_hp > 0.0)
-	_check("turret lifetime is 20-30s (2026-08-05 playtest: was a flat 6s)", turret_data.turret_lifetime >= 20.0 and turret_data.turret_lifetime <= 30.0)
+	# 2026-08-17: trimmed 25.0 -> 18.75 (-25%, batch balance testing —
+	# Controleur stayed 97-100% across 5 AI-vs-AI re-test batches even
+	# after two different AI-behavior fixes; still comfortably clear of
+	# the old flat-6s bug this check originally guarded against).
+	_check("turret lifetime is 15-30s (2026-08-05 playtest: was a flat 6s; trimmed again 2026-08-17)", turret_data.turret_lifetime >= 15.0 and turret_data.turret_lifetime <= 30.0)
 	# Controleur's charged turret (2026-08-10): "il manque le tir charge de
 	# controleur. idee: pose une tourelle ephemere, qui tire 4x plus vite,
 	# mais ne dure que 5 secondes".
@@ -576,6 +680,194 @@ func _test_ball_hazard_bounce() -> void:
 	_check("hazard bounce reverses velocity on a head-on hit", bounced.velocity.x < 0.0)
 	_check("hazard bounce preserves speed", is_equal_approx(bounced.velocity.length(), state.velocity.length()))
 
+func _test_ball_spawn_direction() -> void:
+	# 2026-08-15 bug report (Camil): "la balle spawn toujours en partant vers
+	# la droite... il faudrait qu'elle parte a gauche ou a droite au hasard,
+	# ensuite qu'elle parte vers le joueur qui l'a perdue."
+	var ball := BallNode.new()
+	ball.arena_bounds = Rect2(0, 0, 1280, 720)
+	ball.frontier_x = 640.0
+	root.add_child(ball)
+	# add_child() alone never fires _ready() in this -s harness — NOTIFICATION_READY
+	# is deferred to a frame this synchronous script never runs (see this file's
+	# other bare-node tests, which all avoid touching anything _ready()-built).
+	# The new respawn-grow-animation checks below need ball._sprite to actually
+	# exist, so force it here — safe: nothing later ever ticks a real frame that
+	# would fire the deferred NOTIFICATION_READY a second time.
+	ball._ready()
+
+	_check("_spawn_velocity(0) always heads left, toward side 0", ball._spawn_velocity(0).x < 0.0)
+	_check("_spawn_velocity(1) always heads right, toward side 1", ball._spawn_velocity(1).x > 0.0)
+
+	var saw_left := false
+	var saw_right := false
+	for _i in range(60):
+		if ball._spawn_velocity().x < 0.0: # no target (default -1) — used for the very first serve of a match/round
+			saw_left = true
+		else:
+			saw_right = true
+	_check("_spawn_velocity() with no target rolls a random side (both directions seen over 60 tries)", saw_left and saw_right)
+
+	# A miss on the left must respawn the ball heading back toward the side
+	# that just missed it (leftward), not always the same fixed direction.
+	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
+	var opponent := ShipNode.new()
+	opponent.side = 1
+	opponent.weapon_state = WeaponSystemState.new([machine_gun])
+	root.add_child(opponent)
+	ball.ships = [opponent]
+	ball.state = BallState.new(Vector2(-500, 300), Vector2(-BallState.BASE_SPEED, 0.0)) # well past the left edge
+	ball._resolve_out_of_bounds()
+	# 2026-08-22 (Camil: "quand on perd la balle, quand elle reapparait,
+	# faudrait qu'elle reste immobile pendant 1 seconde") — the respawned
+	# ball is now frozen (velocity Vector2.ZERO) for RESPAWN_FREEZE_DURATION;
+	# the direction it'll actually launch toward lives in
+	# _pending_launch_velocity until that timer runs out.
+	_check("a ball missed on the left respawns frozen in place", ball.state.velocity.is_equal_approx(Vector2.ZERO))
+	_check("...but queued to launch back toward the player who missed it", ball._pending_launch_velocity.x < 0.0)
+	# 2026-08-22 (Camil: "il faudrait une petite anime. genre elle part de
+	# tout petit (20%) et grossit en tournant, pendant 1s, pour arriver a sa
+	# taille normale de 100%") — cosmetic-only, but the sprite's own scale
+	# is a real, checkable side effect of the freeze ticking down.
+	# 2026-08-22 follow-up ("on ne la voit pas arriver. je propose
+	# l'inverse : elle pope a 200% et retrecit a 100%") — flipped direction.
+	_check("the ball sprite pops in oversized (200%) at the moment it freezes", ball._sprite.scale.is_equal_approx(BallNode.BALL_SPRITE_SCALE * BallNode.RESPAWN_POP_START_SCALE))
+	ball.active = true
+	var frozen_position := ball.state.position
+	for _i in range(59): # RESPAWN_FREEZE_DURATION=1.0s @ 60fps — one tick shy of the full freeze
+		ball._physics_process(1.0 / 60.0)
+	_check("the ball stays put for the whole freeze window", ball.state.position.is_equal_approx(frozen_position) and ball.state.velocity.is_equal_approx(Vector2.ZERO))
+	_check("...while the sprite has shrunk partway back toward full size", ball._sprite.scale.x < BallNode.BALL_SPRITE_SCALE.x * BallNode.RESPAWN_POP_START_SCALE and ball._sprite.scale.x > BallNode.BALL_SPRITE_SCALE.x)
+	ball._physics_process(1.0 / 60.0) # the tick that ends the freeze
+	_check("the ball launches once the freeze ends", ball.state.velocity.x < 0.0)
+	_check("...at exactly its normal full-size scale", ball._sprite.scale.is_equal_approx(BallNode.BALL_SPRITE_SCALE))
+
+	# 2026-08-15 (Camil): the gauge itself still fills immediately on a
+	# miss (fair for gameplay) even though the "+50" popup is now deferred
+	# to GaugeFillEffectNode — see fill_selected_gauge_silently().
+	_check("a miss still fills the winning side's gauge immediately", is_equal_approx(opponent.weapon_state.gauges[0], WeaponSystemState.MISS_GAUGE_FILL))
+	var spawned_effect: GaugeFillEffectNode = null
+	for child in root.get_children():
+		if child is GaugeFillEffectNode:
+			spawned_effect = child
+	_check("a miss spawns a GaugeFillEffectNode targeting the winning ship", spawned_effect != null and spawned_effect.target_ship == opponent and is_equal_approx(spawned_effect.fill_amount, WeaponSystemState.MISS_GAUGE_FILL))
+	if spawned_effect:
+		spawned_effect.queue_free()
+
+	opponent.queue_free()
+	ball.queue_free()
+
+func _test_gauge_fill_effect_targets_pip() -> void:
+	# 2026-08-15 (Camil): "attention a bien viser la prochaine case vide.
+	# Si les 5 cases sont remplies, on n'envoie pas de boule jaune."
+	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
+	var ball := BallNode.new()
+	ball.arena_bounds = Rect2(0, 0, 1280, 720)
+	ball.frontier_x = 640.0
+	root.add_child(ball)
+
+	var meter := UltraMeterNode.new()
+	meter.position = Vector2(820.0, 130.0) # arbitrary — stands in for the real HUD meter's screen position
+	root.add_child(meter)
+	ball.p2_ultra_meter = meter
+
+	var opponent := ShipNode.new()
+	opponent.side = 1
+	opponent.weapon_state = WeaponSystemState.new([machine_gun])
+	opponent.weapon_state = opponent.weapon_state.with_ultra_pip_added() # 1 pip already filled — next empty is index 1
+	opponent.weapon_state = opponent.weapon_state.with_ultra_pip_added()
+	root.add_child(opponent)
+	ball.ships = [opponent]
+	ball.state = BallState.new(Vector2(-500, 300), Vector2(-BallState.BASE_SPEED, 0.0))
+	ball._resolve_out_of_bounds()
+
+	var effect: GaugeFillEffectNode = null
+	for child in root.get_children():
+		if child is GaugeFillEffectNode:
+			effect = child
+	var expected_anchor := meter.global_position + Vector2(2 * (meter.pip_size + meter.spacing) + meter.pip_size / 2.0, meter.pip_size / 2.0)
+	_check("the yellow ball aims at the real next-empty pip (index 2, not a rough anchor)", effect != null and effect.send_gauge_ball and effect.gauge_anchor.is_equal_approx(expected_anchor))
+	if effect:
+		effect.queue_free()
+
+	# Now fill the meter all the way (5/5) before another miss — no empty
+	# case left, so no yellow ball should be sent at all.
+	while not opponent.weapon_state.ultra_ready():
+		opponent.weapon_state = opponent.weapon_state.with_ultra_pip_added()
+	ball.state = BallState.new(Vector2(-500, 300), Vector2(-BallState.BASE_SPEED, 0.0))
+	ball._resolve_out_of_bounds()
+	var effect_2: GaugeFillEffectNode = null
+	for child in root.get_children():
+		if child is GaugeFillEffectNode:
+			effect_2 = child
+	_check("no yellow ball is sent once the ultra meter is already full", effect_2 != null and not effect_2.send_gauge_ball)
+	if effect_2:
+		effect_2.queue_free()
+
+	meter.queue_free()
+	opponent.queue_free()
+	ball.queue_free()
+
+func _test_gauge_fill_effect() -> void:
+	# fill_selected_gauge_silently() — same gauge update as
+	# fill_selected_gauge(), but must NOT emit gauge_filled (that signal is
+	# what drives MatchArenaNode's INSTANT "+50" popup, which this whole
+	# feature exists to defer).
+	var machine_gun: WeaponData = load("res://data/weapons/machine_gun.tres")
+	var ship := ShipNode.new()
+	ship.weapon_state = WeaponSystemState.new([machine_gun])
+	var signal_fired := false
+	ship.gauge_filled.connect(func(_amount): signal_fired = true)
+	ship.fill_selected_gauge_silently(25.0)
+	_check("fill_selected_gauge_silently() still updates the gauge", is_equal_approx(ship.weapon_state.gauges[0], 25.0))
+	_check("fill_selected_gauge_silently() does NOT emit gauge_filled (no instant popup)", not signal_fired)
+	ship.queue_free()
+
+	# GaugeFillEffectNode: drive _physics_process() manually (same pattern
+	# as every other node test in this file — this harness doesn't tick
+	# real physics frames) and confirm it spawns exactly one "+50" popup,
+	# at the target ship's position, once its travel time elapses — not
+	# before, and not more than once.
+	var target := ShipNode.new()
+	target.position = Vector2(500.0, 300.0)
+	root.add_child(target)
+	var effect := GaugeFillEffectNode.new()
+	effect.loss_position = Vector2(100.0, 300.0)
+	effect.target_ship = target
+	effect.gauge_anchor = Vector2(120.0, 45.0)
+	effect.fill_amount = 50.0
+	root.add_child(effect)
+
+	var popups_before := 0
+	for child in root.get_children():
+		if child is FloatingTextNode:
+			popups_before += 1
+	effect._physics_process(GaugeFillEffectNode.EFFECT_DURATION * 0.5) # well short of the full duration
+	var popups_mid := 0
+	for child in root.get_children():
+		if child is FloatingTextNode:
+			popups_mid += 1
+	_check("the '+50' popup doesn't appear before the travel effect finishes", popups_mid == popups_before)
+	# 2026-08-15 playtest: "on va passer sur 1 seconde, la ca va vraiment
+	# trop vite" — Camil's own original "1/2 seconde max" was revised up
+	# after actually seeing it, so this just pins the CURRENT intended
+	# value instead of enforcing a cap that's no longer the real spec.
+	_check("the effect duration matches the revised 1s pacing", is_equal_approx(GaugeFillEffectNode.EFFECT_DURATION, 1.0))
+
+	effect._physics_process(GaugeFillEffectNode.EFFECT_DURATION) # now past the full duration
+	var popup: FloatingTextNode = null
+	for child in root.get_children():
+		if child is FloatingTextNode:
+			popup = child
+	_check("the effect actually spawns a FloatingTextNode popup once it finishes", popup != null)
+	if popup:
+		_check("the popup reads '+50', matching the fill amount", popup.text == "+50")
+		_check("the popup appears at the target ship's position, not the loss position", popup.position.distance_to(target.position) < 20.0)
+		popup.queue_free()
+	_check("the effect frees itself once finished", effect.is_queued_for_deletion())
+
+	target.queue_free()
+
 func _test_lift_spin_stays_returnable() -> void:
 	# 2026-08-14 bug report (Camil, screenshot): "lors d'un lift, il m'arrive
 	# d'avoir la balle qui est quasi verticale, donc l'echange est presque
@@ -606,9 +898,32 @@ func _test_character_ship_art() -> void:
 	_check("the sprite's texture is actually loaded, not left null", sprite.texture != null)
 	_check("the sprite is scaled to match the ship's half_extents (28x56), not left at native art resolution", is_equal_approx(sprite.scale.x * sprite.texture.get_width(), ship.half_extents.x * 2.0) and is_equal_approx(sprite.scale.y * sprite.texture.get_height(), ship.half_extents.y * 2.0))
 
-	var lourd: CharacterData = load("res://data/characters/lourd.tres") # no ship.png authored yet — must fall back to the flat Visual polygon, not crash
-	ship.set_character(lourd)
-	_check("a character without dedicated ship art yet falls back cleanly (sprite hidden, no crash)", not sprite.visible)
+	var visual := ship.get_node_or_null("Visual") as Polygon2D
+	# 2026-08-15 bug report (Camil, screenshot): the art's transparent
+	# (chamfered) corners were showing the flat team-colored rectangle
+	# bleeding through underneath instead of the real arena background —
+	# Visual's own fill must go invisible once real art is displayed.
+	_check("Visual's flat fill is hidden once real ship art is showing (no team-color corners bleeding through)", visual != null and is_equal_approx(visual.color.a, 0.0))
+
+	# 2026-08-15 — full roster batch (Sally session): every character now has
+	# a ship.png. One regression here (a bad id mapping, e.g. Spreader's
+	# "mini" id vs its display name) would silently fall back to the flat
+	# polygon instead of erroring, so assert every id explicitly rather than
+	# trusting the single Traqueur check above to represent all 8.
+	for id in ["lourd", "controleur", "mitrailleur", "vif", "zoneur", "perturbateur", "missiles", "mini"]:
+		var character := CharacterData.new()
+		character.id = id
+		ship.set_character(character)
+		_check("character id '%s' has its ship art wired up" % id, sprite.visible and sprite.texture != null)
+
+	# 2026-08-15: the roster now has ship.png for all 8, so the fallback path
+	# needs a synthetic id (no matching assets/art/characters/<id>/ folder)
+	# rather than a real character — every real one would now pass.
+	var unequipped := CharacterData.new()
+	unequipped.id = "nonexistent_test_character"
+	ship.set_character(unequipped)
+	_check("a character without dedicated ship art falls back cleanly (sprite hidden, no crash)", not sprite.visible)
+	_check("Visual's flat fill is restored (opaque) once falling back to it", visual != null and is_equal_approx(visual.color.a, 1.0))
 
 	ship.queue_free()
 
@@ -806,28 +1121,48 @@ func _test_campaign_save_progress_tracking() -> void:
 	_check("reset_all() clears character_with_progress() too", save.character_with_progress() == "")
 
 func _test_vif_campaign_authoring() -> void:
-	# Sanity-checks the one fully-authored example campaign (content for the
-	# other 7 characters is tracked separately, not an engineering gap).
-	var campaign: CampaignData = load("res://data/campaigns/vif_campaign.tres")
-	var vif: CharacterData = load("res://data/characters/vif.tres")
+	# 2026-08-16: full 8-character roster authored (was Vif-only, "content
+	# for the other 7 is tracked separately" — see [[campaign-content-2026-08-16]]
+	# project memory). Same checks, now looped over every campaign instead
+	# of hard-coded to just Vif's.
+	var campaign_paths := {
+		"vif": "res://data/characters/vif.tres",
+		"lourd": "res://data/characters/lourd.tres",
+		"controleur": "res://data/characters/controleur.tres",
+		"mitrailleur": "res://data/characters/mitrailleur.tres",
+		"zoneur": "res://data/characters/zoneur.tres",
+		"perturbateur": "res://data/characters/perturbateur.tres",
+		"missiles": "res://data/characters/missiles.tres",
+		"mini": "res://data/characters/mini.tres",
+	}
+	var seen_opponent_ids := {} # cross-campaign sanity: catch an accidental self-fight (character in their own roster of opponents)
+	for character_id in campaign_paths:
+		var campaign: CampaignData = load("res://data/campaigns/%s_campaign.tres" % character_id)
+		var character: CharacterData = load(campaign_paths[character_id])
 
-	_check("Vif campaign is authored for the right character", campaign.character == vif)
-	_check("Vif campaign has at least required_branch_count mini-branches", campaign.mini_branches.size() >= campaign.required_branch_count)
-	_check("required_branch_count is in the brainstorm's 3-4 range", campaign.required_branch_count >= 3 and campaign.required_branch_count <= 4)
+		_check("%s campaign is authored for the right character" % character_id, campaign.character == character)
+		_check("%s campaign has at least required_branch_count mini-branches" % character_id, campaign.mini_branches.size() >= campaign.required_branch_count)
+		_check("%s campaign's required_branch_count is in the brainstorm's 3-4 range" % character_id, campaign.required_branch_count >= 3 and campaign.required_branch_count <= 4)
 
-	for b in campaign.mini_branches:
-		var branch: MiniBranchData = b
-		_check("branch '%s' has both mooks set" % branch.id, branch.mook_1 != null and branch.mook_2 != null)
-		# 2026-08-08 bug: mook_1 and mook_2 were the same resource instance in
-		# every branch, which made _update_campaign_label()'s identity check
-		# always report "Sous-adversaire 1/2" and read to the player as a
-		# stuck loop rather than real progress.
-		_check("branch '%s' mook_1 and mook_2 are distinct resources" % branch.id, branch.mook_1 != branch.mook_2)
-		_check("branch '%s' rival has a twist assigned" % branch.id, branch.rival.twist != null)
-		_check("branch '%s' rival grants an unlock" % branch.id, branch.rival.unlock_reward != null)
+		var branch_ids := {}
+		for b in campaign.mini_branches:
+			var branch: MiniBranchData = b
+			_check("%s branch '%s' has both mooks set" % [character_id, branch.id], branch.mook_1 != null and branch.mook_2 != null)
+			# 2026-08-08 bug: mook_1 and mook_2 were the same resource instance in
+			# every branch, which made _update_campaign_label()'s identity check
+			# always report "Sous-adversaire 1/2" and read to the player as a
+			# stuck loop rather than real progress.
+			_check("%s branch '%s' mook_1 and mook_2 are distinct resources" % [character_id, branch.id], branch.mook_1 != branch.mook_2)
+			_check("%s branch '%s' rival has a twist assigned" % [character_id, branch.id], branch.rival.twist != null)
+			_check("%s branch '%s' rival grants an unlock" % [character_id, branch.id], branch.rival.unlock_reward != null)
+			_check("%s branch '%s' doesn't fight the player's own character" % [character_id, branch.id], branch.rival.opponent != character)
+			branch_ids[branch.id] = true
+			seen_opponent_ids[branch.rival.opponent.id] = true
+		_check("%s campaign's branch ids are all distinct" % character_id, branch_ids.size() == campaign.mini_branches.size())
 
-	_check("organizer encounter is set", campaign.organizer_encounter != null)
-	_check("organizer encounter has its signature twist", campaign.organizer_encounter.twist != null and campaign.organizer_encounter.twist.twist_type == "energy_orb_pickup")
+		_check("%s organizer encounter is set" % character_id, campaign.organizer_encounter != null)
+		_check("%s organizer encounter has its signature twist" % character_id, campaign.organizer_encounter.twist != null and campaign.organizer_encounter.twist.twist_type == "energy_orb_pickup")
+		_check("%s organizer isn't the player's own character" % character_id, campaign.organizer_encounter.opponent != character)
 
 func _test_gauges_reset_between_rounds() -> void:
 	# 2026-08-08 bug report: "quand un round se termine, les compteurs
@@ -1070,12 +1405,14 @@ func _test_vortex_weapon() -> void:
 	# ship_node.gd fix attempt was solving a different, hypothetical problem.
 	_check("Tourbillon's charge actually slows movement (was silently defaulting to 1.0 = no slow)", vortex.charge_fire_slow_multiplier < 1.0 and vortex.charge_fire_slow_multiplier > 0.0)
 	_check("Tourbillon's cooldown was increased 1.5x (2026-08-09 playtest: 'un peu court')", vortex.fire_rate < 4.0 / 1.4) # fire_rate=4.0/1.5 -> cooldown*1.5; loose upper bound so exact rounding doesn't matter
-	# 2026-08-13: "j'augmenterais bien aussi le cooldown de l'arme de vif,
-	# +40% par rapport a l'actuel" — actual before/after cooldowns compared
-	# directly (1/fire_rate), not another fire_rate-space approximation.
-	var vortex_cooldown_before := 1.0 / 2.667 # the value going into this change
-	var vortex_cooldown_after := 1.0 / vortex.fire_rate
-	_check("Tourbillon's cooldown was increased another 40% on top of that", is_equal_approx(vortex_cooldown_after, vortex_cooldown_before * 1.4))
+	# 2026-08-17 (after batch balance testing showed Vif at a 2% AI-vs-AI
+	# win rate, the lowest DPS in the roster): "OK pour booster vif comme
+	# propose" — damage 2->3, and the 2026-08-13 cooldown nerf below
+	# partially walked back (fire_rate 1.905->2.3, was 2.667 pre-nerf) —
+	# replaces the old "nerfed by another 40%" assertion, which is no
+	# longer the current design intent.
+	_check("Tourbillon's damage was raised off the roster floor (2026-08-17 rebalance)", vortex.damage == 3)
+	_check("Tourbillon's cooldown nerf was partially walked back (2026-08-17 rebalance: faster than the 1.905 post-nerf value, still slower than the pre-nerf 2.667)", vortex.fire_rate > 1.905 and vortex.fire_rate < 2.667)
 	_check("Tourbillon's charged fire launches 3 vortices", vortex.charged_projectile_count == 3)
 	_check("Tourbillon's charged vortices still go straight (no burst spread)", vortex.charged_burst_spread_deg == 0.0)
 	_check("Tourbillon gives Vif a recoil speed boost on fire, trimmed twice after playtest (100% -> 70% -> 60%, 'toujours trop fort')", is_equal_approx(vortex.fire_recoil_speed_boost, 0.6) and is_equal_approx(vortex.fire_recoil_boost_decay_time, 0.5))

@@ -1,16 +1,19 @@
 extends Node2D
 
 ## One-off scene-boot verification for Zoneur's Ultra, "Grille Laser"
-## (2026-08-13 Epic 4 party-mode memlog: "grille laser (motif de faisceaux
-## lisible, des trous a trouver)"). Own dedicated file, same reasoning as
-## ultra_mitrailleuses_satellites_check.gd — keeps each Ultra's test run
-## focused instead of growing one shared wait-loop file. Confirms: the
-## guaranteed floor lands at unfreeze, exactly (BAND_COUNT - GAP_COUNT)
-## fixed-position BeamNodes spawn, each landing on one of the expected
-## evenly-spaced band Y positions with freeze_position actually set (the
-## whole point of the BeamNode change — a beam that doesn't chase the
-## shooter). Run with:
-##   Godot --headless --path godot_project res://tests/ultra_grille_laser_check.tscn --quit-after 2200
+## (reworked 2026-08-15, Camil: "ca fait trois lasers horizontaux. On
+## avait dit que ca devait faire des laser en maillage, qui apparaissent
+## au fur et a mesure (10 lasers sur 1 seconde), dans tous les sens, et
+## uniquement dans le champ adverse, direction random" — replaces the old
+## fixed horizontal BeamNode bands entirely). Own dedicated file, same
+## reasoning as ultra_mitrailleuses_satellites_check.gd. Confirms: the
+## guaranteed floor lands at unfreeze, exactly GRILLE_LASER_COUNT
+## LaserMeshNodes spawn cumulatively (short-lived + staggered, so most
+## never coexist — see ultra_abilities_check.gd's "cumulative" mode for
+## the same pattern), every segment stays fully inside the OPPONENT's
+## half, and the angles actually vary (not a regression back to
+## all-horizontal). Run with:
+##   Godot --headless --path godot_project res://tests/ultra_grille_laser_check.tscn --quit-after 20000
 
 func _ready() -> void:
 	var arena_scene := load("res://scenes/MatchArena.tscn") as PackedScene
@@ -33,47 +36,44 @@ func _ready() -> void:
 
 	var was_active := arena.ship_1.active
 	var hp_at_unfreeze := -1.0
+	var seen: Dictionary = {} # instance_id -> {start, end}, recorded the first time each laser is observed
 	for i in 1600:
 		await get_tree().physics_frame
 		if not was_active and arena.ship_1.active:
 			hp_at_unfreeze = arena.ship_2.state.hp
-			break
 		was_active = arena.ship_1.active
+		for child in arena.get_children():
+			if child is LaserMeshNode:
+				var id := child.get_instance_id()
+				if not seen.has(id):
+					seen[id] = {"start": child.start, "end": child.end}
 
 	var floor_ok: bool = hp_at_unfreeze >= 0.0 and is_equal_approx(hp_before - hp_at_unfreeze, MatchArenaNode.GRILLE_LASER_GUARANTEED_DAMAGE)
 	print(("PASS: guaranteed floor lands the instant the intro finishes (%.0f -> %.0f)" % [hp_before, hp_at_unfreeze]) if floor_ok else ("FAIL: floor was wrong at unfreeze (%.0f -> %.0f, expected -%.0f)" % [hp_before, hp_at_unfreeze, MatchArenaNode.GRILLE_LASER_GUARANTEED_DAMAGE]))
 
-	var beams: Array = []
-	for child in arena.get_children():
-		if child is BeamNode:
-			beams.append(child)
-	var expected_beam_count := MatchArenaNode.GRILLE_LASER_BAND_COUNT - MatchArenaNode.GRILLE_LASER_GAP_COUNT
-	var count_ok: bool = beams.size() == expected_beam_count
-	print(("PASS: %d/%d bands are active (the rest are gaps)" % [beams.size(), MatchArenaNode.GRILLE_LASER_BAND_COUNT]) if count_ok else ("FAIL: %d beams spawned, expected %d" % [beams.size(), expected_beam_count]))
+	var count_ok: bool = seen.size() == MatchArenaNode.GRILLE_LASER_COUNT
+	print(("PASS: all %d lasers spawned over the build-up window" % seen.size()) if count_ok else ("FAIL: %d lasers spawned, expected %d" % [seen.size(), MatchArenaNode.GRILLE_LASER_COUNT]))
 
-	var bounds := Rect2(arena.arena_origin, arena.arena_size)
-	var expected_ys: Array = []
-	for i in MatchArenaNode.GRILLE_LASER_BAND_COUNT:
-		var t := float(i) / float(MatchArenaNode.GRILLE_LASER_BAND_COUNT - 1)
-		expected_ys.append(lerpf(bounds.position.y + MatchArenaNode.GRILLE_LASER_BAND_MARGIN, bounds.position.y + bounds.size.y - MatchArenaNode.GRILLE_LASER_BAND_MARGIN, t))
+	# ship_2 (the target) is on side 1 (right half) in this test's default
+	# setup — confined_ok checks both endpoints of every segment land at or
+	# past the frontier, never bleeding into ship_1's half.
+	var confined_ok := true
+	var angles: Array = []
+	for id in seen:
+		var seg: Dictionary = seen[id]
+		var start: Vector2 = seg.start
+		var end: Vector2 = seg.end
+		if start.x < arena._current_frontier_x - 0.01 or end.x < arena._current_frontier_x - 0.01:
+			confined_ok = false
+		angles.append(wrapf((end - start).angle(), 0.0, PI)) # mod PI: a line's angle and angle+PI describe the same line
+	print("PASS: every laser stays confined to the opponent's half" if confined_ok else "FAIL: at least one laser crossed into the shooter's own half")
 
-	var config_ok := true
-	var seen_ys: Array = []
-	for beam in beams:
-		if not beam.freeze_position:
-			config_ok = false
-		if beam.weapon != MatchArenaNode.ULTRA_GRILLE_LASER:
-			config_ok = false
-		var matched := false
-		for y in expected_ys:
-			if is_equal_approx(beam.position.y, y):
-				matched = true
-		if not matched:
-			config_ok = false
-		if beam.position.y in seen_ys: # no two active bands land on the same gap-shuffled slot
-			config_ok = false
-		seen_ys.append(beam.position.y)
-	print("PASS: every beam is frozen in place on a real, distinct band position" if config_ok else "FAIL: a beam's freeze_position/weapon/band-Y was wrong")
+	var angle_variety_ok := false
+	for a in angles:
+		for b in angles:
+			if absf(a - b) > deg_to_rad(20.0): # any two segments meaningfully non-parallel is enough to prove it's not just horizontal again
+				angle_variety_ok = true
+	print("PASS: laser angles actually vary (not a regression to all-horizontal)" if angle_variety_ok else "FAIL: every laser landed at basically the same angle")
 
-	var all_ok := floor_ok and count_ok and config_ok
+	var all_ok := floor_ok and count_ok and confined_ok and angle_variety_ok
 	get_tree().quit(0 if all_ok else 1)

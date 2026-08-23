@@ -13,6 +13,8 @@ config_version=5
 config/name="Seek and Destroy and Return the Ball"
 run/main_scene="res://scenes/TitleScreen.tscn"
 config/features=PackedStringArray("4.7")
+boot_splash/bg_color=Color(0.07, 0.09, 0.15, 1)
+boot_splash/show_image=false
 
 [autoload]
 
@@ -20,13 +22,13 @@ MatchSetup="*res://nodes/match_setup.gd"
 CampaignSave="*res://nodes/campaign_save.gd"
 CampaignContext="*res://nodes/campaign_context.gd"
 DebugOverlay="*res://nodes/debug_overlay.gd"
+TitleMusic="*res://nodes/title_music.gd"
 
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
 
 [physics]
 

@@ -1,16 +1,17 @@
 extends Node2D
 
-## One-off scene-boot verification for the bespoke Ultras built so far
+## One-off scene-boot verification for three of the bespoke Ultras
 ## (2026-08-13 Epic 4 party-mode memlog roster, replacing the generic
 ## 25-damage placeholder): Traqueur's "La Meute", Lourd's "Pluie de
-## Scuds", Spreader's "Pluie de Bonbons". Confirms, via the real trigger
-## path (Input.parse_input_event, same pattern as ultra_meter_check.gd):
-## (1) triggering freezes the
+## Scuds" (missile-rain rework, 2026-08-15), Spreader's "Pluie de
+## Bonbons". Confirms, via the real trigger path (Input.parse_input_event,
+## same pattern as ultra_meter_check.gd): (1) triggering freezes the
 ## match and plays the UltraIntroNode intro beat (2026-08-14) BEFORE
-## anything lands — no damage, no projectiles, ships/ball inactive; (2)
+## anything lands — no damage, no burst children, ships/ball inactive; (2)
 ## once the intro finishes, ships/ball unfreeze and the guaranteed damage
-## floor lands; (3) the full projectile burst actually spawns (right
-## count of ProjectileNode children). Run with:
+## floor lands; (3) the full burst actually spawns (right count of burst
+## children — ProjectileNode for the two spread-shots, MissileStrikeNode
+## for Pluie de Scuds). Run with:
 ##   Godot --headless --path godot_project res://tests/ultra_abilities_check.tscn --quit-after 28000
 
 func _ready() -> void:
@@ -19,22 +20,43 @@ func _ready() -> void:
 		MatchArenaNode.LA_MEUTE_GUARANTEED_DAMAGE,
 		MatchArenaNode.ULTRA_LA_MEUTE.projectile_count,
 		"La Meute",
+		func(n): return n is ProjectileNode,
+		"peak",
+		# 2026-08-16 playtest: doubled missile lifetime + an expiry
+		# explosion, plus catching a live regression this same check would
+		# otherwise have missed — MatchArenaNode._spawn_projectile() had
+		# silently stopped setting homing_full_turn for this Ultra (see
+		# godot-editor-clobbers-external-edits memory), so La Meute's
+		# missiles were quietly back to the base weapon's Y-only steering.
+		func(n): return n.homing_full_turn and n.lifetime <= MatchArenaNode.LA_MEUTE_LIFETIME and n.expiry_explosion_radius == MatchArenaNode.LA_MEUTE_EXPLOSION_RADIUS and n.expiry_explosion_damage == MatchArenaNode.LA_MEUTE_EXPLOSION_DAMAGE,
 	)
 	var scuds_ok := await _check_ultra(
 		load("res://data/characters/lourd.tres"),
 		MatchArenaNode.PLUIE_DE_SCUDS_GUARANTEED_DAMAGE,
-		MatchArenaNode.PLUIE_DE_SCUDS_SHELL_COUNT,
+		MatchArenaNode.PLUIE_DE_SCUDS_MISSILE_COUNT,
 		"Pluie de Scuds",
+		func(n): return n is MissileStrikeNode,
+		"cumulative", # 2026-08-15 rework — each missile self-frees ~0.5s after spawning, staggered 0.1s apart, so at most ~5 are ever alive at once; "peak concurrent" would badly undercount the real burst size of 20
 	)
 	var bonbons_ok := await _check_ultra(
 		load("res://data/characters/mini.tres"), # Spreader
 		MatchArenaNode.PLUIE_DE_BONBONS_GUARANTEED_DAMAGE,
-		MatchArenaNode.ULTRA_PLUIE_DE_BONBONS.projectile_count,
+		MatchArenaNode.PLUIE_DE_BONBONS_COUNT,
 		"Pluie de Bonbons",
+		func(n): return n is ProjectileNode,
+		"cumulative", # 2026-08-15 rework — vertical rain with RANDOM (not evenly staggered) spawn delays and a 3s lifetime each; peak-concurrent isn't a reliable count anymore with random timing, cumulative distinct instances is
 	)
 	get_tree().quit(0 if (la_meute_ok and scuds_ok and bonbons_ok) else 1)
 
-func _check_ultra(character: CharacterData, expected_floor: float, expected_projectile_count: int, expected_name: String) -> bool:
+## is_burst_child: identifies which live children count toward the burst
+## (ProjectileNode for the two spread-shot Ultras, MissileStrikeNode for
+## Pluie de Scuds — see the 2026-08-15 rework note above).
+## count_mode: "peak" tracks the highest number alive at once (right for
+## long-lived projectiles that all coexist); "cumulative" tracks the total
+## number of distinct instances ever seen across the whole wait (right for
+## Pluie de Scuds' short-lived, staggered missiles, which mostly DON'T
+## coexist).
+func _check_ultra(character: CharacterData, expected_floor: float, expected_burst_count: int, expected_name: String, is_burst_child: Callable, count_mode: String, field_check: Callable = Callable()) -> bool:
 	var arena_scene := load("res://scenes/MatchArena.tscn") as PackedScene
 	var arena := arena_scene.instantiate() as MatchArenaNode
 	add_child(arena)
@@ -70,12 +92,15 @@ func _check_ultra(character: CharacterData, expected_floor: float, expected_proj
 	# the second window even starts. Instead: catch the exact tick ships
 	# transition frozen -> active (that's the intro finishing and
 	# _resolve_ultra_effect() having just run synchronously) and sample
-	# HP right there — before any projectile has had a tick to travel —
-	# while ALSO tracking the peak live projectile count across the whole
-	# loop regardless of when that transition happens.
+	# HP right there — before any burst child has had a tick to act —
+	# while ALSO tracking the burst count (peak concurrent or cumulative
+	# distinct instances, per count_mode) across the whole loop regardless
+	# of when that transition happens.
 	var was_active := arena.ship_1.active
 	var hp_at_unfreeze := -1.0
-	var peak_projectile_count := 0
+	var peak_burst_count := 0
+	var seen_instance_ids := {}
+	var field_check_ok := true # stays true if no field_check was passed
 	for i in 1600:
 		await get_tree().physics_frame
 		if not was_active and arena.ship_1.active:
@@ -83,20 +108,26 @@ func _check_ultra(character: CharacterData, expected_floor: float, expected_proj
 		was_active = arena.ship_1.active
 		var live_count := 0
 		for child in arena.get_children():
-			if child is ProjectileNode:
+			if is_burst_child.call(child):
 				live_count += 1
-		peak_projectile_count = maxi(peak_projectile_count, live_count)
+				seen_instance_ids[child.get_instance_id()] = true
+				if field_check.is_valid() and not field_check.call(child):
+					field_check_ok = false
+		peak_burst_count = maxi(peak_burst_count, live_count)
+	var actual_burst_count := seen_instance_ids.size() if count_mode == "cumulative" else peak_burst_count
 
 	var floor_ok: bool = hp_at_unfreeze >= 0.0 and is_equal_approx(hp_before - hp_at_unfreeze, expected_floor)
 	print(("PASS: %s's guaranteed floor lands the instant the intro finishes (%.0f -> %.0f)" % [expected_name, hp_before, hp_at_unfreeze]) if floor_ok else ("FAIL: %s's floor was wrong at unfreeze (%.0f -> %.0f, expected -%.0f)" % [expected_name, hp_before, hp_at_unfreeze, expected_floor]))
 	var unfrozen_after: bool = arena.ship_1.active and arena.ship_2.active and arena.ball.active
 	print(("PASS: %s's match is unfrozen by the end of the wait" % expected_name) if unfrozen_after else ("FAIL: %s's match stayed frozen" % expected_name))
-	var burst_ok: bool = peak_projectile_count == expected_projectile_count
-	print(("PASS: %s's full burst spawned (peak %d projectiles live at once)" % [expected_name, peak_projectile_count]) if burst_ok else ("FAIL: %s's peak live count was %d, expected %d" % [expected_name, peak_projectile_count, expected_projectile_count]))
+	var burst_ok: bool = actual_burst_count == expected_burst_count
+	print(("PASS: %s's full burst spawned (%s %d)" % [expected_name, count_mode, actual_burst_count]) if burst_ok else ("FAIL: %s's %s count was %d, expected %d" % [expected_name, count_mode, actual_burst_count, expected_burst_count]))
+	if field_check.is_valid():
+		print(("PASS: %s's burst children all carry the expected extra fields" % expected_name) if field_check_ok else ("FAIL: %s's burst children are missing/wrong on an expected extra field" % expected_name))
 
 	arena.queue_free()
 	await get_tree().process_frame
-	return frozen_during_intro and intro_showing and no_early_damage and floor_ok and unfrozen_after and burst_ok
+	return frozen_during_intro and intro_showing and no_early_damage and floor_ok and unfrozen_after and burst_ok and field_check_ok
 
 ## Presses and leaves the key held — safe here because each _check_ultra()
 ## call uses a brand-new ShipNode (fresh _ultra_prev = false default), so

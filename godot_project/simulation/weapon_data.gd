@@ -135,3 +135,24 @@ extends Resource
 # subsequent NORMAL shot.
 @export var charged_double_fire_shots: int = 0 # how many subsequent normal shots fire doubled. 0 = disabled.
 @export var charged_double_fire_offset: float = 10.0 # px vertical separation between the two parallel shots
+
+# Epic 4 reward system (2026-08-16, Camil: "on va mettre des trucs en face
+# des recompenses. pour chaque rival vaincu.") — when this weapon's id
+# shows up in CampaignSave.unlocks_for(character_id) for whichever
+# character a ship is currently playing, it auto-fires itself on this
+# interval with NO player input at all, for the rest of that match (scope
+# locked 2026-08-11: always active for that character, campaign AND
+# Versus, forever; multiple unlocked rewards stack). Reuses the weapon's
+# own normal MatchArenaNode._on_weapon_fired() dispatch — same burst
+# pattern, same textures — see MatchArenaNode._fire_passive_reward().
+# 0 (default, every weapon that isn't one of the 8 base kit weapons) =
+# not usable as a passive reward at all.
+@export var passive_interval: float = 0.0
+
+# 2026-08-16 (Camil: "on pourrait ajouter 'vous avez gagne XXXXX' => icone
+# + nom + description de l'arme") — a one-line, player-facing description
+# of what this weapon's passive reward actually DOES, shown on the "Rival
+# vaincu !" reveal screen (see MatchArenaNode._resolve_campaign_result()).
+# Empty for every weapon that isn't a passive-reward-capable base kit
+# weapon, same convention as passive_interval.
+@export var passive_description: String = ""

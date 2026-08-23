@@ -44,6 +44,14 @@ func update(input_direction: Vector2, delta: float, bounds: Rect2, frontier_x: f
 func damaged(amount: float) -> ShipState:
 	return ShipState.new(position, side, half_extents, maxf(hp - amount, 0.0))
 
+## Epic 4 reward system (2026-08-16) — Spreader's passive: a small HP
+## regen tick, the mirror image of damaged(). max_hp is passed in rather
+## than stored on ShipState itself (this class has no notion of a cap —
+## ShipNode.max_hp_override owns that, same reason update() takes bounds
+## as a parameter instead of storing them).
+func healed(amount: float, max_hp: float) -> ShipState:
+	return ShipState.new(position, side, half_extents, minf(hp + amount, max_hp))
+
 ## Lourd's "heavy_push" rule (2026-08-09) — an instantaneous positional shove
 ## (e.g. from a fully-charged lift return reaching the opponent), clamped to
 ## the same movement bounds as normal movement so it can never push a ship

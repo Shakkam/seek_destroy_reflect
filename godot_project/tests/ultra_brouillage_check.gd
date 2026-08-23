@@ -2,14 +2,16 @@ extends Node2D
 
 ## One-off scene-boot verification for Perturbateur's Ultra, "Brouillage
 ## de commandes" (2026-08-13 Epic 4 party-mode memlog: "scramble les
-## controles adverses"). Own dedicated file, same reasoning as the other
-## per-Ultra check files. Confirms: the guaranteed floor lands at
-## unfreeze, the opponent's _controls_scrambled_timer is armed, and —
-## the actual point of the effect — a REAL simulated keypress
-## (Input.parse_input_event, P2's RIGHT arrow) reads back INVERTED from
-## ShipNode._read_input() while scrambled, then reads normally again once
-## the scramble duration elapses. Run with:
-##   Godot --headless --path godot_project res://tests/ultra_brouillage_check.tscn --quit-after 2500
+## controles adverses"; reworked 2026-08-15 — 5x longer, a random
+## rotation instead of a flat inversion). Own dedicated file, same
+## reasoning as the other per-Ultra check files. Confirms: the guaranteed
+## floor lands at unfreeze, the opponent's _controls_scrambled_timer is
+## armed, and — the actual point of the effect — a REAL simulated
+## keypress (Input.parse_input_event, P2's RIGHT arrow) reads back
+## ROTATED BY THE ROLLED ANGLE from ShipNode._read_input() while
+## scrambled, then reads normally again once the (now 12.5s) scramble
+## duration elapses. Run with:
+##   Godot --headless --path godot_project res://tests/ultra_brouillage_check.tscn --quit-after 60000
 
 func _ready() -> void:
 	var arena_scene := load("res://scenes/MatchArena.tscn") as PackedScene
@@ -46,8 +48,12 @@ func _ready() -> void:
 	print("PASS: the opponent's controls-scrambled timer is armed" if armed_ok else "FAIL: _controls_scrambled_timer wasn't armed")
 
 	# Hold P2's RIGHT arrow — raw input would read (1, 0); scrambled, the
-	# actual _read_input() ShipNode._physics_process() uses should read
-	# the opposite.
+	# actual _read_input() ShipNode._physics_process() uses should read a
+	# rotated version of it (2026-08-15 rework: "ca random les directions
+	# completement (la ca les inverse juste)" — a full random rotation, not
+	# a flat inversion, so this can't just assert raw.x/scrambled.x have
+	# opposite signs anymore; it checks the exact rotation math instead,
+	# which holds regardless of which random angle got rolled).
 	var right := InputEventKey.new()
 	right.physical_keycode = KEY_RIGHT
 	right.pressed = true
@@ -56,8 +62,9 @@ func _ready() -> void:
 
 	var raw := arena.ship_2._read_raw_input()
 	var scrambled_read := arena.ship_2._read_input()
-	var invert_ok: bool = raw.x > 0.0 and scrambled_read.x < 0.0
-	print(("PASS: input reads inverted while scrambled (raw=%s, actual=%s)" % [raw, scrambled_read]) if invert_ok else ("FAIL: input wasn't inverted (raw=%s, actual=%s)" % [raw, scrambled_read]))
+	var expected := raw.rotated(arena.ship_2._controls_scramble_angle)
+	var invert_ok: bool = scrambled_read.is_equal_approx(expected) and not scrambled_read.is_equal_approx(raw)
+	print(("PASS: input reads rotated by the rolled scramble angle (raw=%s, angle=%.2f, actual=%s)" % [raw, arena.ship_2._controls_scramble_angle, scrambled_read]) if invert_ok else ("FAIL: input wasn't scrambled correctly (raw=%s, angle=%.2f, actual=%s, expected=%s)" % [raw, arena.ship_2._controls_scramble_angle, scrambled_read, expected]))
 
 	# Wait out the scramble duration, confirm input reads normally again.
 	for i in 2000:
