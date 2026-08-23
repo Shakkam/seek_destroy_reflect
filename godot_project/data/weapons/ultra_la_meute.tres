@@ -13,8 +13,30 @@ display_name = "La Meute"
 ; re-reads the live target position every tick, so a stronger value here
 ; naturally reads as the pack "tightening" its aim as it closes in — no
 ; new engine code needed, just tuning against the existing mechanic.
+; 2026-08-15 playtest (Camil): "les missiles devraient etre 2x plus gros
+; et surtout suivre la cible pendant un temps (la ils font juste comme
+; les missiles normaux)" — homing_strength/target were already wired
+; correctly (see match_arena_node.gd:722-728), but 3.2 vs. the base
+; 2.0 just wasn't a visible enough difference, and size was untouched
+; (visual_scale_multiplier defaulted to 1.0, identical to the base
+; missile). Bumped both hard so the Ultra actually reads as distinct —
+; also got its own true-2D-pursuit mode that day (ProjectileNode.
+; homing_full_turn, exclusive to this weapon — see projectile_node.gd),
+; letting a missile turn all the way around instead of only steering
+; vertically.
+; Then, same day, after trying 6.0: "sur l'ultra les missiles sont
+; carrement impossibles a eviter. Il ne faut pas que ca touche si
+; facilement, mais vraiment que ca 'traque' (qui a tourner autour du
+; vaisseau). Et peut-etre les eparer un peu, ils sont trop rapproches."
+; 6.0 rad/s (~344deg/s) was fast enough to snap onto the target almost
+; instantly — nothing to dodge. Cut hard so a missile can't correct in
+; time against real movement and has to loop back around instead of
+; just magnet-locking (the actual "chase" fantasy); spread widened so
+; the 8 in the burst aren't launched clustered together.
+; 2026-08-15 playtest: "mets 2x plus de temps entre chaque missile" — burst_stagger 0.05 -> 0.1
 damage = 3
-homing_strength = 3.2
+homing_strength = 2.5
+visual_scale_multiplier = 2.0
 projectile_count = 8
-burst_spread_deg = 80.0
-burst_stagger = 0.05
+burst_spread_deg = 130.0
+burst_stagger = 0.1

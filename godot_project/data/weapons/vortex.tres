@@ -6,11 +6,18 @@
 script = ExtResource("1")
 id = "vortex"
 display_name = "Tourbillon"
-damage = 2
+; 2026-08-17 (Camil, after batch balance testing showed Vif at a 2% win
+; rate — the lowest theoretical DPS in the roster by a wide margin):
+; "OK pour booster vif comme propose" — damage 2->3 (level with
+; turret/missiles/mini_shot instead of alone at the bottom) and fire_rate
+; partway back toward its pre-nerf value (see the 2026-08-13 note below —
+; was 2.667 before that nerf, 1.905 after; split the difference rather
+; than fully reverting, since "trop rapide" was real playtest feedback too).
+damage = 3
 ; 2026-08-13: "j'augmenterais bien aussi le cooldown de l'arme de vif,
 ; +40% par rapport a l'actuel" — cooldown = 1/fire_rate, so +40% cooldown
 ; is fire_rate / 1.4 (was 2.667, giving a ~0.375s cooldown; now ~0.525s).
-fire_rate = 1.905
+fire_rate = 2.3
 gauge_max = 100.0
 gauge_cost_per_shot = 8.0
 is_heavy = false
@@ -28,3 +35,10 @@ charged_stagger = 0.1
 ; fort. baisse a 60%" — trimmed again.
 fire_recoil_speed_boost = 0.6
 fire_recoil_boost_decay_time = 0.5
+; 2026-08-16 reward system — beating Vif anywhere unlocks "une
+; acceleration de +20%, tout le temps" — a PERMANENT speed bonus for the
+; rest of the match (ShipNode.apply_permanent_speed_bonus()), not a
+; periodic proc, so passive_interval is inert here (0 = no Timer created
+; at all, see MatchArenaNode._setup_passive_rewards()'s special case).
+passive_interval = 0.0
+passive_description = "+20% de vitesse de deplacement, en permanence."

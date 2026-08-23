@@ -7,15 +7,16 @@ script = ExtResource("1")
 id = "ultra_mitrailleuses_satellites"
 display_name = "Mitrailleuses Satellites"
 ; Mitrailleur's Ultra (2026-08-13 party-mode brainstorm, Epic 4 memlog):
-; "mitrailleuses satellites (double full-auto temporaire)" — reuses
-; TurretNode's existing autonomous auto-fire (effect_type "turret")
-; rather than a new player-buff mechanic: two of these spawn flanking
-; him (see MatchArenaNode._ultra_mitrailleuses_satellites()), firing on
-; their own at a machine-gun-fast rate for a short, temporary lifetime
-; (6s, vs. a normal turret's 25s) — low HP so they're still shootable
-; down like any turret, just not built to last.
+; "mitrailleuses satellites (double full-auto temporaire)" — reworked
+; 2026-08-15 (Camil): the satellites no longer autofire on their own
+; (TurretNode.autofire=false) — they fire in sync with the player's own
+; normal shots instead (see MatchArenaNode._ultra_mitrailleuses_
+; satellites()/_on_satellite_fire()), so fire_rate/damage here are now
+; unused (kept for turret_hp/turret_lifetime, still a real destructible
+; visual escort). turret_lifetime doubled 2026-08-15 ("x2 sur la duree
+; de l'ultra").
 damage = 2
 fire_rate = 7.0
 effect_type = "turret"
 turret_hp = 15.0
-turret_lifetime = 6.0
+turret_lifetime = 12.0

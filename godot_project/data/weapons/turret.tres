@@ -12,9 +12,33 @@ gauge_max = 100.0
 gauge_cost_per_shot = 40.0
 is_heavy = false
 effect_type = "turret"
-turret_hp = 22.0
-turret_lifetime = 25.0
+; 2026-08-17 (Camil, after batch balance testing showed Controleur at
+; 100% win rate across all 448 AI-vs-AI matches): "diviser les PV des
+; tourelles par 2 me semble bien" — was 22, keeping lifetime/damage as-is
+; per his call ("je ne baisserais pas le lifetime"). Paired with the AI
+; turret-targeting fix in ship_node.gd (_ai_find_enemy_turret()) so a
+; turret is now actually killable instead of sitting unmolested for its
+; full 25s.
+turret_hp = 11.0
+; 2026-08-17 follow-up: the AI-behavior fixes (turret-targeting Y-blend,
+; then risk-tolerant dodge suppression) never meaningfully dented
+; Controleur's win rate across 5 full re-test batches (stayed 97-100%) —
+; real matches have the ball crossing sides constantly, fragmenting any
+; "safe window" to press the attack before it's interrupted again. Camil:
+; "on va reduire un petit peu (1/4) la duree de vie des tourelles" — a
+; numeric lever guaranteed to work regardless of AI skill, unlike the
+; behavior fixes above (kept in ship_node.gd regardless — still correct
+; for a human player closing in). Was 25.0, -25%.
+turret_lifetime = 18.75
 charge_fire_duration = 3.0
 charge_fire_slow_multiplier = 0.3
 charged_turret_fire_rate_multiplier = 4.0
 charged_turret_lifetime = 5.0
+; 2026-08-16 reward system — Camil's own original example for this whole
+; feature: "une tourelle passive qui apparait aleatoirement dans son
+; propre camp toutes les 20s, dure 6s" — beating Controleur anywhere
+; unlocks it. The 6s passive lifetime (distinct from both the normal 25s
+; and the charged 5s above) is set directly in MatchArenaNode.
+; _fire_passive_reward(), not here.
+passive_interval = 20.0
+passive_description = "Une tourelle satellite apparait et tire toute seule 8s, toutes les 20s."

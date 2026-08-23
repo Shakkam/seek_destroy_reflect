@@ -6,6 +6,14 @@
 script = ExtResource("1")
 id = "laser"
 display_name = "Laser"
+; 2026-08-17: tried slowing the cooldown (1.25->1.0, heavy-weapon
+; vulnerability duty-cycle theory) then raising damage (20->25) after
+; batch balance testing showed Zoneur collapsing post-fire-cadence-fix
+; (63%->16%->12%) — neither move the needle. Camil: "zoneur, y'a un vrai
+; probleme. on va lui remettre ses trucs de depart." Reverted both back
+; to the original pre-2026-08-17 values; the real fix (if any) needs
+; more than a numeric nudge on this weapon specifically — see
+; AI_TUNING_LOG.md for the full investigation trail.
 damage = 20
 fire_rate = 1.25
 gauge_max = 100.0
@@ -20,3 +28,16 @@ charge_fire_slow_multiplier = 0.3
 charged_beam_duration = 3.0
 charged_beam_thickness_multiplier = 2.0
 charged_beam_shooter_slow_multiplier = 0.6
+; 2026-08-16 reward system — beating Zoneur anywhere unlocks this as a
+; passive: "lors du tir charge, un laser traverse le terrain adverse de
+; haut en bas, ordonnee aleatoire" — a single VERTICAL laser segment (top
+; wall to bottom wall of the opponent's half) at a random X, reusing
+; Grille Laser's own LaserMeshNode/tick-damage, every passive_interval
+; seconds. Longest interval of the 8 — a lot to give away even rarely.
+; 2026-08-22 follow-up (Camil: "il faudrait que le laser se deplace jusqu'au
+; centre (s'il apparait vers le fond) ou vers le fond (s'il apparait vers
+; le centre)") — was a static wall; now sweeps from its random spawn point
+; toward whichever edge it's farther from. See MatchArenaNode.
+; _fire_passive_reward()'s "laser" case / LaserMeshNode.horizontal_velocity.
+passive_interval = 26.0
+passive_description = "Un mur laser vertical balaie le camp adverse au hasard toutes les 26s."

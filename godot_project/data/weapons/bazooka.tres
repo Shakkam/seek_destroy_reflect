@@ -17,3 +17,14 @@ charge_fire_slow_multiplier = 0.3
 charged_projectile_count = 2
 charged_stagger = 0.15
 charged_speed_multiplier = 1.4
+; 2026-08-16 reward system — beating Lourd anywhere unlocks this as a
+; passive: "fait tomber aleatoirement 4 scud (comme lors de l'ultra).
+; Mais un seul, toutes les 10 secondes" — one single Pluie-de-Scuds-style
+; missile strike (telegraphed reticle + falling shell) on a random point
+; in the opponent's half, every passive_interval seconds. See
+; MatchArenaNode._fire_passive_reward().
+; 2026-08-22 follow-up (Camil: "Passer a 2 scuds qui tombent aleatoirement
+; toutes les 3 secondes") — was 1 scud / 10s, now 2 scuds / 3s (each its
+; own independently-randomized point, see _fire_passive_reward()).
+passive_interval = 3.0
+passive_description = "2 scuds tombent au hasard dans le camp adverse toutes les 3s, sans rien faire."

@@ -27,3 +27,10 @@ charged_projectile_count = 10
 charged_burst_spread_deg = 60.0
 charged_burst_ping_pong = true
 charged_stagger = 0.125
+; 2026-08-16 reward system — beating Spreader anywhere unlocks a
+; self-heal, no projectile at all: "un eventail apparait et tourne
+; autour du joueur pendant 1 sec et lui redonne 15% de PV. Toutes les
+; 20 sec." — flips her own stated weakness ("no defensive tool of her
+; own") into exactly that.
+passive_interval = 20.0
+passive_description = "Un eventail tourne autour de vous et soigne 15% de vos PV, toutes les 20s."

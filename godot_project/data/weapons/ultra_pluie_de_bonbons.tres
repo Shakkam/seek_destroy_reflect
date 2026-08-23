@@ -12,7 +12,14 @@ display_name = "Pluie de Bonbons"
 ; projectiles, 35deg fan), spread wide enough to cover top-to-bottom of
 ; the arena rather than a narrow fan, same "ping-pong sweep" spirit as
 ; her own charged fire but as a single bigger saturation burst.
-damage = 3
+; 2026-08-15 playtest (Camil): "ca fait juste un arc de cercle. Assez
+; difficile a eviter, mais au final on ne prend pas beaucoup de degats."
+; The wide fan diverges from a single fixed point (the ship), so at
+; range only 1-2 of the 14 candies typically clip a target's ~28px
+; hitbox — the spread itself stays wide (that's the intended "hard to
+; avoid"), but each connecting hit needed to actually hurt more.
+; Doubled from 3.
+damage = 6
 projectile_count = 14
 burst_spread_deg = 80.0
 burst_stagger = 0.04

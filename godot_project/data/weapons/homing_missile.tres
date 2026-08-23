@@ -11,7 +11,15 @@ fire_rate = 0.8
 gauge_max = 100.0
 gauge_cost_per_shot = 22.0
 is_heavy = false
-homing_strength = 2.0
+; 2026-08-17 (batch balance testing — Missiles at 71% overall, crushing
+; Zoneur/Vif/Perturbateur/Mitrailleur 100% each). Camil: "il va falloir
+; un peu le calmer aussi. Mais je pense que l'IA ne sait pas bien eviter
+; des missiles a tete chercheuse. Un humain, si" — a real numeric edge on
+; top of an AI dodge gap, so both get addressed: a modest homing_strength
+; trim here (less relentless re-tracking, more escapable even by a
+; simple dodge), paired with ship_node.gd's _ai_dodge_direction() now
+; reacting earlier specifically to homing threats. Was 2.0, -20%.
+homing_strength = 1.6
 projectile_count = 3
 burst_spread_deg = 50.0
 burst_stagger = 0.05
@@ -21,3 +29,9 @@ charged_projectile_count = 6
 charged_burst_spread_deg = 50.0
 charged_stagger = 0.12
 charged_speed_multiplier = 1.15
+; 2026-08-16 reward system — beating Traqueur anywhere unlocks this as a
+; passive: "1 missile a tete chercheuse part du joueur, automatiquement,
+; toutes les 2 secondes" — a single normal missile (not the 3-burst, not
+; the 6-missile charged rafale), very frequent, real homing.
+passive_interval = 2.0
+passive_description = "Un missile a tete chercheuse part tout seul toutes les 2s."
