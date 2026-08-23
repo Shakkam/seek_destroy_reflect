@@ -1,1 +1,9 @@
 builds/
+
+# Raw asset-creation workspace (Gemini generations, .pdn working files,
+# unprocessed sprites) — not consumed by the game, which reads only from
+# godot_project/assets/. Kept on disk, not versioned (84MB+ and growing).
+sources/
+
+# Scratch output from the BMAD tooling, not game content.
+_bmad-output/
