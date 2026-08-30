@@ -136,6 +136,81 @@ Et dans `godot_project/nodes/campaign_context.gd` :
   par-étape vers une branche). Les appelants (`match_arena_node.gd`,
   `campaign_map_node.gd`) null-checkent avant usage.
 
+## Navigation à la flèche directionnelle (2026-08-30)
+
+### display_step vs campaign_step
+
+Deux valeurs distinctes coexistent dans `campaign_map_node.gd` :
+
+- **`CampaignContext.campaign_step`** — progression réelle sauvegardée.
+  Avance uniquement après la victoire d'un combat (`advance_step()`). Ne
+  recule jamais.
+- **`_display_step`** — position VISUELLE du token du joueur. Peut être
+  `-1` (case `depart`, si elle existe dans le JSON), `0..campaign_step`
+  (exploration libre des cases déjà résolues), mais JAMAIS au-delà de
+  `campaign_step`.
+
+### Initialisation au chargement de la carte
+
+- Si le JSON contient une case `depart` **et** que `campaign_step == 0` :
+  `_display_step = -1` (token sur la case départ, pas encore sur un combat).
+- Sinon (joueur de retour après un combat, ou pas de case `depart`) :
+  `_display_step = campaign_step` et le dialog de confirmation s'affiche
+  immédiatement.
+
+### La case `depart` dans le JSON
+
+Type custom non combat, capturé par `_load_depart_position()` séparément
+de `_load_json_cases()` (qui, lui, filtre sur mook/miniboss/boss). Sert
+uniquement de point d'ancrage initial pour le token. Aucune logique de
+combat ne lui est associée.
+
+```json
+{ "index": 0, "type": "depart", "x": 120, "y": 600 }
+```
+
+### Navigation par flèches
+
+Le moteur calcule pour chaque paire de cases adjacentes la **direction
+dominante** (haut/bas/gauche/droite) d'après le delta (x, y) écran.
+Quand le joueur presse une flèche :
+
+- Si elle pointe vers `display_step - 1` (case précédente ou case `depart`)
+  → le token recule.
+- Si elle pointe vers `display_step + 1` ET `display_step < campaign_step`
+  (ou `display_step == -1` pour aller de depart à la case 0) → le token
+  avance.
+- Si elle ne correspond à aucun voisin valide → rien ne se passe.
+
+Un **Tween 0.35 s EASE_IN_OUT SINE** anime `_token_draw_position` entre
+les positions. Les inputs sont ignorés pendant le tween.
+
+### Dialog de confirmation
+
+Quand le token **arrive** sur une case `campaign_step` (de type
+mook/miniboss/boss), un dialog s'affiche :
+
+> Voulez-vous déclencher le combat ?
+> [Oui (Espace/Entrée)]  [Non (Échap)]
+
+- **Oui** → `_confirm_selection()` → changement de scène vers le combat.
+- **Non** → ferme le dialog ; le joueur peut reculer et explorer.
+- Appuyer sur une flèche vers l'arrière (depuis le dialog) le ferme aussi
+  et lance le déplacement.
+
+Le token (`_draw_player_token`) suit toujours `_token_draw_position`
+(animé). Le marqueur de statut pulsant (ring blanc) reste ancré sur la
+case `campaign_step`, même si le token est ailleurs.
+
+### Invariants à ne jamais violer
+
+1. `_display_step` ne dépasse jamais `campaign_step`.
+2. `_tile_status(i)` (done/current/locked) reste basé sur `campaign_step`,
+   pas sur `_display_step`.
+3. La case `depart` est **toujours filtrée** de `_tile_types` / `_tile_positions`
+   — elle n'est pas une case de combat. Elle est lue séparément dans
+   `_load_depart_position()`.
+
 ## Avant d'intégrer une nouvelle carte
 
 1. Vérifier que le pool de rencontres dans les branches couvre le nombre de
@@ -148,3 +223,7 @@ Et dans `godot_project/nodes/campaign_context.gd` :
 3. Le SKILL.md et le `branch_count` dans le JSON sont des métadonnées
    indicatives pour l'auteur de la carte — ce qui fait foi pour le moteur,
    c'est le compte réel de cases mook/miniboss/boss dans `cases[]`.
+4. Si la carte a une case `depart`, s'assurer que sa position (x, y) est
+   visuellement adjacent à la case 0 dans une direction clairement lisible
+   (la flèche à presser sera calculée automatiquement par `_dominant_direction()`
+   mais une direction ambiguë (delta ~45°) donne des résultats surprenants).
