@@ -109,6 +109,30 @@ var _confirm_prev := true # seeded true — same carryover guard every menu in t
 var _cheat_prev := false # cheat menu hotkey (2026-08-09) — no carryover risk, "T" isn't shared with any other screen's confirm key
 var _pulse_time := 0.0
 
+# 2026-08-30 arrow-key navigation + display_step
+# _display_step: the tile the player's token is currently ON visually. Can be
+#   -1 when a JSON "depart" anchor exists and the campaign hasn't started yet.
+#   Ranges from -1 (depart) through 0..campaign_step; never exceeds campaign_step
+#   so the player can't skip past the next unresolved fight.
+#   Distinct from CampaignContext.campaign_step which is the authoritative saved
+#   progress and only ever moves FORWARD after winning a fight.
+# _has_depart/_depart_position: whether the exported JSON defines a "depart"
+#   anchor and its (x, y) screen position on the PNG.
+# _token_draw_position: the ANIMATED position of the player token sprite;
+#   interpolated by a Tween during navigation, resting at _get_position_for_step
+#   (_display_step) otherwise.
+# _is_tweening: true while a navigation Tween is running — arrow inputs ignored.
+# _confirm_dialog_active: true while the fight-confirmation panel is visible.
+var _display_step: int = 0
+var _has_depart: bool = false
+var _depart_position: Vector2 = Vector2.ZERO
+var _token_draw_position: Vector2 = Vector2.ZERO
+var _is_tweening: bool = false
+var _confirm_dialog_active: bool = false
+var _confirm_panel: Panel = null
+# Edge-detection state for each arrow key (detect press, not hold)
+var _arrow_prev: Dictionary = {KEY_UP: false, KEY_DOWN: false, KEY_LEFT: false, KEY_RIGHT: false}
+
 func _ready() -> void:
 	if not CampaignContext.campaign:
 		# Reached directly (e.g. editor testing) without picking a campaign
@@ -129,6 +153,23 @@ func _ready() -> void:
 	var character_id: String = CampaignContext.campaign.character.id
 	var step := clampi(CampaignSave.get_campaign_progress(character_id), 0, _tile_types.size() - 1)
 	CampaignContext.enter_campaign(CampaignContext.campaign, step)
+
+	# 2026-08-30 arrow-key navigation: initialise display_step and the token.
+	# Fresh campaign (step 0) with a depart anchor: start the token at the
+	# depart position, one key-press away from the first fight. Any other case
+	# (returning player, or no depart): land right on the current fight tile.
+	_load_depart_position(character_id)
+	if _has_depart and CampaignContext.campaign_step == 0:
+		_display_step = -1
+	else:
+		_display_step = CampaignContext.campaign_step
+	_token_draw_position = _get_position_for_step(_display_step)
+	_create_confirm_dialog()
+	# When landing on the fight tile immediately (returning player, or no
+	# depart on step 0), show the prompt straight away.
+	if _display_step >= 0 and _display_step == CampaignContext.campaign_step \
+			and _display_step < _tile_types.size():
+		_show_confirm_dialog()
 
 	title_label.text = CampaignContext.campaign.character.display_name
 	_refresh()
@@ -340,23 +381,35 @@ func _process(delta: float) -> void:
 	_pulse_time += delta
 	queue_redraw() # cheap for a handful of texture blits + a pulsing ring/token
 
-	var confirm := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_ENTER) \
-		or Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) > 0.4
-	if confirm and not _confirm_prev:
-		_confirm_selection()
-	_confirm_prev = confirm
+	# --- Confirmation dialog open: Espace/Entrée = Oui, Échap = Non --------
+	# Arrow keys are also forwarded to _hide_confirm_dialog so the player can
+	# dismiss the dialog by moving the token back without hunting for Escape.
+	if _confirm_dialog_active:
+		var confirm := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_ENTER) \
+			or Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) > 0.4
+		if confirm and not _confirm_prev:
+			_confirm_selection()
+		_confirm_prev = confirm
+		if Input.is_physical_key_pressed(KEY_ESCAPE):
+			_hide_confirm_dialog()
+		return  # while dialog is up, no navigation / cheat-menu / escape-to-title
 
-	# Cheat menu (2026-08-09) — dev/debug entry point, unchanged from the
-	# tree-map version.
+	# --- Cheat menu (dev/debug only) ----------------------------------------
+	# 2026-08-09 — unchanged from the tree-map version.
 	if OS.is_debug_build() and Input.is_physical_key_pressed(KEY_T) and not _cheat_prev:
 		get_tree().change_scene_to_file("res://scenes/CampaignCheatMenu.tscn")
 	_cheat_prev = Input.is_physical_key_pressed(KEY_T)
 
-	# 2026-08-18 (Camil: "dans les menus, quand je fais Echap, que ca
-	# revienne en arriere") — the title screen is the one universal,
-	# unambiguous "back" target, unchanged from the tree-map version.
+	# --- Escape → title screen ----------------------------------------------
+	# 2026-08-18 (Camil: "dans les menus, quand je fais Echap, que ca revienne
+	# en arriere") — unchanged from the tree-map version; only fires when no
+	# confirm dialog is open (handled above).
 	if Input.is_physical_key_pressed(KEY_ESCAPE):
 		get_tree().change_scene_to_file("res://scenes/TitleScreen.tscn")
+
+	# --- Arrow-key navigation (ignored while a tween is running) ------------
+	if not _is_tweening:
+		_handle_arrow_navigation()
 
 ## 2026-08-18 ("un monde par rival... on peut inventer plein de mini jeux
 ## sympa") — a mook-slot encounter can route somewhere other than a plain
@@ -380,33 +433,42 @@ func _refresh() -> void:
 	var character_id: String = CampaignContext.campaign.character.id
 	currency_label.text = "Gold: %d" % CampaignSave.get_currency(character_id)
 
-	var step := CampaignContext.campaign_step
+	var real_step := CampaignContext.campaign_step
 	var total := _tile_types.size()
 
-	if step >= total:
+	# Description reflects the tile the player is currently LOOKING AT
+	# (_display_step), not necessarily the next fight to trigger (real_step).
+	if _display_step == -1:
+		description_label.text = "Debut du chemin — utilisez les fleches pour avancer."
+	elif _display_step >= total:
 		description_label.text = "Campagne terminee !"
 	else:
-		var opponent: CharacterData = _tile_encounters[step].opponent if _tile_encounters[step] else null
+		var viewed := _display_step
+		var opponent: CharacterData = _tile_encounters[viewed].opponent if _tile_encounters[viewed] else null
 		var opponent_name := opponent.display_name if opponent else "?"
-		match _tile_types[step]:
+		var done_prefix := "" if viewed == real_step else "[Termine] "
+		match _tile_types[viewed]:
 			TileType.MOOK:
-				var branch: MiniBranchData = _tile_branches[step]
+				var branch: MiniBranchData = _tile_branches[viewed]
 				if branch:
-					description_label.text = "%s — Sous-adversaire %d/2 (vs %s)" % [branch.display_name, _tile_mook_index[step], opponent_name]
+					description_label.text = "%sCombat : %s — Sous-adversaire %d/2 (vs %s)" % [done_prefix, branch.display_name, _tile_mook_index[viewed], opponent_name]
 				else:
-					# JSON-based tile: no branch context, just show opponent
-					description_label.text = "Combat %d (vs %s)" % [_tile_mook_number[step], opponent_name]
+					description_label.text = "%sCombat %d (vs %s)" % [done_prefix, _tile_mook_number[viewed], opponent_name]
 			TileType.MINIBOSS:
 				var twist_suffix := ""
-				if _tile_encounters[step].twist:
-					twist_suffix = " (Twist : %s)" % _tile_encounters[step].twist.display_name
-				description_label.text = "Rival : %s%s" % [opponent_name, twist_suffix]
+				if _tile_encounters[viewed].twist:
+					twist_suffix = " (Twist : %s)" % _tile_encounters[viewed].twist.display_name
+				description_label.text = "%sRival : %s%s" % [done_prefix, opponent_name, twist_suffix]
 			_: # TileType.BOSS
-				description_label.text = "Combat final : l'Organisateur du tournoi."
+				description_label.text = "%sCombat final : l'Organisateur du tournoi." % done_prefix
 
-	hint_label.text = "Espace/Entree : lancer le combat  |  Etape %d/%d" % [mini(step + 1, total), total]
-	if OS.is_debug_build():
-		hint_label.text += " | T : menu cheat"
+	# Hint line adapts to current context
+	if _confirm_dialog_active:
+		hint_label.text = "Espace/Entree : lancer le combat  |  Echap : annuler"
+	else:
+		hint_label.text = "Fleches : naviguer  |  Etape %d/%d" % [mini(real_step + 1, total), total]
+	if OS.is_debug_build() and not _confirm_dialog_active:
+		hint_label.text += " | T : cheat"
 	queue_redraw()
 
 func _tile_status(i: int) -> String:
@@ -473,6 +535,10 @@ func _draw() -> void:
 		draw_texture_rect(_map_background, Rect2(0.0, 0.0, 1280.0, 720.0), false)
 		for i in total:
 			_draw_case_marker(i)
+		# Token is drawn AFTER the markers so it sits on top; its position
+		# is animated (_token_draw_position) and may differ from the "current"
+		# fight tile when the player is exploring backwards.
+		_draw_player_token(_token_draw_position, 18.0)
 		return
 
 	# Fallback: no custom map for this character yet — the original
@@ -488,9 +554,17 @@ func _draw() -> void:
 
 	for i in total:
 		_draw_tile(i)
+	# Token drawn on top at its animated position; pick a sensible base radius
+	if total > 0:
+		var tok_radius := MOOK_RADIUS  # default when at depart or out of range
+		if _display_step >= 0 and _display_step < total:
+			tok_radius = _tile_radius(_display_step)
+		_draw_player_token(_token_draw_position, tok_radius)
 
 ## Real-map overlay: the art already shows the tile, so a marker only needs
 ## to communicate STATUS (done/current/locked), not identity.
+## The player token is NOT drawn here — it is drawn separately in _draw() at
+## _token_draw_position, which may be on a different tile (exploration mode).
 func _draw_case_marker(i: int) -> void:
 	var center := _tile_position(i)
 	match _tile_status(i):
@@ -498,8 +572,9 @@ func _draw_case_marker(i: int) -> void:
 			draw_circle(center, 11.0, COLOR_DONE)
 			draw_arc(center, 11.0, 0.0, TAU, 24, Color(0, 0, 0, 0.35), 2.0)
 		"current":
+			# Pulse ring anchors the "next fight" tile visually even when the
+			# token has wandered away from it during backwards exploration.
 			_draw_current_pulse(center, 18.0)
-			_draw_player_token(center, 18.0)
 		_: # locked
 			draw_circle(center, 9.0, Color(0.1, 0.1, 0.14, 0.6))
 			draw_arc(center, 9.0, 0.0, TAU, 20, Color(1, 1, 1, 0.25), 1.5)
@@ -537,8 +612,9 @@ func _draw_tile(i: int) -> void:
 	draw_texture_rect(tex, rect, false, tint)
 
 	if status == "current":
+		# Pulse ring marks the next fight; the player token is drawn on top
+		# in _draw() at _token_draw_position (exploration may differ from here)
 		_draw_current_pulse(center, radius)
-		_draw_player_token(center, radius)
 
 func _draw_current_pulse(center: Vector2, base_radius: float) -> void:
 	var pulse_radius := base_radius + 10.0 + sin(_pulse_time * 4.0) * 4.0
@@ -546,9 +622,191 @@ func _draw_current_pulse(center: Vector2, base_radius: float) -> void:
 
 ## The "you are here" marker — a small creature icon floating (and gently
 ## bobbing) above the current tile, Mario-overworld-sprite style.
+## `center` is now _token_draw_position (animated), not necessarily the tile's
+## own (x, y) — see _draw() where this is called.
 func _draw_player_token(center: Vector2, base_radius: float) -> void:
 	var bob := sin(_pulse_time * 3.0) * 4.0
 	var native := PLAYER_TOKEN_TEX.get_size()
 	var token_size := Vector2(34.0, 34.0 * native.y / native.x)
 	var pos := center + Vector2(-token_size.x / 2.0, -base_radius - token_size.y - 6.0 + bob)
 	draw_texture_rect(PLAYER_TOKEN_TEX, Rect2(pos, token_size), false)
+
+# ---------------------------------------------------------------------------
+# 2026-08-30 — Arrow-key navigation helpers
+# ---------------------------------------------------------------------------
+
+## Reads the "depart" case from the character's exported JSON and populates
+## _has_depart / _depart_position. Only meaningful when in custom-map mode
+## (_map_background != null); procedural-fallback characters have no JSON
+## and therefore no depart anchor.
+func _load_depart_position(character_id: String) -> void:
+	_has_depart = false
+	_depart_position = Vector2.ZERO
+	if not _map_background:
+		return  # procedural mode — no exported JSON, no depart case
+	var json_path := _map_json_path(character_id)
+	var file := FileAccess.open(json_path, FileAccess.READ)
+	if not file:
+		return
+	var data = JSON.parse_string(file.get_as_text())
+	if typeof(data) != TYPE_DICTIONARY or not data.has("cases") or typeof(data["cases"]) != TYPE_ARRAY:
+		return
+	for c in data["cases"]:
+		if typeof(c) == TYPE_DICTIONARY and c.get("type", "") == "depart":
+			_depart_position = Vector2(c.get("x", 0.0), c.get("y", 0.0))
+			_has_depart = true
+			return
+
+## Maps a display_step value to its screen position:
+##   -1  → _depart_position (if _has_depart, else falls back to tile 0)
+##   0..N-1 → _tile_positions[step]
+## Out-of-range values return Vector2.ZERO — callers guard against them.
+func _get_position_for_step(step: int) -> Vector2:
+	if step == -1:
+		if _has_depart:
+			return _depart_position
+		return _tile_positions[0] if _tile_positions.size() > 0 else Vector2.ZERO
+	if step >= 0 and step < _tile_positions.size():
+		return _tile_positions[step]
+	return Vector2.ZERO
+
+## Returns the KEY_* constant (UP / DOWN / LEFT / RIGHT) that most closely
+## describes the screen direction from `from_pos` to `to_pos`, using Godot's
+## y-down screen coordinate convention (positive y = downward = KEY_DOWN).
+func _dominant_direction(from_pos: Vector2, to_pos: Vector2) -> int:
+	var delta := to_pos - from_pos
+	if absf(delta.x) >= absf(delta.y):
+		return KEY_RIGHT if delta.x > 0.0 else KEY_LEFT
+	else:
+		return KEY_DOWN if delta.y > 0.0 else KEY_UP
+
+## Edge-detects freshly-pressed arrow keys and starts a Tween toward the
+## adjacent step in that direction when valid. One move per call at most
+## (avoids two keys pressed simultaneously producing two moves).
+func _handle_arrow_navigation() -> void:
+	var arrow_keys := [KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]
+	var moved := false
+	for key in arrow_keys:
+		var pressed_now: bool = Input.is_physical_key_pressed(key)
+		var was_pressed: bool = _arrow_prev.get(key, false)
+		if pressed_now and not was_pressed and not moved:
+			var target := _target_step_for_key(key)
+			if target != _display_step:
+				_move_to_display_step(target)
+				moved = true
+		_arrow_prev[key] = pressed_now
+
+## Returns the display_step we would move to if `key` is pressed now, or
+## _display_step unchanged if that direction doesn't map to a valid neighbour.
+##
+## Navigation rules:
+##  - Can go BACK  to display_step-1 (or to depart at -1 from step 0).
+##  - Can go FORWARD only when display_step < campaign_step, i.e. the target
+##    step has already been cleared. The player can NEVER skip past campaign_step
+##    — that requires winning the fight first.
+func _target_step_for_key(key: int) -> int:
+	var cur_pos := _get_position_for_step(_display_step)
+
+	# Backward: step -1 (depart, if it exists) or step-1 (any step > 0)
+	var can_go_back := _display_step > 0 or (_has_depart and _display_step == 0)
+	if can_go_back:
+		var prev_step := _display_step - 1
+		var prev_pos := _get_position_for_step(prev_step)
+		if _dominant_direction(cur_pos, prev_pos) == key:
+			return prev_step
+
+	# Forward: next step must already be completed (display_step < campaign_step)
+	# Note: -1 < N is always true for any N >= 0, so depart → step 0 is
+	# naturally handled here even on a brand-new campaign (campaign_step == 0
+	# means step 0 is the NEXT fight, not yet cleared — but we DO allow moving
+	# from depart to step 0 so the player can reach the fight and see the dialog).
+	# The "step 0 is a depart-arrival, not a free advance" logic is enforced by
+	# _on_arrive_at_display_step: showing the dialog when display_step == campaign_step.
+	var can_go_forward := _display_step < CampaignContext.campaign_step \
+		or _display_step == -1  # depart → step 0 always allowed
+	can_go_forward = can_go_forward and (_display_step + 1) < _tile_positions.size()
+	if can_go_forward:
+		var next_step := _display_step + 1
+		var next_pos := _get_position_for_step(next_step)
+		if _dominant_direction(cur_pos, next_pos) == key:
+			return next_step
+
+	return _display_step  # key doesn't map to any navigable neighbour
+
+## Starts an animated move of the player token to `target_step`.
+## Inputs are blocked while the Tween runs. The confirm dialog (if open) is
+## dismissed first — the player is navigating away.
+func _move_to_display_step(target_step: int) -> void:
+	_hide_confirm_dialog()
+	_display_step = target_step
+	_is_tweening = true
+	var end_pos := _get_position_for_step(target_step)
+	var tween := create_tween()
+	tween.set_ease(Tween.EASE_IN_OUT)
+	tween.set_trans(Tween.TRANS_SINE)
+	tween.tween_property(self, "_token_draw_position", end_pos, 0.35)
+	tween.tween_callback(func():
+		_is_tweening = false
+		_on_arrive_at_display_step(target_step)
+	)
+
+## Called when the token's tween has finished and the token has landed on
+## `arrived_step`. If that step is the current unresolved fight tile, shows
+## the combat-confirmation dialog.
+func _on_arrive_at_display_step(arrived_step: int) -> void:
+	_refresh()
+	if arrived_step < 0 or arrived_step >= _tile_types.size():
+		return  # depart anchor or out-of-range — no combat to trigger
+	if arrived_step != CampaignContext.campaign_step:
+		return  # already-done tile — just update the description, no combat prompt
+	# Landed on the next unresolved fight tile → ask the player
+	# (_tile_types only contains MOOK / MINIBOSS / BOSS — custom_bonus and
+	# depart are filtered out of the combat sequence and never land here)
+	_show_confirm_dialog()
+
+## Builds the fight-confirmation dialog as a child Panel in code — no scene
+## modification needed. Hidden by default; shown by _show_confirm_dialog().
+func _create_confirm_dialog() -> void:
+	_confirm_panel = Panel.new()
+	_confirm_panel.size = Vector2(520.0, 160.0)
+	_confirm_panel.position = Vector2(1280.0 / 2.0 - 260.0, 720.0 / 2.0 - 80.0)
+	_confirm_panel.visible = false
+	add_child(_confirm_panel)
+
+	var lbl := Label.new()
+	lbl.text = "Voulez-vous declencher le combat ?"
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 20)
+	lbl.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0, 1.0))
+	lbl.size = Vector2(480.0, 40.0)
+	lbl.position = Vector2(20.0, 24.0)
+	_confirm_panel.add_child(lbl)
+
+	var oui := Button.new()
+	oui.text = "Oui  (Espace / Entree)"
+	oui.size = Vector2(220.0, 48.0)
+	oui.position = Vector2(30.0, 88.0)
+	oui.pressed.connect(_confirm_selection)
+	_confirm_panel.add_child(oui)
+
+	var non := Button.new()
+	non.text = "Non  (Echap)"
+	non.size = Vector2(220.0, 48.0)
+	non.position = Vector2(270.0, 88.0)
+	non.pressed.connect(_hide_confirm_dialog)
+	_confirm_panel.add_child(non)
+
+func _show_confirm_dialog() -> void:
+	if not _confirm_panel:
+		return
+	_confirm_dialog_active = true
+	_confirm_panel.visible = true
+	_confirm_prev = true  # seed the carryover guard so a held key doesn't insta-trigger
+	_refresh()
+
+func _hide_confirm_dialog() -> void:
+	if not _confirm_panel:
+		return
+	_confirm_dialog_active = false
+	_confirm_panel.visible = false
+	_refresh()
