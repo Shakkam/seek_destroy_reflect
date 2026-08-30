@@ -11,8 +11,9 @@ extends Node2D
 ## change_scene_to_file() would replace this test's own scene tree — same
 ## reasoning campaign_setup_check.gd documents for its own rival/organizer
 ## checks) — everything checked here happens synchronously before that
-## point. IMPORTANT: mark_branch_completed() inside _resolve_campaign_
-## result() writes to the REAL save file — reset_all() before AND after.
+## point. IMPORTANT: CampaignSave.grant_unlock()/set_campaign_progress()
+## inside _resolve_campaign_result() write to the REAL save file —
+## reset_all() before AND after.
 ## Run with:
 ##   Godot --headless --path godot_project res://tests/reward_reveal_check.tscn --quit-after 60
 
@@ -21,9 +22,7 @@ func _ready() -> void:
 
 	var vif_campaign: CampaignData = load("res://data/campaigns/vif_campaign.tres")
 	var branch: MiniBranchData = vif_campaign.mini_branches[0] # vs_lourd -> unlock_reward is bazooka.tres
-	CampaignContext.start_branch(vif_campaign, branch)
-	CampaignContext.advance_branch_step() # 0 -> 1
-	CampaignContext.advance_branch_step() # 1 -> 2 (rival)
+	CampaignContext.enter_campaign(vif_campaign, 2) # step 2 = branch[0].rival
 
 	var arena_scene := load("res://scenes/MatchArena.tscn") as PackedScene
 	var arena := arena_scene.instantiate() as MatchArenaNode
@@ -62,7 +61,7 @@ func _ready() -> void:
 	var organizer_arena := arena_scene.instantiate() as MatchArenaNode
 	add_child(organizer_arena)
 	await get_tree().process_frame
-	CampaignContext.start_organizer_fight(vif_campaign)
+	CampaignContext.enter_campaign(vif_campaign, vif_campaign.mini_branches.size() * 3) # the organizer is always the last tile
 	var organizer_defeated_before_ok: bool = not CampaignSave.is_organizer_defeated("vif")
 	organizer_arena._resolve_campaign_result(0) # side 0 (the player) wins
 	var organizer_win_ok: bool = CampaignSave.is_organizer_defeated("vif") and organizer_arena.match_label.text == "Tournoi remporte !"

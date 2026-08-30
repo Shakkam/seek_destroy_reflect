@@ -1,103 +1,127 @@
 extends Node
 
 ## Epic 4 — carries a campaign encounter's setup across the scene change
-## from the campaign map (Story 4.2/4.3) into MatchArena and back, and now
-## also into MiniBranchMap (2026-08-08 UX rework). Mirrors MatchSetup's
-## role for the 1v1 flow — Godot has no built-in way to pass data across
+## from the campaign map into MatchArena and back. Mirrors MatchSetup's role
+## for the 1v1 flow — Godot has no built-in way to pass data across
 ## change_scene_to_file(). Orchestration, not simulation (Regle absolue n1).
 ##
-## branch_step replaces the old "which RivalEncounterData resource is this"
-## identity comparison (2026-08-08 bug: authoring mook_1 == mook_2 as the
-## same resource made that comparison always report step 1, which read as
-## a stuck loop even once mook_1/mook_2 were split into distinct resources
-## — an explicit integer step is unambiguous regardless of authoring).
-## Progress only ever moves forward: advance_branch_step() is the only way
-## branch_step changes, and a loss re-fights the same step rather than
-## resetting it — "on ne peut jamais reculer" (Camil, 2026-08-08).
+## 2026-08-24 world-map rework (Camil: "pour moi il faut une seule map, pas
+## besoin de sous branche... vrai chemin... a la mario 3") — replaces the old
+## branch/branch_step/is_organizer_fight trio with a single campaign_step: a
+## flat, fixed-order position across ALL of a character's content (every
+## branch's mook_1/mook_2/rival back to back, then the organizer). No more
+## picking which branch to enter, no more a separate MiniBranchMap screen —
+## CampaignMapNode reads campaign_step directly and always shows the one map.
+## Progress only ever moves forward: advance_step() is the only way
+## campaign_step changes, and a loss re-fights the same step rather than
+## resetting it — "on ne peut jamais reculer" (Camil, 2026-08-08), unchanged
+## from the branch-based version.
 
 var campaign: CampaignData
-var branch: MiniBranchData # null when fighting the organizer
-var branch_step: int = 0 # 0 = next up is mook_1, 1 = mook_2, 2 = rival, 3 = branch complete
-var is_organizer_fight := false
+var campaign_step: int = 0
+
+## 2026-08-29 JSON-first architecture (Camil: "la carte JSON est la source de
+## vérité absolue pour la structure de combats") — when a character has an
+## exported map (PNG+JSON from Atelier Cartographe), CampaignMapNode builds a
+## flat, ordered encounter list from the JSON case sequence + the branch
+## encounter pools, then pushes it here via set_encounter_sequence().
+## When non-empty, this list completely overrides the branch-formula logic in
+## total_steps() / current_encounter(). Empty = branch-based fallback (all
+## characters without a custom map continue to work exactly as before).
+var encounter_sequence: Array = []  # of RivalEncounterData
 
 ## Cheat menu (2026-08-09, Camil: "tu aurais un sous menu 'cheat' de la
 ## campagne, pour que je puisse tester tous les twists ?") — bypasses
-## branch/organizer progression entirely: a throwaway RivalEncounterData
-## built on the fly by CampaignCheatMenuNode, fought with no currency/unlock/
-## branch_step side effects, bounced straight back to the cheat menu after.
+## campaign progression entirely: a throwaway RivalEncounterData built on
+## the fly by CampaignCheatMenuNode, fought with no currency/unlock/progress
+## side effects, bounced straight back to the cheat menu after.
 var debug_encounter: RivalEncounterData = null
 
+## Total tiles in the single world map. When encounter_sequence is populated
+## (JSON-first characters), returns its length directly — that's exactly the
+## number of combat cases from the JSON. Otherwise falls back to the branch
+## formula (mini_branches.size() * 3 + 1) for characters without a map.
+func total_steps() -> int:
+	if not campaign:
+		return 0
+	if encounter_sequence.size() > 0:
+		return encounter_sequence.size()
+	return campaign.mini_branches.size() * 3 + 1
+
+## Called by CampaignMapNode._build_tiles() when a character has a JSON map.
+## seq is a flat, index-ordered list of RivalEncounterData built by consuming
+## the branch encounter pools in JSON case order (see campaign_map_node.gd).
+func set_encounter_sequence(seq: Array) -> void:
+	encounter_sequence = seq
+
+func is_organizer_fight() -> bool:
+	return campaign != null and debug_encounter == null and campaign_step == total_steps() - 1
+
 func has_pending_encounter() -> bool:
-	return campaign != null and (branch != null or is_organizer_fight or debug_encounter != null)
+	return campaign != null and (debug_encounter != null or campaign_step < total_steps())
 
 ## The RivalEncounterData for whatever should be fought right now, given
-## branch_step (or the organizer's encounter, or a cheat-menu debug fight).
-## Null once branch_step has already reached 3 (nothing left to fight in
-## this branch).
+## campaign_step (or the cheat-menu debug fight). Null once campaign_step
+## has already reached total_steps() (nothing left to fight).
+## When encounter_sequence is set (JSON-first characters), reads directly from
+## that flat list; otherwise uses the branch formula as before.
 func current_encounter() -> RivalEncounterData:
 	if debug_encounter:
 		return debug_encounter
-	if is_organizer_fight:
-		return campaign.organizer_encounter
-	if not branch:
+	if not campaign or campaign_step < 0 or campaign_step >= total_steps():
 		return null
-	match branch_step:
+	if encounter_sequence.size() > 0:
+		return encounter_sequence[campaign_step]
+	# Branch-based fallback for characters without a JSON map
+	if campaign_step == total_steps() - 1:
+		return campaign.organizer_encounter
+	var branch: MiniBranchData = campaign.mini_branches[campaign_step / 3]
+	match campaign_step % 3:
 		0:
 			return branch.mook_1
 		1:
 			return branch.mook_2
-		2:
-			return branch.rival
 		_:
-			return null
+			return branch.rival
+
+## The branch the current step belongs to, or null for the organizer/a debug
+## fight, or null in JSON-first mode (encounter_sequence set) where the branch
+## structure no longer maps to campaign_step. Used by the map/HUD label only
+## when valid — callers must null-check.
+func current_branch() -> MiniBranchData:
+	if debug_encounter or not campaign or is_organizer_fight() or campaign_step < 0 or campaign_step >= total_steps():
+		return null
+	if encounter_sequence.size() > 0:
+		return null  # JSON mode: no per-step branch mapping
+	return campaign.mini_branches[campaign_step / 3]
 
 func clear() -> void:
 	campaign = null
-	branch = null
-	branch_step = 0
-	is_organizer_fight = false
+	campaign_step = 0
 	debug_encounter = null
+	encounter_sequence = []
 
-## 2026-08-11 bug report: "quand je bats un rival, au lieu de continuer vers
-## la suite de la campagne, je reviens a la selection de mon perso" — every
-## path back to CampaignMap.tscn after a finished fight (branch complete,
-## organizer won or lost) called clear(), which also nulls `campaign` — but
-## CampaignMapNode._ready() needs `campaign` to know which character's map
-## to keep showing, and bounces straight to CampaignCharacterSelect when
-## it's null. Same partial reset as clear(), minus that one field.
+## Same partial reset return_to_map() always did — clears the transient
+## debug-fight state without touching campaign/campaign_step, so whichever
+## screen this returns to (always CampaignMap now) still knows which
+## character's map and how far along it to show.
 func return_to_map() -> void:
-	branch = null
-	branch_step = 0
-	is_organizer_fight = false
 	debug_encounter = null
 
 ## Cheat menu — fight a specific opponent with a specific twist (or no
 ## twist) active, full HP both sides, no campaign progression touched.
 func start_debug_fight(campaign_data: CampaignData, encounter: RivalEncounterData) -> void:
 	campaign = campaign_data
-	branch = null
-	is_organizer_fight = false
 	debug_encounter = encounter
 
-## Story 4.3 — begin (or resume) a mini-branch. Called once from the
-## campaign map; MiniBranchMap re-reads branch_step on every visit rather
-## than this being called again mid-branch.
-func start_branch(campaign_data: CampaignData, branch_data: MiniBranchData) -> void:
+## Called once by CampaignMapNode._ready() after reading CampaignSave's
+## persisted progress for this character — the single entry point into a
+## real (non-debug) campaign run.
+func enter_campaign(campaign_data: CampaignData, step: int) -> void:
 	campaign = campaign_data
-	branch = branch_data
-	branch_step = 0
-	is_organizer_fight = false
+	campaign_step = step
+	debug_encounter = null
 
-## Story 4.8 — begin the final encounter.
-func start_organizer_fight(campaign_data: CampaignData) -> void:
-	campaign = campaign_data
-	branch = null
-	is_organizer_fight = true
-
-## Called after winning the current step's fight. Returns true if the
-## branch still has fights remaining (MatchArenaNode should return to
-## MiniBranchMap), false if the branch just completed (return to
-## CampaignMap instead).
-func advance_branch_step() -> bool:
-	branch_step += 1
-	return branch_step < 3
+## Called after winning the current step's fight.
+func advance_step() -> void:
+	campaign_step += 1

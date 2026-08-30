@@ -1,0 +1,165 @@
+{
+  "width": 1280,
+  "height": 720,
+  "character": "mitrailleur",
+  "branch_count": 6,
+  "case_type_labels": {
+    "mook": "Case Mook",
+    "miniboss": "Case Miniboss (rival)",
+    "boss": "Case Boss (organisateur)",
+    "custom_bonus": "bonus",
+    "custom_depart": "départ"
+  },
+  "cases": [
+    {
+      "index": 0,
+      "type": "miniboss",
+      "x": 480,
+      "y": 480
+    },
+    {
+      "index": 1,
+      "type": "miniboss",
+      "x": 416,
+      "y": 224
+    },
+    {
+      "index": 2,
+      "type": "miniboss",
+      "x": 736,
+      "y": 608
+    },
+    {
+      "index": 3,
+      "type": "miniboss",
+      "x": 672,
+      "y": 96
+    },
+    {
+      "index": 4,
+      "type": "miniboss",
+      "x": 800,
+      "y": 160
+    },
+    {
+      "index": 5,
+      "type": "miniboss",
+      "x": 928,
+      "y": 352
+    },
+    {
+      "index": 6,
+      "type": "mook",
+      "x": 352,
+      "y": 352
+    },
+    {
+      "index": 7,
+      "type": "mook",
+      "x": 352,
+      "y": 224
+    },
+    {
+      "index": 8,
+      "type": "mook",
+      "x": 352,
+      "y": 480
+    },
+    {
+      "index": 9,
+      "type": "mook",
+      "x": 416,
+      "y": 96
+    },
+    {
+      "index": 10,
+      "type": "mook",
+      "x": 544,
+      "y": 96
+    },
+    {
+      "index": 11,
+      "type": "mook",
+      "x": 544,
+      "y": 224
+    },
+    {
+      "index": 12,
+      "type": "mook",
+      "x": 672,
+      "y": 224
+    },
+    {
+      "index": 13,
+      "type": "mook",
+      "x": 544,
+      "y": 544
+    },
+    {
+      "index": 14,
+      "type": "mook",
+      "x": 608,
+      "y": 608
+    },
+    {
+      "index": 15,
+      "type": "custom_bonus",
+      "x": 864,
+      "y": 544
+    },
+    {
+      "index": 16,
+      "type": "custom_bonus",
+      "x": 672,
+      "y": 544
+    },
+    {
+      "index": 17,
+      "type": "mook",
+      "x": 736,
+      "y": 416
+    },
+    {
+      "index": 18,
+      "type": "mook",
+      "x": 800,
+      "y": 352
+    },
+    {
+      "index": 19,
+      "type": "mook",
+      "x": 928,
+      "y": 224
+    },
+    {
+      "index": 20,
+      "type": "mook",
+      "x": 1120,
+      "y": 224
+    },
+    {
+      "index": 21,
+      "type": "boss",
+      "x": 1120,
+      "y": 96
+    },
+    {
+      "index": 22,
+      "type": "custom_depart",
+      "x": 224,
+      "y": 416
+    },
+    {
+      "index": 23,
+      "type": "custom_bonus",
+      "x": 416,
+      "y": 352
+    },
+    {
+      "index": 24,
+      "type": "custom_bonus",
+      "x": 544,
+      "y": 352
+    }
+  ]
+}

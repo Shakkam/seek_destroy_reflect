@@ -16,7 +16,7 @@ func _ready() -> void:
 
 	var vif_campaign: CampaignData = load("res://data/campaigns/vif_campaign.tres")
 	var branch: MiniBranchData = vif_campaign.mini_branches[0]
-	CampaignContext.start_branch(vif_campaign, branch) # branch_step 0 -> mook_1
+	CampaignContext.enter_campaign(vif_campaign, 0) # campaign_step 0 -> branch[0].mook_1
 
 	var breakout_scene := load("res://scenes/Breakout.tscn") as PackedScene
 	var breakout := breakout_scene.instantiate() as BreakoutNode

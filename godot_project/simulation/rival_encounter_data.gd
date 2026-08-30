@@ -13,8 +13,8 @@ extends Resource
 ## mook_2 only — the rival/organizer slot always stays "combat", the real
 ## fight/story beat never becomes a minigame) can be a different
 ## challenge instead of a straight 1v1. "combat" (default) = the existing
-## MatchArena fight, unchanged. New values route MiniBranchMapNode's
-## confirm to a different scene instead — see MiniBranchMapNode._confirm().
+## MatchArena fight, unchanged. New values route CampaignMapNode's confirm
+## to a different scene instead — see CampaignMapNode._confirm_selection().
 @export_enum("combat", "breakout", "space_invaders") var challenge_type: String = "combat"
 
 ## Mooks only — a reduced-strength version of the archetype rather than a

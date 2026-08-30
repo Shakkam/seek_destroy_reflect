@@ -10,9 +10,9 @@ extends Node2D
 ## wire up exactly the 6 PERIODIC ones (not vortex/stun_boomerang — those
 ## two are handled differently, see below), (3) firing is gated on
 ## _round_playing, (4) each of the 7 bespoke effects actually does its own
-## distinct thing. IMPORTANT: mark_branch_completed() below writes to the
-## REAL save file (user://campaign_save.json) — reset_all() before AND
-## after, same convention campaign_setup_check.gd already established.
+## distinct thing. IMPORTANT: grant_unlock() below writes to the REAL save
+## file (user://campaign_save.json) — reset_all() before AND after, same
+## convention campaign_setup_check.gd already established.
 ## Run with:
 ##   Godot --headless --path godot_project res://tests/passive_reward_check.tscn --quit-after 300
 
@@ -34,7 +34,7 @@ func _ready() -> void:
 	# --- (2) all 8 unlocked at once on ship_1 (playing Vif) ---
 	var all_weapon_ids := ["bazooka", "turret", "machine_gun", "vortex", "laser", "stun_boomerang", "homing_missile", "mini_shot"]
 	for id in all_weapon_ids:
-		CampaignSave.mark_branch_completed("vif", "fake_vs_%s" % id, id)
+		CampaignSave.grant_unlock("vif", id)
 	var arena := arena_scene.instantiate() as MatchArenaNode
 	add_child(arena)
 	await get_tree().process_frame

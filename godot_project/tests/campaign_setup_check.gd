@@ -16,7 +16,7 @@ func _ready() -> void:
 	var branch: MiniBranchData = vif_campaign.mini_branches[0] # vs_lourd
 
 	# --- Mook fight: reduced HP, no twist ---
-	CampaignContext.start_branch(vif_campaign, branch)
+	CampaignContext.enter_campaign(vif_campaign, 0) # step 0 = branch[0].mook_1
 	var arena_scene := load("res://scenes/MatchArena.tscn") as PackedScene
 	var arena := arena_scene.instantiate() as MatchArenaNode
 	add_child(arena)
@@ -51,8 +51,7 @@ func _ready() -> void:
 	# (2026-08-08 bug: mook_1 and mook_2 were literally the same resource,
 	# so this label always said "1/2" even on the second fight — read by
 	# Camil as "always the same match repeating"). ---
-	CampaignContext.start_branch(vif_campaign, branch)
-	CampaignContext.advance_branch_step() # 0 (mook_1) -> 1 (mook_2)
+	CampaignContext.enter_campaign(vif_campaign, 1) # step 1 = branch[0].mook_2
 	var arena_mook2 := arena_scene.instantiate() as MatchArenaNode
 	add_child(arena_mook2)
 	await get_tree().process_frame
@@ -63,9 +62,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 
 	# --- Rival fight: full HP, twist applied ---
-	CampaignContext.start_branch(vif_campaign, branch)
-	CampaignContext.advance_branch_step() # 0 -> 1
-	CampaignContext.advance_branch_step() # 1 -> 2 (rival)
+	CampaignContext.enter_campaign(vif_campaign, 2) # step 2 = branch[0].rival
 	var arena2 := arena_scene.instantiate() as MatchArenaNode
 	add_child(arena2)
 	await get_tree().process_frame
@@ -98,7 +95,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 
 	# --- Organizer fight ---
-	CampaignContext.start_organizer_fight(vif_campaign)
+	CampaignContext.enter_campaign(vif_campaign, vif_campaign.mini_branches.size() * 3) # the organizer is always the last tile
 	var arena3 := arena_scene.instantiate() as MatchArenaNode
 	add_child(arena3)
 	await get_tree().process_frame
@@ -226,11 +223,14 @@ func _ready() -> void:
 	# tscn after a finished fight called clear(), which also nulled
 	# `campaign` (needed by CampaignMapNode._ready()), bouncing straight to
 	# CampaignCharacterSelect instead. ---
-	CampaignContext.start_branch(vif_campaign, branch)
-	CampaignContext.advance_branch_step()
+	# 2026-08-24 world-map rework — return_to_map() no longer resets a
+	# branch/step (there's only one flat campaign_step now, and it must
+	# NOT move backward on its own); it only ever clears a debug fight.
+	CampaignContext.enter_campaign(vif_campaign, 1)
+	CampaignContext.debug_encounter = RivalEncounterData.new() # simulate having bounced here from a cheat-menu fight
 	CampaignContext.return_to_map()
-	var return_to_map_ok: bool = CampaignContext.campaign == vif_campaign and CampaignContext.branch == null and CampaignContext.branch_step == 0 and not CampaignContext.is_organizer_fight
-	print("PASS: return_to_map() preserves campaign while resetting branch/step/organizer state" if return_to_map_ok else "FAIL: campaign=%s branch=%s step=%d organizer=%s" % [CampaignContext.campaign, CampaignContext.branch, CampaignContext.branch_step, CampaignContext.is_organizer_fight])
+	var return_to_map_ok: bool = CampaignContext.campaign == vif_campaign and CampaignContext.campaign_step == 1 and CampaignContext.debug_encounter == null
+	print(("PASS: return_to_map() preserves campaign/campaign_step while clearing any debug fight" if return_to_map_ok else "FAIL: campaign=%s step=%d debug_encounter=%s" % [CampaignContext.campaign, CampaignContext.campaign_step, CampaignContext.debug_encounter]))
 	CampaignContext.clear()
 
 	# --- shrinking_arena twist (2026-08-11 bug report): "elle ne retrecit
@@ -482,75 +482,60 @@ func _ready() -> void:
 	CampaignContext.clear()
 	await get_tree().process_frame
 
-	# --- Campaign map tree structure (2026-08-11, Camil's drawing): "le
-	# joueur demarre de la case noire. Il choisit un chemin... jusqu'au boss
-	# final." Branches now have prerequisites (a real branching/converging
-	# tree, not always-available) — depth/locking computed generically off
-	# MiniBranchData.prerequisite_ids. IMPORTANT: mark_branch_completed()
-	# below writes to the REAL save file (user://campaign_save.json, the
-	# same one actual gameplay uses) — reset_all() before AND after so this
-	# test can never corrupt, or be corrupted by, real player progress. ---
+	# --- World map: single flat sequence (2026-08-24 rework, Camil: "pour
+	# moi il faut une seule map, pas besoin de sous branche... vrai chemin,
+	# avec des cases pour les miniboss et des cases pour les boss, a la
+	# mario 3") — replaces the old branching/converging tree AND the
+	# separate MiniBranchMap sub-screen entirely. IMPORTANT: the
+	# CampaignSave writes below hit the REAL save file (user://
+	# campaign_save.json) — reset_all() before AND after so this test can
+	# never corrupt, or be corrupted by, real player progress. ---
 	CampaignSave.reset_all()
 	CampaignContext.campaign = vif_campaign
-	var tree_map_scene := load("res://scenes/CampaignMap.tscn") as PackedScene
-	var tree_map := tree_map_scene.instantiate() as CampaignMapNode
-	add_child(tree_map)
+	var world_map_scene := load("res://scenes/CampaignMap.tscn") as PackedScene
+	var world_map := world_map_scene.instantiate() as CampaignMapNode
+	add_child(world_map)
 	await get_tree().process_frame
 
-	var lourd_idx := -1
-	var controleur_idx := -1
-	for i in tree_map._nodes.size():
-		if tree_map._nodes[i].id == "vs_lourd":
-			lourd_idx = i
-		elif tree_map._nodes[i].id == "vs_controleur":
-			controleur_idx = i
+	var expected_types: Array[int] = []
+	for b in vif_campaign.mini_branches:
+		expected_types.append(CampaignMapNode.TileType.MOOK)
+		expected_types.append(CampaignMapNode.TileType.MOOK)
+		expected_types.append(CampaignMapNode.TileType.MINIBOSS)
+	expected_types.append(CampaignMapNode.TileType.BOSS)
+	var sequence_ok: bool = world_map._tile_types == expected_types
+	print("PASS: the world map is one flat [mook,mook,miniboss]*4 + [boss] sequence" if sequence_ok else "FAIL: tile sequence was %s" % [world_map._tile_types])
 
-	var depth_ok: bool = tree_map._depths.get("vs_lourd", -1) == 0 and tree_map._depths.get("vs_controleur", -1) == 1
-	print("PASS: tree depth is computed from prerequisite_ids (root=0, one level deep=1)" if depth_ok else "FAIL: vs_lourd depth=%s, vs_controleur depth=%s" % [tree_map._depths.get("vs_lourd"), tree_map._depths.get("vs_controleur")])
+	var last_index := world_map._tile_types.size() - 1
+	var fresh_status_ok: bool = world_map._tile_status(0) == "current" and world_map._tile_status(1) == "locked" and world_map._tile_status(last_index) == "locked"
+	print("PASS: a fresh campaign starts on tile 0, everything else locked" if fresh_status_ok else "FAIL: fresh statuses were %s/%s/%s" % [world_map._tile_status(0), world_map._tile_status(1), world_map._tile_status(last_index)])
 
-	var lourd_available_ok: bool = tree_map.branch_node_status(lourd_idx) == "available"
-	var controleur_locked_ok: bool = tree_map.branch_node_status(controleur_idx) == "locked"
-	print("PASS: a root branch (no prerequisites) starts available" if lourd_available_ok else "FAIL: vs_lourd status was %s" % tree_map.branch_node_status(lourd_idx))
-	print("PASS: a branch with an unmet prerequisite starts locked" if controleur_locked_ok else "FAIL: vs_controleur status was %s" % tree_map.branch_node_status(controleur_idx))
+	# Winning advances campaign_step and persists it — the actual call
+	# sequence MatchArenaNode/BreakoutNode/SpaceInvadersNode all make after
+	# a win, not exercised via _confirm_selection() here (mook_1 of this
+	# branch is a real "breakout" mini-jeu tile — calling that would
+	# change_scene_to_file() out from under this test's own tree, same
+	# self-inflicted-scene-kill class of bug this suite has hit before).
+	CampaignContext.advance_step()
+	CampaignSave.set_campaign_progress("vif", CampaignContext.campaign_step)
+	var progress_saved_ok: bool = CampaignSave.get_campaign_progress("vif") == 1
+	print("PASS: winning persists campaign_progress for next time" if progress_saved_ok else "FAIL: saved progress was %d" % CampaignSave.get_campaign_progress("vif"))
 
-	# Confirming a locked branch must not start anything.
-	tree_map._selected_index = controleur_idx
-	tree_map._confirm_selection()
-	var locked_confirm_ignored_ok: bool = CampaignContext.branch == null
-	print("PASS: confirming a locked branch does nothing" if locked_confirm_ignored_ok else "FAIL: CampaignContext.branch was set from a locked selection")
+	world_map.queue_free()
+	CampaignContext.clear()
+	await get_tree().process_frame
 
-	# Complete the prerequisite — the child must unlock.
-	CampaignSave.mark_branch_completed("vif", "vs_lourd")
-	var controleur_unlocked_ok: bool = tree_map.branch_node_status(controleur_idx) == "available"
-	print("PASS: completing a prerequisite unlocks its child" if controleur_unlocked_ok else "FAIL: vs_controleur status after completing vs_lourd was %s" % tree_map.branch_node_status(controleur_idx))
-
-	tree_map.queue_free()
+	# Re-entering the map (e.g. title screen's "Continuer la partie") must
+	# resume at the persisted step, not silently restart at tile 0.
+	CampaignContext.campaign = vif_campaign
+	var resumed_map := world_map_scene.instantiate() as CampaignMapNode
+	add_child(resumed_map)
+	await get_tree().process_frame
+	var resumes_at_saved_step_ok: bool = CampaignContext.campaign_step == 1 and resumed_map._tile_status(0) == "done" and resumed_map._tile_status(1) == "current"
+	print("PASS: re-entering the map resumes at the persisted step (tile 0 done, tile 1 current)" if resumes_at_saved_step_ok else "FAIL: resumed at step %d" % CampaignContext.campaign_step)
+	resumed_map.queue_free()
 	CampaignContext.clear()
 	CampaignSave.reset_all() # never leave fake progress in the real save file
-	await get_tree().process_frame
-
-	# --- MiniBranchMap (2026-08-08 UX rework): squares should reflect
-	# branch_step, and the rival square should name its twist. ---
-	CampaignContext.start_branch(vif_campaign, branch)
-	var branch_map_scene := load("res://scenes/MiniBranchMap.tscn") as PackedScene
-	var branch_map := branch_map_scene.instantiate() as MiniBranchMapNode
-	add_child(branch_map)
-	var branch_map_guard_ok: bool = branch_map._confirm_prev == true
-	print("PASS: MiniBranchMap seeds _confirm_prev true (carryover guard)" if branch_map_guard_ok else "FAIL: MiniBranchMap's _confirm_prev is not seeded true")
-	# 2026-08-11 visual pass ("la carte illustree / branches"): state used to
-	# be parsed out of rendered label text (">>" / "[X]" / "[ ]"); now it's
-	# conveyed visually (node color/checkmark/pulsing ring), so tests read
-	# node_status() directly instead. node3_name_label still carries the
-	# rival's twist name as actual text (not encoded in a drawn shape),
-	# so that part of the check stays a text assertion.
-	var branch_map_step0_ok: bool = branch_map.node_status(0) == "current" and branch_map.node_status(1) == "upcoming" and branch_map.node3_name_label.text.contains(branch.rival.twist.display_name)
-	print("PASS: MiniBranchMap at step 0 marks node 1 current, node 2 unreached, names the rival's twist" if branch_map_step0_ok else "FAIL: MiniBranchMap step-0 statuses were '%s' / '%s', node3 label '%s'" % [branch_map.node_status(0), branch_map.node_status(1), branch_map.node3_name_label.text])
-	CampaignContext.advance_branch_step()
-	branch_map._refresh()
-	var branch_map_step1_ok: bool = branch_map.node_status(0) == "done" and branch_map.node_status(1) == "current"
-	print("PASS: MiniBranchMap at step 1 marks node 1 done, node 2 current" if branch_map_step1_ok else "FAIL: MiniBranchMap step-1 statuses were '%s' / '%s'" % [branch_map.node_status(0), branch_map.node_status(1)])
-	branch_map.queue_free()
-	CampaignContext.clear()
 	await get_tree().process_frame
 
 	var char_select_scene := load("res://scenes/CampaignCharacterSelect.tscn") as PackedScene
@@ -588,10 +573,9 @@ func _ready() -> void:
 
 	var all_ok := mook_ok and rival_ok and organizer_ok and map_guard_ok and char_select_guard_ok and vs_select_guard_ok and vs_select_backdrop_ok \
 		and mook1_label_ok and mook2_label_ok and rival_label_ok and organizer_label_ok and freeze_ok and f1_guard_precondition_ok \
-		and branch_map_guard_ok and branch_map_step0_ok and branch_map_step1_ok \
+		and sequence_ok and fresh_status_ok and progress_saved_ok and resumes_at_saved_step_ok \
 		and debug_fight_ok and debug_label_ok \
 		and cheat_menu_lists_all_twists_ok and title_confirm_guard_ok and title_menu_has_three_entries_ok \
 		and orb_spawn_reachable_ok and background_ok and center_line_ok and beam_spawn_ok and charged_beam_ok and charged_burst_ok and mini_charge_ok and boomerang_charge_ok and boomerang_giant_ok and boomerang_burst_ok and missile_charge_ok and turret_charge_ok and mg_charge_ok and double_fire_ok \
-		and shrink_step1_ok and shrink_cap_ok and shrink_not_a_sliver_ok and shrink_reset_ok and return_to_map_ok \
-		and depth_ok and lourd_available_ok and controleur_locked_ok and locked_confirm_ignored_ok and controleur_unlocked_ok
+		and shrink_step1_ok and shrink_cap_ok and shrink_not_a_sliver_ok and shrink_reset_ok and return_to_map_ok
 	get_tree().quit(0 if all_ok else 1)

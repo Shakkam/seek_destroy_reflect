@@ -1292,12 +1292,12 @@ func _process_post_match_choice() -> void:
 	_post_match_confirm_prev = confirm
 
 ## Epic 4, Story 4.4/4.6/4.8 — records the outcome to CampaignSave (mooks
-## grant currency, the "real" rival grants a branch completion + unlock,
-## the organizer completes the campaign run) and returns to either
-## MiniBranchMap (more fights left in this branch) or CampaignMap (branch
-## complete, or this was the organizer fight). A loss is never punished
-## beyond a retry of the SAME step (2026-08-08, Camil: "on ne peut jamais
-## reculer") — branch_step itself never moves backward.
+## grant currency, the "real" rival grants an unlock, the organizer
+## completes the campaign run) and returns to CampaignMap, now the single
+## world-map screen for the whole campaign (2026-08-24 rework — used to
+## also route to a separate MiniBranchMap mid-branch). A loss is never
+## punished beyond a retry of the SAME step (2026-08-08, Camil: "on ne peut
+## jamais reculer") — campaign_step itself never moves backward.
 func _resolve_campaign_result(winner_side: int) -> void:
 	var character_id: String = CampaignContext.campaign.character.id
 
@@ -1314,14 +1314,15 @@ func _resolve_campaign_result(winner_side: int) -> void:
 	if winner_side != 0: # side 1 (the mook/rival/organizer) won — no permadeath, retry the same step (Story 4.4 AC)
 		match_label.text = "Defaite..."
 		await get_tree().create_timer(2.0).timeout
-		if CampaignContext.is_organizer_fight:
-			CampaignContext.return_to_map()
-			get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
-		else:
-			get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn")
+		# 2026-08-24 world-map rework — a loss always bounces back to the
+		# same single CampaignMap (campaign_step untouched, so it's still
+		# showing/re-fighting this exact step); there's no separate
+		# MiniBranchMap to return to anymore.
+		CampaignContext.return_to_map()
+		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 		return
 
-	if CampaignContext.is_organizer_fight:
+	if CampaignContext.is_organizer_fight():
 		CampaignSave.mark_organizer_defeated(character_id)
 		match_label.text = "Tournoi remporte !"
 		# 2026-08-16 UX audit (Sally): "'Rival vaincu !' gets the same second
@@ -1347,10 +1348,8 @@ func _resolve_campaign_result(winner_side: int) -> void:
 		match_label.text = "Victoire (+%d)" % current_encounter.reward_currency
 	else:
 		# The "real" rival, defeated.
-		var unlock_id := ""
 		if current_encounter.unlock_reward:
-			unlock_id = current_encounter.unlock_reward.id
-		CampaignSave.mark_branch_completed(character_id, CampaignContext.branch.id, unlock_id)
+			CampaignSave.grant_unlock(character_id, current_encounter.unlock_reward.id)
 		match_label.text = "Rival vaincu !"
 		# 2026-08-16 UX audit (Sally) — same reasoning as the organizer win
 		# above, one notch smaller: a branch rival is a real story beat, not
@@ -1369,11 +1368,13 @@ func _resolve_campaign_result(winner_side: int) -> void:
 
 	await get_tree().create_timer(hold_duration).timeout
 	match_label.remove_theme_font_size_override("font_size")
-	if CampaignContext.advance_branch_step():
-		get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn") # visible progress, per Camil's mini-map request — not a silent reload straight into the next fight
-	else:
-		CampaignContext.return_to_map()
-		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
+	# 2026-08-24 world-map rework — one flat step counter now instead of a
+	# per-branch one; always the same CampaignMap on return (it shows
+	# whichever tile campaign_step now points at).
+	CampaignContext.advance_step()
+	CampaignSave.set_campaign_progress(character_id, CampaignContext.campaign_step)
+	CampaignContext.return_to_map()
+	get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 
 ## Round-end cleanup (2026-08-07 bug fix — "à la fin du round 1 les tourelles
 ## restent, elles devraient disparaître"): turrets, in-flight projectiles, and
@@ -1416,19 +1417,27 @@ func _update_campaign_label() -> void:
 		return
 	var encounter_name := "Organisateur du tournoi"
 	if CampaignContext.debug_encounter:
-		# Cheat menu (2026-08-09) — neither organizer nor branch is set here,
-		# just a throwaway encounter; branch_step's step-name labeling
-		# doesn't apply (2026-08-09 bug: crashed on CampaignContext.branch
-		# being null, since debug fights are a third case that "not
-		# is_organizer_fight" alone didn't account for).
+		# Cheat menu (2026-08-09) — neither the organizer nor a branch is
+		# set here, just a throwaway encounter; the step-name labeling
+		# below doesn't apply (2026-08-09 bug: crashed on this case being
+		# mistaken for the organizer fight).
 		encounter_name = "Cheat menu — vs %s" % CampaignContext.debug_encounter.opponent.display_name
-	elif not CampaignContext.is_organizer_fight:
-		# branch_step (2026-08-08 rework) instead of comparing encounter
-		# resource identity against branch.mook_1/mook_2 — unambiguous
-		# regardless of how those two are authored.
-		var step_names := ["Sous-adversaire 1/2", "Sous-adversaire 2/2", "Rival"]
-		var step: String = step_names[clampi(CampaignContext.branch_step, 0, 2)]
-		encounter_name = "%s — %s" % [CampaignContext.branch.display_name, step]
+	elif not CampaignContext.is_organizer_fight():
+		var branch := CampaignContext.current_branch()
+		if branch:
+			# Branch-based mode: "Contre Vif — Sous-adversaire 1/2" etc.
+			var step_names := ["Sous-adversaire 1/2", "Sous-adversaire 2/2", "Rival"]
+			var step: String = step_names[clampi(CampaignContext.campaign_step % 3, 0, 2)]
+			encounter_name = "%s — %s" % [branch.display_name, step]
+		else:
+			# JSON-first mode (2026-08-29): branch concept doesn't apply —
+			# show the encounter type + opponent name from the encounter data.
+			var enc := CampaignContext.current_encounter()
+			var opp_name := enc.opponent.display_name if enc and enc.opponent else "?"
+			if enc and enc.is_mook:
+				encounter_name = "Etape %d — vs %s" % [CampaignContext.campaign_step + 1, opp_name]
+			else:
+				encounter_name = "Rival — vs %s" % opp_name
 	var twist_text := ""
 	if active_twist:
 		twist_text = " | Twist : %s" % active_twist.display_name

@@ -1005,13 +1005,17 @@ func _test_campaign_save() -> void:
 	save.add_currency(TEST_CHARACTER, 50)
 	_check("currency accumulates across calls", save.get_currency(TEST_CHARACTER) == 150)
 
-	_check("branch starts uncompleted", not save.is_branch_completed(TEST_CHARACTER, "vs_lourd"))
-	save.mark_branch_completed(TEST_CHARACTER, "vs_lourd", "trace_lourd")
-	_check("branch is completed after marking", save.is_branch_completed(TEST_CHARACTER, "vs_lourd"))
-	_check("completed_branch_count reflects it", save.completed_branch_count(TEST_CHARACTER) == 1)
+	# 2026-08-24 world-map rework — campaign_progress (a single flat step)
+	# replaces the old per-branch completed_branches tracking; grant_unlock()
+	# replaces mark_branch_completed()'s unlock-granting half.
+	_check("campaign starts at progress 0", save.get_campaign_progress(TEST_CHARACTER) == 0)
+	save.set_campaign_progress(TEST_CHARACTER, 5)
+	_check("campaign_progress persists across calls", save.get_campaign_progress(TEST_CHARACTER) == 5)
+	_check("no unlock yet", not ("trace_lourd" in save.unlocks_for(TEST_CHARACTER)))
+	save.grant_unlock(TEST_CHARACTER, "trace_lourd")
 	_check("unlock is recorded", "trace_lourd" in save.unlocks_for(TEST_CHARACTER))
-	save.mark_branch_completed(TEST_CHARACTER, "vs_lourd", "trace_lourd") # re-marking the same branch must not duplicate it
-	_check("re-completing the same branch does not duplicate it", save.completed_branch_count(TEST_CHARACTER) == 1)
+	save.grant_unlock(TEST_CHARACTER, "trace_lourd") # re-granting the same unlock must not duplicate it
+	_check("re-granting the same unlock does not duplicate it", save.unlocks_for(TEST_CHARACTER).count("trace_lourd") == 1)
 
 	_check("organizer starts undefeated", not save.is_organizer_defeated(TEST_CHARACTER))
 	save.mark_organizer_defeated(TEST_CHARACTER)
@@ -1022,7 +1026,7 @@ func _test_campaign_save() -> void:
 	var reloaded = reloaded_script.new()
 	reloaded.load_from_disk()
 	_check("a fresh instance reloads persisted currency from disk", reloaded.get_currency(TEST_CHARACTER) == 150)
-	_check("a fresh instance reloads persisted branch completion from disk", reloaded.is_branch_completed(TEST_CHARACTER, "vs_lourd"))
+	_check("a fresh instance reloads persisted campaign_progress from disk", reloaded.get_campaign_progress(TEST_CHARACTER) == 5)
 
 	# Clean up: this test's entry should never linger in the player's real save file.
 	save._data.erase(TEST_CHARACTER)
@@ -1051,13 +1055,17 @@ func _test_campaign_context_sequencing() -> void:
 	branch.rival = rival
 
 	var campaign := CampaignData.new()
-	context.start_branch(campaign, branch)
-	_check("branch starts at step 0 (mook_1)", context.branch_step == 0 and context.current_encounter() == mook_1)
+	campaign.mini_branches = [branch]
+	campaign.organizer_encounter = RivalEncounterData.new()
+	context.enter_campaign(campaign, 0)
+	_check("campaign starts at step 0 (mook_1)", context.campaign_step == 0 and context.current_encounter() == mook_1)
 
-	_check("advance from step 0 moves to mook_2, reports more fights left", context.advance_branch_step() and context.current_encounter() == mook_2)
-	_check("advance from step 1 moves to the rival, reports more fights left", context.advance_branch_step() and context.current_encounter() == rival)
-	_check("advance from the rival reports the branch is complete", not context.advance_branch_step())
-	_check("branch_step reached 3 (complete)", context.branch_step == 3)
+	context.advance_step()
+	_check("advance from step 0 moves to mook_2", context.campaign_step == 1 and context.current_encounter() == mook_2)
+	context.advance_step()
+	_check("advance from step 1 moves to the rival", context.campaign_step == 2 and context.current_encounter() == rival)
+	context.advance_step()
+	_check("advance from the rival moves to the organizer", context.is_organizer_fight() and context.current_encounter() == campaign.organizer_encounter)
 
 	# 2026-08-08 regression: even if mook_1 and mook_2 happened to be
 	# authored as the same resource, step-based sequencing must still tell
@@ -1069,10 +1077,13 @@ func _test_campaign_context_sequencing() -> void:
 	branch2.mook_1 = shared_mook
 	branch2.mook_2 = shared_mook
 	branch2.rival = rival
-	context2.start_branch(campaign, branch2)
-	_check("step 0 reads as mook_1 even when mook_1 == mook_2 by identity", context2.branch_step == 0)
-	context2.advance_branch_step()
-	_check("step 1 reads as mook_2 even when mook_1 == mook_2 by identity", context2.branch_step == 1)
+	var campaign2 := CampaignData.new()
+	campaign2.mini_branches = [branch2]
+	campaign2.organizer_encounter = RivalEncounterData.new()
+	context2.enter_campaign(campaign2, 0)
+	_check("step 0 reads as mook_1 even when mook_1 == mook_2 by identity", context2.campaign_step == 0 and context2.current_encounter() == shared_mook)
+	context2.advance_step()
+	_check("step 1 reads as mook_2 even when mook_1 == mook_2 by identity", context2.campaign_step == 1 and context2.current_encounter() == shared_mook)
 	context2.free()
 
 	context.free()
@@ -1092,7 +1103,7 @@ func _test_campaign_context_debug_fight() -> void:
 
 	context.start_debug_fight(campaign, encounter)
 	_check("debug fight registers as a pending encounter", context.has_pending_encounter())
-	_check("debug fight is neither a branch nor the organizer", context.branch == null and not context.is_organizer_fight)
+	_check("debug fight never reads as the organizer fight", not context.is_organizer_fight())
 	_check("current_encounter() returns the debug encounter", context.current_encounter() == encounter)
 
 	context.clear()

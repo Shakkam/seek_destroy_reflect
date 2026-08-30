@@ -321,12 +321,13 @@ func _resolve(won: bool, loss_reason: String = "") -> void:
 		CampaignSave.add_currency(character_id, current_encounter.reward_currency)
 		message_label.text = "Victoire (+%d)" % current_encounter.reward_currency
 		await get_tree().create_timer(1.5).timeout
-		if CampaignContext.advance_branch_step():
-			get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn")
-		else:
-			CampaignContext.return_to_map()
-			get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
+		# 2026-08-24 world-map rework — one flat step counter, always the
+		# same single CampaignMap on return (no separate MiniBranchMap).
+		CampaignContext.advance_step()
+		CampaignSave.set_campaign_progress(character_id, CampaignContext.campaign_step)
+		CampaignContext.return_to_map()
+		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 	else:
 		message_label.text = "Defaite... (%s)" % loss_reason if loss_reason != "" else "Defaite..."
 		await get_tree().create_timer(2.0).timeout
-		get_tree().change_scene_to_file("res://scenes/MiniBranchMap.tscn")
+		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
