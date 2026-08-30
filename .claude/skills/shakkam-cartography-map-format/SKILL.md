@@ -165,9 +165,19 @@ de `_load_json_cases()` (qui, lui, filtre sur mook/miniboss/boss). Sert
 uniquement de point d'ancrage initial pour le token. Aucune logique de
 combat ne lui est associée.
 
+Le moteur reconnaît **les deux variantes de type** pour cette case :
+- `"depart"` — la forme canonique
+- `"custom_depart"` — la forme exportée par l'Atelier Cartographe (depuis le
+  2026-08-30, l'outil exporte `"custom_depart"`, pas `"depart"`)
+
 ```json
-{ "index": 0, "type": "depart", "x": 120, "y": 600 }
+{ "index": 20, "type": "custom_depart", "x": 224, "y": 416 }
 ```
+
+Note importante : la case départ **doit avoir un index > tous les indices
+combat** (mook/miniboss/boss) pour ne pas perturber le tri. Convention :
+donner aux cases non-combat (depart, custom_bonus) les indices les plus
+hauts du JSON, après la séquence combat complète.
 
 ### Navigation par flèches
 
@@ -210,6 +220,14 @@ case `campaign_step`, même si le token est ailleurs.
 3. La case `depart` est **toujours filtrée** de `_tile_types` / `_tile_positions`
    — elle n'est pas une case de combat. Elle est lue séparément dans
    `_load_depart_position()`.
+4. `_arrow_prev` est toujours synchronisé chaque frame via `_sync_arrow_prev()`
+   même quand la navigation est bloquée (tween en cours, dialog ouvert).
+   Ne jamais laisser `_arrow_prev` stale : un `false` stale + touche tenue =
+   edge-detect fantôme = déplacement automatique non désiré (Bug 2026-08-30).
+5. Les indices JSON des cases non-combat (depart, bonus) doivent être
+   **supérieurs** aux indices des cases combat. L'invariant "triés par index
+   croissant = ordre des combats" s'applique à la séquence filtrée ; les
+   non-combat sont ignorés lors du tri mais leur index doit rester cohérent.
 
 ## Avant d'intégrer une nouvelle carte
 

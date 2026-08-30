@@ -385,6 +385,9 @@ func _process(delta: float) -> void:
 	# Arrow keys are also forwarded to _hide_confirm_dialog so the player can
 	# dismiss the dialog by moving the token back without hunting for Escape.
 	if _confirm_dialog_active:
+		# Keep _arrow_prev in sync so stale `false` values don't fire a
+		# phantom edge on the first frame after the dialog closes (Bug 2026-08-30).
+		_sync_arrow_prev()
 		var confirm := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_ENTER) \
 			or Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) > 0.4
 		if confirm and not _confirm_prev:
@@ -410,6 +413,12 @@ func _process(delta: float) -> void:
 	# --- Arrow-key navigation (ignored while a tween is running) ------------
 	if not _is_tweening:
 		_handle_arrow_navigation()
+	else:
+		# During a tween navigation is blocked, but we still need to track
+		# actual key state so _arrow_prev never goes stale. A stale `false`
+		# would produce a phantom edge-detect the frame the tween completes,
+		# making the token move again without a real new key press (Bug 2026-08-30).
+		_sync_arrow_prev()
 
 ## 2026-08-18 ("un monde par rival... on peut inventer plein de mini jeux
 ## sympa") — a mook-slot encounter can route somewhere other than a plain
@@ -652,7 +661,9 @@ func _load_depart_position(character_id: String) -> void:
 	if typeof(data) != TYPE_DICTIONARY or not data.has("cases") or typeof(data["cases"]) != TYPE_ARRAY:
 		return
 	for c in data["cases"]:
-		if typeof(c) == TYPE_DICTIONARY and c.get("type", "") == "depart":
+		# Accept both "depart" (canonical type) and "custom_depart" (the name
+		# the Atelier Cartographe tool currently exports for this anchor).
+		if typeof(c) == TYPE_DICTIONARY and c.get("type", "") in ["depart", "custom_depart"]:
 			_depart_position = Vector2(c.get("x", 0.0), c.get("y", 0.0))
 			_has_depart = true
 			return
@@ -679,6 +690,16 @@ func _dominant_direction(from_pos: Vector2, to_pos: Vector2) -> int:
 		return KEY_RIGHT if delta.x > 0.0 else KEY_LEFT
 	else:
 		return KEY_DOWN if delta.y > 0.0 else KEY_UP
+
+## Reads the current physical state of every arrow key into _arrow_prev so
+## that edge-detection in _handle_arrow_navigation() never fires a phantom
+## "just pressed" event after a guard (tween / dialog) lifts. Called every
+## frame when navigation is blocked instead of calling _handle_arrow_navigation().
+func _sync_arrow_prev() -> void:
+	_arrow_prev[KEY_UP]    = Input.is_physical_key_pressed(KEY_UP)
+	_arrow_prev[KEY_DOWN]  = Input.is_physical_key_pressed(KEY_DOWN)
+	_arrow_prev[KEY_LEFT]  = Input.is_physical_key_pressed(KEY_LEFT)
+	_arrow_prev[KEY_RIGHT] = Input.is_physical_key_pressed(KEY_RIGHT)
 
 ## Edge-detects freshly-pressed arrow keys and starts a Tween toward the
 ## adjacent step in that direction when valid. One move per call at most

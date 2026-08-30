@@ -13,141 +13,141 @@
   "cases": [
     {
       "index": 0,
-      "type": "miniboss",
-      "x": 480,
+      "type": "mook",
+      "x": 352,
       "y": 480
     },
     {
       "index": 1,
+      "type": "mook",
+      "x": 352,
+      "y": 352
+    },
+    {
+      "index": 2,
+      "type": "mook",
+      "x": 352,
+      "y": 224
+    },
+    {
+      "index": 3,
       "type": "miniboss",
       "x": 416,
       "y": 224
     },
     {
-      "index": 2,
-      "type": "miniboss",
-      "x": 736,
-      "y": 608
+      "index": 4,
+      "type": "mook",
+      "x": 416,
+      "y": 96
     },
     {
-      "index": 3,
+      "index": 5,
+      "type": "mook",
+      "x": 544,
+      "y": 96
+    },
+    {
+      "index": 6,
       "type": "miniboss",
       "x": 672,
       "y": 96
     },
     {
-      "index": 4,
+      "index": 7,
       "type": "miniboss",
       "x": 800,
       "y": 160
     },
     {
-      "index": 5,
-      "type": "miniboss",
-      "x": 928,
-      "y": 352
-    },
-    {
-      "index": 6,
-      "type": "mook",
-      "x": 352,
-      "y": 352
-    },
-    {
-      "index": 7,
-      "type": "mook",
-      "x": 352,
-      "y": 224
-    },
-    {
       "index": 8,
       "type": "mook",
-      "x": 352,
-      "y": 480
+      "x": 672,
+      "y": 224
     },
     {
       "index": 9,
       "type": "mook",
-      "x": 416,
-      "y": 96
+      "x": 544,
+      "y": 224
     },
     {
       "index": 10,
-      "type": "mook",
-      "x": 544,
-      "y": 96
+      "type": "miniboss",
+      "x": 480,
+      "y": 480
     },
     {
       "index": 11,
       "type": "mook",
       "x": 544,
-      "y": 224
-    },
-    {
-      "index": 12,
-      "type": "mook",
-      "x": 672,
-      "y": 224
-    },
-    {
-      "index": 13,
-      "type": "mook",
-      "x": 544,
       "y": 544
     },
     {
-      "index": 14,
+      "index": 12,
       "type": "mook",
       "x": 608,
       "y": 608
     },
     {
-      "index": 15,
-      "type": "custom_bonus",
-      "x": 864,
-      "y": 544
+      "index": 13,
+      "type": "miniboss",
+      "x": 736,
+      "y": 608
     },
     {
-      "index": 16,
-      "type": "custom_bonus",
-      "x": 672,
-      "y": 544
-    },
-    {
-      "index": 17,
+      "index": 14,
       "type": "mook",
       "x": 736,
       "y": 416
     },
     {
-      "index": 18,
+      "index": 15,
       "type": "mook",
       "x": 800,
       "y": 352
     },
     {
-      "index": 19,
+      "index": 16,
+      "type": "miniboss",
+      "x": 928,
+      "y": 352
+    },
+    {
+      "index": 17,
       "type": "mook",
       "x": 928,
       "y": 224
     },
     {
-      "index": 20,
+      "index": 18,
       "type": "mook",
       "x": 1120,
       "y": 224
     },
     {
-      "index": 21,
+      "index": 19,
       "type": "boss",
       "x": 1120,
       "y": 96
     },
     {
-      "index": 22,
+      "index": 20,
       "type": "custom_depart",
       "x": 224,
       "y": 416
+    },
+    {
+      "index": 21,
+      "type": "custom_bonus",
+      "x": 864,
+      "y": 544
+    },
+    {
+      "index": 22,
+      "type": "custom_bonus",
+      "x": 672,
+      "y": 544
     },
     {
       "index": 23,
