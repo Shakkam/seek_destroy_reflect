@@ -31,6 +31,18 @@ var initial_speed_multiplier := 1.0
 # everywhere else — a real match keeps its normal per-return escalation.
 var speed_increment_multiplier := 1.0
 
+# Bug report (Ben's playtest via Camil, 2026-08-31: "ma balle traversait
+# les briques apres la premiere collision, hors ce qui est marrant avec un
+# casse brique c'est de faire des combos de plusieurs briques") —
+# _blocked_side in _resolve_turrets() exists so a real match's ball can't
+# ping-pong forever off turrets on the side it just came from. But EVERY
+# brick shares owner_side 1 (see breakout_node.gd), so that same guard was
+# blocking the ball from ever hitting a SECOND brick in the same rally —
+# it looked like passing straight through the whole field. Breakout wants
+# the opposite: bounce off as many bricks as the ball's path actually
+# crosses. false (default) everywhere else — a real match keeps the guard.
+var ignore_side_block_for_turrets := false
+
 ## 2026-08-15 (Camil): "il faut bien viser la prochaine case vide" — the
 ## gauge-fill effect's yellow ball needs to aim at the real next-empty
 ## ultra pip, not an approximate anchor. Set by MatchArenaNode alongside
@@ -327,7 +339,7 @@ func _resolve_turrets() -> void:
 		if not (child is TurretNode):
 			continue
 		var turret: TurretNode = child
-		if turret.owner_side == _blocked_side:
+		if turret.owner_side == _blocked_side and not ignore_side_block_for_turrets:
 			continue
 		if _turret_rect(turret).has_point(state.position):
 			var outgoing_side := 1 if turret.owner_side == 0 else -1

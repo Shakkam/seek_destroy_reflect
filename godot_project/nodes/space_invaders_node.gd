@@ -99,6 +99,7 @@ var _formation_total := 0
 var _bob_time := 0.0
 var _resolved := false
 var _cheat_win_prev := false
+var _escape_prev := false
 
 func _ready() -> void:
 	var character: CharacterData = CampaignContext.campaign.character if CampaignContext.campaign else null
@@ -161,6 +162,17 @@ func _spawn_formation() -> void:
 	_formation_total = _formation.size()
 
 func _physics_process(delta: float) -> void:
+	# Bug report (Ben's playtest via Camil, 2026-08-31: "Faudrait pouvoir
+	# revenir au menu avec echap") — same fix as MatchArena/Breakout's own
+	# escape handling: every OTHER screen already treats Echap as "go to
+	# TitleScreen". Checked before the _resolved early-return so it still
+	# works right after clearing/losing the level too.
+	var escape_pressed := Input.is_physical_key_pressed(KEY_ESCAPE)
+	if escape_pressed and not _escape_prev:
+		CampaignContext.return_to_map()
+		get_tree().change_scene_to_file("res://scenes/TitleScreen.tscn")
+	_escape_prev = escape_pressed
+
 	if _resolved:
 		return
 

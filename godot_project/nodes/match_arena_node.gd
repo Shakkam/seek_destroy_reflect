@@ -63,6 +63,7 @@ const GO_FLASH_DURATION := 1.0 # was a single 0.6s flash before the two-phase sp
 var match_state: MatchState = MatchState.new()
 var _round_active := true
 var _ai_toggle_prev := false
+var _escape_prev := false
 
 # 2026-08-16 UX audit (Sally): "Versus mode ends in a dead screen" — on a
 # non-campaign match end, the arena used to just sit on "Match termine..."
@@ -213,6 +214,7 @@ func _process(delta: float) -> void:
 
 	_process_ai_toggle()
 	_process_cheat_keys()
+	_process_escape()
 	_sync_twist_visuals()
 
 	if _post_match_choice_active:
@@ -1450,6 +1452,22 @@ func _update_campaign_label() -> void:
 
 ## Story 1.12 — F1 toggles a basic AI opponent on/off for Ship2, so solo
 ## testing doesn't require editing the scene.
+## Bug report (Ben's playtest via Camil, 2026-08-31: "Faudrait pouvoir
+## revenir au menu avec echap") — every OTHER screen in the project already
+## treats Echap as "go to TitleScreen" (2026-08-18, "quand je fais Echap,
+## que ca revienne en arriere"), but MatchArena itself had no Escape
+## handling at all: once in a fight, there was no way out short of losing
+## or winning it. Abandoning mid-fight forfeits nothing campaign-side (no
+## resolved case is recorded) — CampaignContext.return_to_map() just clears
+## the transient debug/pending-encounter state, same cleanup a real
+## win/loss already does before leaving this scene.
+func _process_escape() -> void:
+	var pressed := Input.is_physical_key_pressed(KEY_ESCAPE)
+	if pressed and not _escape_prev:
+		CampaignContext.return_to_map()
+		get_tree().change_scene_to_file("res://scenes/TitleScreen.tscn")
+	_escape_prev = pressed
+
 func _process_ai_toggle() -> void:
 	# 2026-08-08 bug report: "si j'appuie sur F1 en mode campagne, l'IA se
 	# désactive" — this debug toggle (Story 1.12) exists so a solo dev can

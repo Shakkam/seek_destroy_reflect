@@ -101,6 +101,7 @@ var _enemies: Array[TurretNode] = []
 var _enemy_spawn_timer := ENEMY_SPAWN_INTERVAL
 var _resolved := false
 var _cheat_win_prev := false
+var _escape_prev := false
 
 # 2026-08-18 (Camil: "quand on perd la balle faudrait un petit decompte
 # '3-2-1' et hop ca repart") — freezes ship_1/ball/enemy fire for a beat
@@ -160,6 +161,11 @@ func _ready() -> void:
 	# more bounces per rally (bricks, not just one paddle exchange) than
 	# the normal match this rate was tuned for.
 	ball.speed_increment_multiplier = 0.5
+	# Bug report (Ben's playtest via Camil, 2026-08-31: "ma balle traversait
+	# les briques apres la premiere collision") — see BallNode.
+	# ignore_side_block_for_turrets' own doc comment for why the match's
+	# normal same-side re-bounce guard has to be off here.
+	ball.ignore_side_block_for_turrets = true
 	ball.reset_to_center()
 	ball.ball_missed.connect(_on_ball_missed)
 
@@ -193,6 +199,18 @@ func _spawn_brick_grid() -> void:
 			_bricks.append(brick)
 
 func _physics_process(delta: float) -> void:
+	# Bug report (Ben's playtest via Camil, 2026-08-31: "Faudrait pouvoir
+	# revenir au menu avec echap") — same fix as MatchArena's own
+	# _process_escape(): every OTHER screen already treats Echap as "go to
+	# TitleScreen", this mini-jeu was the odd one out with no way to bail
+	# out of a level going badly. Checked before the _resolved early-return
+	# so it still works right after clearing/losing the level too.
+	var escape_pressed := Input.is_physical_key_pressed(KEY_ESCAPE)
+	if escape_pressed and not _escape_prev:
+		CampaignContext.return_to_map()
+		get_tree().change_scene_to_file("res://scenes/TitleScreen.tscn")
+	_escape_prev = escape_pressed
+
 	if _resolved:
 		return
 
