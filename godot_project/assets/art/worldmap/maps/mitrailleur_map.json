@@ -28,7 +28,7 @@
     { "id": "i627", "index": 14, "type": "mook", "x": 608, "y": 608 },
     { "id": "i765", "index": 15, "type": "custom_bonus", "x": 864, "y": 544 },
     { "id": "i647", "index": 16, "type": "custom_bonus", "x": 672, "y": 544 },
-    { "id": "i754", "index": 17, "type": "mook", "x": 416, "y": 352 },
+    { "id": "i754", "index": 17, "type": "custom_bonus", "x": 416, "y": 352 },
     { "id": "i650", "index": 18, "type": "mook", "x": 736, "y": 416 },
     { "id": "i809", "index": 19, "type": "mook", "x": 800, "y": 352 },
     { "id": "i823", "index": 20, "type": "mook", "x": 928, "y": 224 },
