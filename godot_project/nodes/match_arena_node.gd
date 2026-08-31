@@ -1368,11 +1368,16 @@ func _resolve_campaign_result(winner_side: int) -> void:
 
 	await get_tree().create_timer(hold_duration).timeout
 	match_label.remove_theme_font_size_override("font_size")
-	# 2026-08-24 world-map rework — one flat step counter now instead of a
-	# per-branch one; always the same CampaignMap on return (it shows
-	# whichever tile campaign_step now points at).
-	CampaignContext.advance_step()
-	CampaignSave.set_campaign_progress(character_id, CampaignContext.campaign_step)
+	# 2026-08-31 graph-mode (Camil: "la campagne DOIT se baser uniquement sur
+	# la carte"): mark this specific node resolved by id rather than advancing
+	# a linear integer step. Branch-mode characters use the old path.
+	if CampaignContext.is_graph_mode:
+		CampaignSave.add_resolved_case_id(character_id, CampaignContext.current_graph_node_id)
+	else:
+		# 2026-08-24 world-map rework — one flat step counter now instead of a
+		# per-branch one; always the same CampaignMap on return.
+		CampaignContext.advance_step()
+		CampaignSave.set_campaign_progress(character_id, CampaignContext.campaign_step)
 	CampaignContext.return_to_map()
 	get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 

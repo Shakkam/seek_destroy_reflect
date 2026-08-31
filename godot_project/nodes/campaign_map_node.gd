@@ -91,6 +91,30 @@ var _tile_branches: Array = [] # of MiniBranchData, null for the boss tile
 var _tile_mook_index: Array[int] = [] # 1 or 2 (within its branch) for a mook tile, 0 otherwise
 var _tile_mook_number: Array[int] = [] # 1-8, sequential across the whole path, for MOOK_TEXTURES; 0 otherwise
 
+# 2026-08-31 — graph-mode campaign (Camil: "il n'y a plus de branches. La
+# campagne DOIT se baser uniquement sur la carte"). When _graph_mode is true,
+# the JSON has path_nodes + connections fields that define a real traversal
+# graph, not just a sorted flat sequence. Navigation, resolution, and save
+# are all per-node-id rather than a single monotonic integer step.
+#
+# _graph_nodes: id → {id, x, y, type} for every node (cases + path_nodes).
+#   type "" = relay (path_node); type in [mook/miniboss/boss/custom_depart/...].
+# _graph_adj: id → [neighbor_id, …] — undirected adjacency built from connections[].
+# _graph_combat_encounters: id → RivalEncounterData, only for mook/miniboss/boss nodes.
+# _tile_node_ids: the case id for each slot in _tile_types/_tile_positions (parallel).
+# _current_node_id / _previous_node_id: token position + one-step back-trail for retreat.
+# _resolved_ids: id → true for every combat node the player has already won.
+# _depart_node_id: the id of the custom_depart anchor (or "" if none).
+var _graph_mode: bool = false
+var _graph_nodes: Dictionary = {}
+var _graph_adj: Dictionary = {}
+var _graph_combat_encounters: Dictionary = {}
+var _tile_node_ids: Array[String] = []
+var _current_node_id: String = ""
+var _previous_node_id: String = ""
+var _resolved_ids: Dictionary = {}
+var _depart_node_id: String = ""
+
 # 2026-08-29 (Camil: "il ne faut plus avoir une route 'figee' mais bien se
 # baser sur la carte + le json pour definir les points d'interet/combats")
 # — when a character has a real exported map (PNG background + a JSON case
@@ -146,30 +170,49 @@ func _ready() -> void:
 	_build_tiles()
 	_build_layout()
 
-	# Always re-sync from the save file on arrival (character-select/title's
-	# "Continuer", or bouncing back here after a fight) — cheap, and the one
-	# source of truth for "how far along is this character" regardless of
-	# how this scene was reached.
 	var character_id: String = CampaignContext.campaign.character.id
-	var step := clampi(CampaignSave.get_campaign_progress(character_id), 0, _tile_types.size() - 1)
-	CampaignContext.enter_campaign(CampaignContext.campaign, step)
 
-	# 2026-08-30 arrow-key navigation: initialise display_step and the token.
-	# Fresh campaign (step 0) with a depart anchor: start the token at the
-	# depart position, one key-press away from the first fight. Any other case
-	# (returning player, or no depart): land right on the current fight tile.
-	_load_depart_position(character_id)
-	if _has_depart and CampaignContext.campaign_step == 0:
-		_display_step = -1
+	if _graph_mode:
+		# Graph mode (2026-08-31): free-navigation graph, per-id resolution.
+		# Load which nodes have been resolved from the save file, then place
+		# the token at: the last-fought node (after a loss/win, current_graph_
+		# node_id is preserved through return_to_map()), or the depart anchor
+		# for a fresh start, or the first combat node as a last resort.
+		_resolved_ids.clear()
+		for cid in CampaignSave.get_resolved_case_ids(character_id):
+			_resolved_ids[str(cid)] = true
+		var restore_id := CampaignContext.current_graph_node_id
+		if restore_id != "" and _graph_nodes.has(restore_id):
+			_current_node_id = restore_id
+		elif _depart_node_id != "":
+			_current_node_id = _depart_node_id
+		elif _tile_node_ids.size() > 0:
+			_current_node_id = _tile_node_ids[0]
+		_previous_node_id = ""  # no back-trail on map arrival
+		_token_draw_position = _get_graph_node_position(_current_node_id)
+		_create_confirm_dialog()
+		# If restoring after a loss, the node is still unresolved — show
+		# the fight dialog again immediately so the player can retry.
+		if _is_graph_combat_node(_current_node_id) and not _is_node_resolved(_current_node_id):
+			_show_confirm_dialog()
 	else:
-		_display_step = CampaignContext.campaign_step
-	_token_draw_position = _get_position_for_step(_display_step)
-	_create_confirm_dialog()
-	# When landing on the fight tile immediately (returning player, or no
-	# depart on step 0), show the prompt straight away.
-	if _display_step >= 0 and _display_step == CampaignContext.campaign_step \
-			and _display_step < _tile_types.size():
-		_show_confirm_dialog()
+		# Linear mode — unchanged from 2026-08-30.
+		# Always re-sync from the save file on arrival (character-select/title's
+		# "Continuer", or bouncing back here after a fight) — cheap, and the one
+		# source of truth for "how far along is this character" regardless of
+		# how this scene was reached.
+		var step := clampi(CampaignSave.get_campaign_progress(character_id), 0, _tile_types.size() - 1)
+		CampaignContext.enter_campaign(CampaignContext.campaign, step)
+		_load_depart_position(character_id)
+		if _has_depart and CampaignContext.campaign_step == 0:
+			_display_step = -1
+		else:
+			_display_step = CampaignContext.campaign_step
+		_token_draw_position = _get_position_for_step(_display_step)
+		_create_confirm_dialog()
+		if _display_step >= 0 and _display_step == CampaignContext.campaign_step \
+				and _display_step < _tile_types.size():
+			_show_confirm_dialog()
 
 	title_label.text = CampaignContext.campaign.character.display_name
 	_refresh()
@@ -178,13 +221,33 @@ func _ready() -> void:
 ## exported map JSON and build the tile list from it (case type sequence +
 ## pool-based encounter assignment). Falls back to the old branch-order loop
 ## for every character that doesn't yet have an authored map.
+##
+## 2026-08-31 graph-mode extension: if the JSON also has path_nodes +
+## connections fields, the character uses free-navigation graph mode instead
+## of the previous linear sequence mode.
 func _build_tiles() -> void:
 	_tile_types.clear()
 	_tile_encounters.clear()
 	_tile_branches.clear()
 	_tile_mook_index.clear()
 	_tile_mook_number.clear()
+	_tile_node_ids.clear()
+	_graph_mode = false
+	_graph_nodes.clear()
+	_graph_adj.clear()
+	_graph_combat_encounters.clear()
+	_depart_node_id = ""
 	var character_id: String = CampaignContext.campaign.character.id
+
+	# Try graph mode first (JSON with path_nodes + connections fields).
+	if _load_graph_data(character_id):
+		_graph_mode = true
+		CampaignContext.is_graph_mode = true
+		_assign_graph_encounters()
+		return
+
+	# Linear JSON mode (sorted flat sequence, no graph connectivity).
+	CampaignContext.is_graph_mode = false
 	var json_cases := _load_json_cases(character_id)
 	if json_cases.size() > 0:
 		_build_tiles_from_json(json_cases)
@@ -314,10 +377,22 @@ func _build_tiles_from_json(json_cases: Array) -> void:
 ## map has been authored yet, or when one exists but doesn't have exactly
 ## one case per real step (a mismatched/half-finished export) — never a
 ## partial mix of the two for a single character.
+##
+## Graph mode: the PNG is always loaded (we just checked it exists in
+## _load_graph_data()), and _tile_positions is filled from _graph_nodes using
+## _tile_node_ids — same parallel-array contract as the linear mode.
 func _build_layout() -> void:
 	_map_background = null
 	_tile_positions.clear()
 	var character_id: String = CampaignContext.campaign.character.id
+
+	if _graph_mode:
+		_map_background = _load_texture_from_disk(_map_png_path(character_id))
+		for nid in _tile_node_ids:
+			var n: Dictionary = _graph_nodes.get(nid, {})
+			_tile_positions.append(Vector2(n.get("x", 0.0), n.get("y", 0.0)))
+		return
+
 	var custom_positions := _load_custom_map_positions(character_id)
 	if custom_positions.size() == _tile_types.size():
 		_map_background = _load_texture_from_disk(_map_png_path(character_id))
@@ -382,12 +457,9 @@ func _process(delta: float) -> void:
 	queue_redraw() # cheap for a handful of texture blits + a pulsing ring/token
 
 	# --- Confirmation dialog open: Espace/Entrée = Oui, Échap = Non --------
-	# Arrow keys are also forwarded to _hide_confirm_dialog so the player can
-	# dismiss the dialog by moving the token back without hunting for Escape.
+	# In graph mode, arrow keys pressed while the dialog is open also dismiss
+	# it and start the retreat movement (the player chose "no, go back").
 	if _confirm_dialog_active:
-		# Keep _arrow_prev in sync so stale `false` values don't fire a
-		# phantom edge on the first frame after the dialog closes (Bug 2026-08-30).
-		_sync_arrow_prev()
 		var confirm := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_ENTER) \
 			or Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) > 0.4
 		if confirm and not _confirm_prev:
@@ -395,7 +467,23 @@ func _process(delta: float) -> void:
 		_confirm_prev = confirm
 		if Input.is_physical_key_pressed(KEY_ESCAPE):
 			_hide_confirm_dialog()
-		return  # while dialog is up, no navigation / cheat-menu / escape-to-title
+		# Graph mode: detect arrow edges here (before _sync_arrow_prev) so the
+		# player can dismiss-and-retreat without leaving the dialog open.
+		if _graph_mode and not _is_tweening:
+			var arrow_keys_d := [KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]
+			for key in arrow_keys_d:
+				var pressed_now_d: bool = Input.is_physical_key_pressed(key)
+				var was_pressed_d: bool = _arrow_prev.get(key, false)
+				if pressed_now_d and not was_pressed_d:
+					var target_id_d := _target_node_for_graph_key(key)
+					if target_id_d != "":
+						_hide_confirm_dialog()
+						_move_to_graph_node(target_id_d)
+						break
+		# Keep _arrow_prev in sync so stale `false` values don't fire a
+		# phantom edge on the first frame after the dialog closes (Bug 2026-08-30).
+		_sync_arrow_prev()
+		return  # while dialog is up, no further navigation / cheat-menu / escape-to-title
 
 	# --- Cheat menu (dev/debug only) ----------------------------------------
 	# 2026-08-09 — unchanged from the tree-map version.
@@ -412,7 +500,10 @@ func _process(delta: float) -> void:
 
 	# --- Arrow-key navigation (ignored while a tween is running) ------------
 	if not _is_tweening:
-		_handle_arrow_navigation()
+		if _graph_mode:
+			_handle_graph_arrow_navigation()
+		else:
+			_handle_arrow_navigation()
 	else:
 		# During a tween navigation is blocked, but we still need to track
 		# actual key state so _arrow_prev never goes stale. A stale `false`
@@ -426,7 +517,26 @@ func _process(delta: float) -> void:
 ## (RivalEncounterData.challenge_type's own doc comment). Moved here from
 ## the now-removed MiniBranchMapNode._confirm() — same dispatch, single
 ## entry point now that there's only one map.
+##
+## 2026-08-31 graph mode: sets CampaignContext.current_graph_node_id and
+## pending_graph_encounter before the scene change so MatchArena/Breakout/
+## SpaceInvaders know which node is being fought and which encounter to run.
 func _confirm_selection() -> void:
+	if _graph_mode:
+		var encounter: RivalEncounterData = _graph_combat_encounters.get(_current_node_id)
+		if not encounter:
+			return  # defensive: shouldn't happen for a valid combat node
+		CampaignContext.current_graph_node_id = _current_node_id
+		CampaignContext.pending_graph_encounter = encounter
+		match encounter.challenge_type:
+			"breakout":
+				get_tree().change_scene_to_file("res://scenes/Breakout.tscn")
+			"space_invaders":
+				get_tree().change_scene_to_file("res://scenes/SpaceInvaders.tscn")
+			_:
+				get_tree().change_scene_to_file("res://scenes/MatchArena.tscn")
+		return
+	# Linear mode (JSON-first or branch-based fallback):
 	var encounter := CampaignContext.current_encounter()
 	if not encounter:
 		return # campaign_step already past the last tile — nothing left to fight
@@ -441,6 +551,10 @@ func _confirm_selection() -> void:
 func _refresh() -> void:
 	var character_id: String = CampaignContext.campaign.character.id
 	currency_label.text = "Gold: %d" % CampaignSave.get_currency(character_id)
+
+	if _graph_mode:
+		_refresh_graph_mode()
+		return
 
 	var real_step := CampaignContext.campaign_step
 	var total := _tile_types.size()
@@ -481,6 +595,15 @@ func _refresh() -> void:
 	queue_redraw()
 
 func _tile_status(i: int) -> String:
+	if _graph_mode:
+		if i < 0 or i >= _tile_node_ids.size():
+			return "locked"
+		var nid := _tile_node_ids[i]
+		if _is_node_resolved(nid):
+			return "done"
+		if nid == _current_node_id:
+			return "current"  # player is standing here (unresolved combat)
+		return "locked"  # unresolved and not current
 	if i < CampaignContext.campaign_step:
 		return "done"
 	elif i == CampaignContext.campaign_step:
@@ -831,3 +954,290 @@ func _hide_confirm_dialog() -> void:
 	_confirm_dialog_active = false
 	_confirm_panel.visible = false
 	_refresh()
+
+# ---------------------------------------------------------------------------
+# 2026-08-31 — Graph-mode helpers
+# ---------------------------------------------------------------------------
+
+## Loads the graph structure from the character's exported JSON when it has
+## the new path_nodes + connections fields. Populates _graph_nodes, _graph_adj,
+## _depart_node_id. Returns true if graph mode was successfully detected.
+## Returns false for characters using the old format (linear JSON or branch
+## fallback) — the caller then tries the next mode down.
+func _load_graph_data(character_id: String) -> bool:
+	var json_path := _map_json_path(character_id)
+	var png_path := _map_png_path(character_id)
+	if not FileAccess.file_exists(json_path) or not FileAccess.file_exists(png_path):
+		return false
+	var file := FileAccess.open(json_path, FileAccess.READ)
+	if not file:
+		return false
+	var data = JSON.parse_string(file.get_as_text())
+	if typeof(data) != TYPE_DICTIONARY:
+		return false
+	# Graph mode requires both path_nodes and connections arrays in the JSON.
+	if not data.has("path_nodes") or not data.has("connections") \
+			or not data.has("cases"):
+		return false
+	if typeof(data["path_nodes"]) != TYPE_ARRAY \
+			or typeof(data["connections"]) != TYPE_ARRAY \
+			or typeof(data["cases"]) != TYPE_ARRAY:
+		return false
+
+	# Load all case nodes (combat + custom types like depart/bonus)
+	for c in data["cases"]:
+		if typeof(c) != TYPE_DICTIONARY or not c.has("id"):
+			continue
+		var nid: String = str(c["id"])
+		_graph_nodes[nid] = {
+			"id": nid,
+			"x": float(c.get("x", 0)),
+			"y": float(c.get("y", 0)),
+			"type": str(c.get("type", "")),
+			"index": int(c.get("index", 9999))
+		}
+		_graph_adj[nid] = []
+		var t := str(c.get("type", ""))
+		if t in ["custom_depart", "depart"]:
+			_depart_node_id = nid
+
+	# Load relay nodes (path_nodes — no type, pure traversal waypoints)
+	for p in data["path_nodes"]:
+		if typeof(p) != TYPE_DICTIONARY or not p.has("id"):
+			continue
+		var nid: String = str(p["id"])
+		_graph_nodes[nid] = {
+			"id": nid,
+			"x": float(p.get("x", 0)),
+			"y": float(p.get("y", 0)),
+			"type": "",
+			"index": 9999
+		}
+		_graph_adj[nid] = []
+
+	# Build undirected adjacency list from connections
+	for conn in data["connections"]:
+		if typeof(conn) != TYPE_ARRAY or conn.size() < 2:
+			continue
+		var a: String = str(conn[0])
+		var b: String = str(conn[1])
+		if _graph_adj.has(a) and not (b in _graph_adj[a]):
+			_graph_adj[a].append(b)
+		if _graph_adj.has(b) and not (a in _graph_adj[b]):
+			_graph_adj[b].append(a)
+
+	return true
+
+## Assigns encounters to the graph's combat nodes using the same pool logic
+## as the linear JSON mode (mook_pool / rival_pool consumed in JSON index
+## order). Also fills _tile_types, _tile_node_ids, _tile_encounters (all
+## parallel arrays used by _draw() and _tile_status()), and pushes the flat
+## encounter_sequence to CampaignContext for backward compatibility.
+func _assign_graph_encounters() -> void:
+	var mook_pool: Array = []
+	var rival_pool: Array = []
+	for branch in CampaignContext.campaign.mini_branches:
+		mook_pool.append(branch.mook_1)
+		mook_pool.append(branch.mook_2)
+		rival_pool.append(branch.rival)
+
+	var character_id: String = CampaignContext.campaign.character.id
+
+	# Sort all combat nodes by JSON index to determine pool assignment order
+	var combat_nodes: Array = []
+	for nid in _graph_nodes:
+		var t: String = _graph_nodes[nid].get("type", "")
+		if t in ["mook", "miniboss", "boss"]:
+			combat_nodes.append(_graph_nodes[nid])
+	combat_nodes.sort_custom(func(a, b): return int(a.get("index", 9999)) < int(b.get("index", 9999)))
+
+	var mook_idx := 0
+	var rival_idx := 0
+	var mook_number := 0
+	var encounter_seq: Array = []
+	_graph_combat_encounters.clear()
+
+	for node in combat_nodes:
+		var nid: String = node["id"]
+		var ctype: String = node.get("type", "")
+		match ctype:
+			"mook":
+				mook_number += 1
+				var enc: RivalEncounterData = null
+				if mook_idx < mook_pool.size():
+					enc = mook_pool[mook_idx]
+				else:
+					push_warning("CampaignMapNode: '%s' graph needs more mook encounters than pool (pool=%d, needed=%d)" % [character_id, mook_pool.size(), mook_idx + 1])
+				mook_idx += 1
+				_graph_combat_encounters[nid] = enc
+				_tile_types.append(TileType.MOOK)
+				_tile_mook_number.append(mook_number)
+				_tile_node_ids.append(nid)
+				_tile_encounters.append(enc)
+				_tile_branches.append(null)
+				_tile_mook_index.append(0)
+				encounter_seq.append(enc)
+			"miniboss":
+				var enc: RivalEncounterData = null
+				if rival_idx < rival_pool.size():
+					enc = rival_pool[rival_idx]
+				else:
+					push_warning("CampaignMapNode: '%s' graph needs more rival encounters than pool (pool=%d)" % [character_id, rival_pool.size()])
+				rival_idx += 1
+				_graph_combat_encounters[nid] = enc
+				_tile_types.append(TileType.MINIBOSS)
+				_tile_mook_number.append(0)
+				_tile_node_ids.append(nid)
+				_tile_encounters.append(enc)
+				_tile_branches.append(null)
+				_tile_mook_index.append(0)
+				encounter_seq.append(enc)
+			"boss":
+				var enc := CampaignContext.campaign.organizer_encounter
+				_graph_combat_encounters[nid] = enc
+				_tile_types.append(TileType.BOSS)
+				_tile_mook_number.append(0)
+				_tile_node_ids.append(nid)
+				_tile_encounters.append(enc)
+				_tile_branches.append(null)
+				_tile_mook_index.append(0)
+				encounter_seq.append(enc)
+
+	CampaignContext.set_encounter_sequence(encounter_seq)
+
+## Maps a graph node id to its screen position (x, y) from _graph_nodes.
+func _get_graph_node_position(nid: String) -> Vector2:
+	var n: Dictionary = _graph_nodes.get(nid, {})
+	return Vector2(float(n.get("x", 0.0)), float(n.get("y", 0.0)))
+
+## Returns true if this node is a combat case (mook / miniboss / boss).
+## Relay nodes and custom non-combat cases (depart, bonus) return false.
+func _is_graph_combat_node(nid: String) -> bool:
+	var nd: Dictionary = _graph_nodes.get(nid, {})
+	var t: String = str(nd.get("type", ""))
+	return t in ["mook", "miniboss", "boss"]
+
+## Returns true if this combat node has been won by the player.
+func _is_node_resolved(nid: String) -> bool:
+	return _resolved_ids.get(nid, false)
+
+## Returns true if the token can move from _current_node_id to the given
+## neighbor. The only movement restriction: when standing on an UNRESOLVED
+## combat node (Camil: "ne peut PAS continuer au-delà de ce noeud"), the
+## player may only retreat to _previous_node_id (where they came from). When
+## there is no previous node (e.g. map reload after a loss), retreat is allowed
+## to any relay/resolved neighbor so the player is never hard-locked.
+func _can_move_to_graph_neighbor(neighbor_id: String) -> bool:
+	if _is_graph_combat_node(_current_node_id) and not _is_node_resolved(_current_node_id):
+		if _previous_node_id != "":
+			return neighbor_id == _previous_node_id
+		# No previous node: allow retreat to resolved or non-combat neighbors
+		if _is_node_resolved(neighbor_id):
+			return true
+		var nd: Dictionary = _graph_nodes.get(neighbor_id, {})
+		var t: String = str(nd.get("type", ""))
+		return t not in ["mook", "miniboss", "boss"]
+	return true  # from resolved/relay/depart: all neighbors accessible
+
+## For the given arrow key, finds the NEAREST neighbor of _current_node_id
+## whose dominant screen direction (haut/bas/gauche/droite) matches the key
+## and that _can_move_to_graph_neighbor() allows. Returns "" if none found.
+func _target_node_for_graph_key(key: int) -> String:
+	var cur_pos := _get_graph_node_position(_current_node_id)
+	var neighbors: Array = _graph_adj.get(_current_node_id, [])
+	var best_id := ""
+	var best_dist := INF
+	for neighbor_id in neighbors:
+		if not _can_move_to_graph_neighbor(neighbor_id):
+			continue
+		var neighbor_pos := _get_graph_node_position(neighbor_id)
+		if _dominant_direction(cur_pos, neighbor_pos) == key:
+			var dist := cur_pos.distance_to(neighbor_pos)
+			if dist < best_dist:
+				best_dist = dist
+				best_id = neighbor_id
+	return best_id
+
+## Graph-mode arrow navigation — edge-detects arrow keys and starts a Tween
+## toward the matching neighbor (nearest, in that dominant direction).
+func _handle_graph_arrow_navigation() -> void:
+	var arrow_keys := [KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]
+	var moved := false
+	for key in arrow_keys:
+		var pressed_now: bool = Input.is_physical_key_pressed(key)
+		var was_pressed: bool = _arrow_prev.get(key, false)
+		if pressed_now and not was_pressed and not moved:
+			var target_id := _target_node_for_graph_key(key)
+			if target_id != "":
+				_move_to_graph_node(target_id)
+				moved = true
+		_arrow_prev[key] = pressed_now
+
+## Starts an animated Tween moving the token to the given graph node.
+## Updates _previous_node_id and _current_node_id before the animation so
+## _tile_status() and navigation rules reflect the new position immediately.
+func _move_to_graph_node(target_id: String) -> void:
+	_hide_confirm_dialog()
+	_previous_node_id = _current_node_id
+	_current_node_id = target_id
+	_is_tweening = true
+	var end_pos := _get_graph_node_position(target_id)
+	var tween := create_tween()
+	tween.set_ease(Tween.EASE_IN_OUT)
+	tween.set_trans(Tween.TRANS_SINE)
+	tween.tween_property(self, "_token_draw_position", end_pos, 0.35)
+	tween.tween_callback(func():
+		_is_tweening = false
+		_on_arrive_at_graph_node(target_id)
+	)
+
+## Called when the token's tween has finished and the token has arrived at
+## a graph node. Shows the fight-confirmation dialog if the node is an
+## unresolved combat case; does nothing for relay/resolved/non-combat nodes.
+func _on_arrive_at_graph_node(node_id: String) -> void:
+	_refresh()
+	if not _is_graph_combat_node(node_id):
+		return  # relay, depart, bonus — no dialog
+	if _is_node_resolved(node_id):
+		return  # already won — just visiting, no dialog
+	_show_confirm_dialog()
+
+## Graph-mode _refresh() — description + hint line based on the current node.
+func _refresh_graph_mode() -> void:
+	var node: Dictionary = _graph_nodes.get(_current_node_id, {})
+	var type: String = str(node.get("type", ""))
+	var total := _tile_node_ids.size()
+	var resolved_count := 0
+	for nid in _tile_node_ids:
+		if _is_node_resolved(nid):
+			resolved_count += 1
+
+	if type in ["custom_depart", "depart"]:
+		description_label.text = "Debut du chemin — utilisez les fleches pour explorer."
+	elif type == "":
+		description_label.text = "En transit..."
+	elif _is_node_resolved(_current_node_id):
+		var enc: RivalEncounterData = _graph_combat_encounters.get(_current_node_id)
+		var opp_name := enc.opponent.display_name if (enc and enc.opponent) else "?"
+		description_label.text = "[Termine] vs %s" % opp_name
+	else:
+		var enc: RivalEncounterData = _graph_combat_encounters.get(_current_node_id)
+		if enc:
+			var opp_name := enc.opponent.display_name if enc.opponent else "?"
+			match type:
+				"boss":
+					description_label.text = "Combat final : %s (Organisateur)" % opp_name
+				"miniboss":
+					description_label.text = "Rival : vs %s" % opp_name
+				_:
+					description_label.text = "Combat : vs %s" % opp_name
+		else:
+			description_label.text = "Case inconnue"
+
+	if _confirm_dialog_active:
+		hint_label.text = "Espace/Entree : lancer le combat  |  Echap : annuler"
+	else:
+		hint_label.text = "Fleches : naviguer  |  Victoires : %d/%d" % [resolved_count, total]
+	if OS.is_debug_build() and not _confirm_dialog_active:
+		hint_label.text += " | T : cheat"
+	queue_redraw()

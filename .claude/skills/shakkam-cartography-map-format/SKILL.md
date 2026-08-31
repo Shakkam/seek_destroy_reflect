@@ -15,233 +15,229 @@ une paire de fichiers pour un personnage donné :
   icônes de case) à la résolution native **1280×720**, tout est déjà cuit
   dans l'image. Rien à redessiner par-dessus, sauf de petits indicateurs de
   statut (voir plus bas).
-- **`<perso>_map.json`** — la liste ordonnée des cases qui comptent pour la
-  progression, chacune avec sa position dans cette même image :
+- **`<perso>_map.json`** — la structure de la carte avec la liste des cases,
+  les nœuds de relais, et les arêtes de connexion (voir schéma ci-dessous).
+
+## Schéma JSON — format graphe (2026-08-31)
 
 ```json
 {
   "width": 1280, "height": 720,
-  "branch_count": 4,
-  "case_type_labels": { "mook": "Case Mook", "miniboss": "Case Miniboss (rival)", "boss": "Case Boss (organisateur)" },
+  "character": "mitrailleur",
+  "branch_count": 6,
+  "case_type_labels": { "mook": "Case Mook", "miniboss": "Case Miniboss (rival)", "boss": "Case Boss (organisateur)", "custom_bonus": "bonus", "custom_depart": "départ" },
   "cases": [
-    { "index": 0, "type": "mook", "x": 100, "y": 100 },
-    { "index": 1, "type": "miniboss", "x": 300, "y": 100 }
+    { "id": "i669", "index": 0, "type": "miniboss", "x": 480, "y": 480 },
+    { "id": "i566", "index": 23, "type": "custom_depart", "x": 224, "y": 416 }
+  ],
+  "path_nodes": [
+    { "id": "i745", "x": 224, "y": 352 }
+  ],
+  "connections": [
+    ["i566", "i745"], ["i589", "i745"]
   ]
 }
 ```
 
+### Trois types d'objets
+
+- **`cases`** : toutes les cases nommées de la carte. Chaque case a :
+  - `id` : identifiant stable unique (ex. `"i669"`)
+  - `index` : ordre pour l'assignation des rencontres (pool) — tri croissant
+  - `type` : `"mook"`, `"miniboss"`, `"boss"`, `"custom_depart"`, `"custom_bonus"`, ou autre type custom
+  - `x`, `y` : position en pixels dans le PNG 1280×720
+
+- **`path_nodes`** : nœuds de RELAIS — purs waypoints de traversée, aucune
+  logique de combat. Chaque relais a `id`/`x`/`y` (pas de `type` ni d'`index`).
+  Type effectif = `""` (chaîne vide) dans le moteur.
+
+- **`connections`** : liste de paires `[idA, idB]` référençant indifféremment
+  des `id` de `cases` ou de `path_nodes` — arêtes NON-DIRIGÉES du graphe de
+  déplacement. Le moteur construit la liste d'adjacence symétrique.
+
+### Détection du mode graphe
+
+Le moteur détecte automatiquement le mode graphe si le JSON possède
+à la fois `path_nodes` ET `connections` (ET `cases`). Sans ces champs,
+le JSON reste en mode linéaire (séquence plate, ancien format).
+
 ## Ce que veut dire chaque type de case
 
-- **Ligne/chemin jaune visible dans le PNG** — n'existe QUE dans l'image :
-  c'est le trajet que le joueur emprunte visuellement entre les cases.
-  Aucune entrée JSON ne lui correspond, ce n'est pas une "case", juste du
-  décor de connectivité.
-- **`mook`** — un combat simple (échauffement, adversaire affaibli).
-- **`miniboss`** — un combat contre l'un des rivaux (un "gros vilain").
-- **`boss`** — le combat final de cette carte, contre l'organisateur du
-  tournoi. Une seule case `boss` par carte, toujours en dernière position.
-- **`bonus`** *(type custom, pas encore un standard figé)* — pour l'instant :
-  donne un petit bonus aléatoire (ex. +20 PV pour le prochain combat, ou
-  démarrer le prochain combat avec l'Ultra déjà chargée). Explicitement
-  provisoire ("on trouvera mieux après", Camil 2026-08-29) — pas de
-  mécanique de jeu dédiée encore écrite ; à concevoir/itérer plutôt qu'à
-  considérer comme figé.
-- **N'importe quel autre type custom** (ex. `depart`) — pur marqueur/tag
-  visuel pour l'auteur de la carte, aucune logique de jeu tant que ce n'est
-  pas explicitement demandé.
+- **`mook`** — un combat simple (adversaire affaibli).
+- **`miniboss`** — un combat contre l'un des rivaux.
+- **`boss`** — le combat final de cette carte, contre l'organisateur. Victoire
+  sur le boss = campagne terminée → retour à l'accueil.
+- **`custom_depart`** (ou `"depart"`) — point de départ du token. Non-combat,
+  aucune logique de jeu. Le moteur place le token ici au début de la campagne.
+- **`custom_bonus`** — case décorative non-combat (provisoire). Traversable
+  librement, aucune logique de jeu pour l'instant.
+- Tout autre type custom — tag visuel sans logique de jeu.
 
-## L'invariant qui compte le plus (mis à jour 2026-08-29)
+## Comment les rencontres sont assignées (mode graphe)
+
+Même mécanisme de **pool** que le mode JSON-linéaire antérieur :
+
+1. Deux pools construits depuis les branches du personnage, dans l'ordre des branches :
+   - `mook_pool` : `[branch[0].mook_1, branch[0].mook_2, branch[1].mook_1, ...]`
+   - `rival_pool` : `[branch[0].rival, branch[1].rival, ...]`
+2. Les cases de combat du JSON, **triées par `index` croissant** (le seul usage
+   de `index` en mode graphe), déterminent l'ordre de consommation des pools :
+   - `mook` → prend le prochain dans `mook_pool`
+   - `miniboss` → prend le prochain dans `rival_pool`
+   - `boss` → `campaign.organizer_encounter`
+3. Les cases non-combat (`custom_depart`, `custom_bonus`) sont ignorées du tri.
+4. La séquence plate résultante est poussée dans `CampaignContext.encounter_sequence`
+   (pour compatibilité arrière — l'encounter actif en combat est surtout servi
+   via `CampaignContext.pending_graph_encounter`, pas via l'index de séquence).
+
+**Conséquence pratique** : si le JSON demande N mooks, le pool de branches doit
+contenir au moins N rencontres de type mook. Pool trop petit → `push_warning`.
+Pool trop grand → les entrées excédentaires sont silencieusement ignorées.
+
+Exemple pour Mitrailleur (carte 2026-08-31) :
+- JSON : 6 miniboss, 14 mooks, 1 boss = **21 cases de combat**
+- Branches : 7 branches → pool mook : 14 rencontres (exact), pool rival : 7 (6 utilisées, 1 ignorée)
+
+## Invariant de source de vérité
 
 **La carte JSON est la source de vérité absolue pour la structure de combats.**
-Il n'y a plus de formule `mini_branches.size() * 3 + 1`. À la place :
 
-- Les cases `mook`/`miniboss`/`boss` du JSON, **triées par `index`
-  croissant**, définissent l'ordre exact des combats (étape 0, 1, 2, ..., N-1).
-- Les cases custom (`bonus`, `depart`, etc.) sont ignorées pour la
-  séquence de combat — elles restent visuelles uniquement.
-- Le total de combats = nombre de cases mook + miniboss + boss dans le JSON.
-  Un JSON avec 13 mooks + 6 miniboss + 1 boss donne **exactement 20 étapes**.
+- En mode graphe : la TOPOLOGIE (qui est voisin de qui) définit le chemin réel
+  du joueur. Il n'y a plus d'ordre global imposé. Chaque case se bat
+  indépendamment dans l'ordre choisi par le joueur.
+- `index` n'est utilisé que pour l'assignation des rencontres depuis les pools
+  (pas pour définir un ordre de combat obligatoire).
+- Les cases custom ne comptent pas pour l'assignation — elles sont uniquement visuelles.
 
 ### Comportement de repli (backward-compatible)
 
-Les personnages **sans** carte JSON exportée continuent à utiliser l'ancienne
-logique de branche (`mini_branches.size() * 3 + 1`) — le moteur bascule
-automatiquement selon la présence ou absence du fichier `.json` + `.png`.
+Les personnages **sans** carte JSON exportée (ou avec un JSON sans `path_nodes`
+ni `connections`) continuent à utiliser l'ancienne logique de branche
+(`mini_branches.size() * 3 + 1`) — le moteur bascule automatiquement selon la
+présence des champs.
 
-## Comment les rencontres sont assignées (mode JSON-first)
+Les personnages avec un JSON en ancien format (sans `path_nodes`/`connections`
+mais avec `cases` trié par `index`) continuent en mode JSON-linéaire (séquence
+plate, `campaign_step` monotone croissant).
 
-Le moteur utilise un mécanisme de **pool** dans `_build_tiles_from_json()` :
+## Architecture graphe — résolution par ID (2026-08-31)
 
-1. Deux pools sont construits depuis les branches du personnage, dans l'ordre des branches :
-   - `mook_pool` : `[branch[0].mook_1, branch[0].mook_2, branch[1].mook_1, branch[1].mook_2, ...]`
-   - `rival_pool` : `[branch[0].rival, branch[1].rival, ...]`
-2. Pour chaque case de combat dans le JSON (triée par index) :
-   - `mook` → prend le prochain dans `mook_pool` (mook_pool[0], mook_pool[1], …)
-   - `miniboss` → prend le prochain dans `rival_pool`
-   - `boss` → `campaign.organizer_encounter`
-3. La séquence plate résultante est poussée dans `CampaignContext.encounter_sequence`.
+### Ce qui remplace display_step / campaign_step
 
-**Conséquence pratique** : si le JSON demande N mooks, le pool de branches doit
-contenir au moins N rencontres de type mook. Si le pool est plus grand que ce
-que le JSON demande, les entrées excédentaires sont silencieusement ignorées.
-Si le pool est trop petit, un `push_warning` est loggé et la rencontre est null.
+En mode graphe, la progression n'est **plus un entier monotone** :
 
-Exemple pour Mitrailleur (carte 2026-08-29) :
-- JSON : 6 miniboss, 13 mooks, 1 boss = 20 étapes
-- Branches : 7 branches (dont une "vs Mini" ajoutée pour le 13e mook)
-  → pool mook : 14 rencontres (13 utilisées, 14e ignorée)
-  → pool rival : 7 rencontres (6 utilisées, 7e ignorée)
+| Ancien (linéaire) | Nouveau (graphe) |
+|---|---|
+| `campaign_step` (int, avance de 1 à chaque victoire) | `_resolved_ids: Dictionary[id → true]` |
+| `_display_step` (int, position visuelle) | `_current_node_id: String` |
+| `CampaignSave.campaign_progress` (int) | `CampaignSave.resolved_case_ids` (Array[String]) |
+| `CampaignContext.advance_step()` | `CampaignSave.add_resolved_case_id(character_id, node_id)` |
+
+`campaign_step` et `campaign_progress` restent intacts pour les personnages en
+mode branche ou JSON-linéaire — le mode graphe ne les touche pas.
+
+### Navigation en graphe (flèches directionnelles)
+
+Depuis `_current_node_id`, le moteur calcule pour chaque voisin direct (via
+`_graph_adj`) la **direction dominante** (haut/bas/gauche/droite). Une flèche
+pressée déplace le token vers le voisin le plus proche dans cette direction.
+
+**Règle de blocage** (Camil : "ne peut PAS continuer au-delà d'une case non
+résolue") :
+
+- Depuis un nœud non-combat (relais, depart, bonus) ou un nœud RÉSOLU :
+  → Tous les voisins sont accessibles.
+- Depuis un nœud combat NON RÉSOLU :
+  → Le token peut uniquement RECULER vers `_previous_node_id` (le nœud
+    d'où il venait). Si `_previous_node_id` est vide (rechargement après
+    perte), peut reculer vers n'importe quel voisin résolu ou non-combat.
+
+Ce blocage n'est PAS global : le joueur peut emprunter n'importe quel autre
+chemin sur la carte pour contourner une case bloquée (si la topologie le permet).
+
+### Arrivée sur un nœud
+
+- Nœud relais / bonus / depart → rien ne se passe (pas de dialog).
+- Nœud combat déjà résolu → rien (juste visiter).
+- Nœud combat NON résolu → dialog "Voulez-vous déclencher le combat ?"
+  - **Oui** → `_confirm_selection()` → scène de combat.
+  - **Non** / Échap / Flèche arrière → dialog fermé, le token peut reculer.
+
+### Fin de campagne
+
+Vaincre le nœud `boss` → `mark_organizer_defeated()` → retour à TitleScreen.
+Aucune condition "tout doit être battu avant" — il suffit d'atteindre et de
+vaincre le boss, ce qui peut nécessiter de résoudre certaines cases selon la
+topologie.
 
 ## Où ça se branche côté Godot
 
-Tout est dans `godot_project/nodes/campaign_map_node.gd` :
+**`godot_project/nodes/campaign_map_node.gd`** :
 
-- `_map_png_path(character_id)` / `_map_json_path(character_id)` —
-  convention de chemin : `res://assets/art/worldmap/maps/<character_id>_map.png`
-  et `.json`. Rien d'autre à câbler pour brancher une nouvelle carte, juste
-  déposer les deux fichiers à cet endroit avec le bon `character_id`
-  (l'identifiant de dossier sous `data/campaigns/<character_id>/`).
-- `_load_json_cases(character_id)` — charge le JSON, trie par `index`,
-  filtre sur les 3 types core. Retourne un tableau vide si aucune paire
-  PNG+JSON n'existe → repli procédural.
-- `_build_tiles_from_json(json_cases)` — construit `_tile_types` /
-  `_tile_encounters` depuis la séquence JSON + pools, puis pousse la
-  séquence plate dans `CampaignContext.set_encounter_sequence()`.
-- `_load_custom_map_positions(character_id)` — lit le JSON pour les
-  coordonnées (x, y) de chaque case de combat, en respectant le même
-  ordre que `_load_json_cases()`.
-- `_load_texture_from_disk(path)` — charge le PNG via `Image.load()` plutôt
-  que `load()`/`ResourceLoader` : un export tout frais n'a pas encore de
-  fichier `.import` (pas besoin d'ouvrir l'éditeur avant que ça marche).
-  Produit un WARNING Godot sur la console headless — c'est attendu et
-  documenté, pas un bug.
-- `_build_layout()` — bascule entre carte réelle et repli procédural. Quand
-  JSON-first, `_tile_types.size()` correspond toujours à
-  `_load_custom_map_positions().size()` (même filtre).
-- `_draw_case_marker(i)` — le SEUL dessin ajouté par-dessus une vraie carte :
-  un petit indicateur de statut (fait/en cours/verrouillé) à la position
-  `(x, y)` de la case, rien d'autre — pas d'icône de type, pas de route,
-  c'est déjà dans le PNG.
+- `_load_graph_data(character_id)` → bool — lit le JSON, détecte le mode
+  graphe (présence de `path_nodes` + `connections`), peuple `_graph_nodes`,
+  `_graph_adj`, `_depart_node_id`.
+- `_assign_graph_encounters()` — assigne les rencontres via les pools, peuple
+  `_graph_combat_encounters`, `_tile_types`, `_tile_node_ids`, `_tile_positions`.
+- `_is_graph_combat_node(id)` / `_is_node_resolved(id)` — helpers de statut.
+- `_can_move_to_graph_neighbor(neighbor_id)` — règle de blocage.
+- `_target_node_for_graph_key(key)` — voisin le plus proche dans la direction.
+- `_handle_graph_arrow_navigation()` / `_move_to_graph_node(id)` — déplacement.
+- `_on_arrive_at_graph_node(id)` — dialog si combat non résolu.
+- `_tile_status(i)` — en mode graphe : lit `_resolved_ids` et `_current_node_id`.
+- `_refresh_graph_mode()` — description + hint selon le nœud courant.
+- `_confirm_selection()` — en mode graphe : set `CampaignContext.current_graph_node_id`
+  et `pending_graph_encounter`, puis change_scene_to_file().
 
-Et dans `godot_project/nodes/campaign_context.gd` :
+**`godot_project/nodes/campaign_context.gd`** :
 
-- `encounter_sequence: Array` — séquence plate de `RivalEncounterData`, non
-  vide uniquement pour les personnages avec une carte JSON. Quand non vide,
-  remplace complètement la logique de branche dans `total_steps()` et
-  `current_encounter()`.
-- `set_encounter_sequence(seq)` — appelé par `_build_tiles_from_json()`.
-- `total_steps()` — retourne `encounter_sequence.size()` si non vide, sinon
-  `mini_branches.size() * 3 + 1`.
-- `current_branch()` — retourne `null` en mode JSON-first (pas de mapping
-  par-étape vers une branche). Les appelants (`match_arena_node.gd`,
-  `campaign_map_node.gd`) null-checkent avant usage.
+- `is_graph_mode: bool` — flag global, set par `_build_tiles()`.
+- `current_graph_node_id: String` — le nœud en cours de combat (préservé par
+  `return_to_map()` pour restaurer la position après une perte).
+- `pending_graph_encounter: RivalEncounterData` — l'encounter du nœud courant,
+  set juste avant le changement de scène. Utilisé par `current_encounter()`.
+- `is_organizer_fight()` — en mode graphe : vérifie `pending_graph_encounter == campaign.organizer_encounter`.
+- `clear()` — remet à zéro tous les champs graphe.
+- `return_to_map()` — conserve `current_graph_node_id`, efface `pending_graph_encounter`.
 
-## Navigation à la flèche directionnelle (2026-08-30)
+**`godot_project/nodes/campaign_save.gd`** :
 
-### display_step vs campaign_step
+- `get_resolved_case_ids(character_id)` → Array — set d'IDs résolus pour ce personnage.
+- `add_resolved_case_id(character_id, id)` — ajoute un ID résolu et persiste.
+- `campaign_progress` (int) reste intact pour les personnages en mode branche/linéaire.
+- `has_any_progress()` / `character_with_progress()` considèrent aussi `resolved_case_ids`.
 
-Deux valeurs distinctes coexistent dans `campaign_map_node.gd` :
+**`godot_project/nodes/match_arena_node.gd`** (+ `breakout_node.gd`, `space_invaders_node.gd`) :
 
-- **`CampaignContext.campaign_step`** — progression réelle sauvegardée.
-  Avance uniquement après la victoire d'un combat (`advance_step()`). Ne
-  recule jamais.
-- **`_display_step`** — position VISUELLE du token du joueur. Peut être
-  `-1` (case `depart`, si elle existe dans le JSON), `0..campaign_step`
-  (exploration libre des cases déjà résolues), mais JAMAIS au-delà de
-  `campaign_step`.
-
-### Initialisation au chargement de la carte
-
-- Si le JSON contient une case `depart` **et** que `campaign_step == 0` :
-  `_display_step = -1` (token sur la case départ, pas encore sur un combat).
-- Sinon (joueur de retour après un combat, ou pas de case `depart`) :
-  `_display_step = campaign_step` et le dialog de confirmation s'affiche
-  immédiatement.
-
-### La case `depart` dans le JSON
-
-Type custom non combat, capturé par `_load_depart_position()` séparément
-de `_load_json_cases()` (qui, lui, filtre sur mook/miniboss/boss). Sert
-uniquement de point d'ancrage initial pour le token. Aucune logique de
-combat ne lui est associée.
-
-Le moteur reconnaît **les deux variantes de type** pour cette case :
-- `"depart"` — la forme canonique
-- `"custom_depart"` — la forme exportée par l'Atelier Cartographe (depuis le
-  2026-08-30, l'outil exporte `"custom_depart"`, pas `"depart"`)
-
-```json
-{ "index": 20, "type": "custom_depart", "x": 224, "y": 416 }
-```
-
-Note importante : la case départ **doit avoir un index > tous les indices
-combat** (mook/miniboss/boss) pour ne pas perturber le tri. Convention :
-donner aux cases non-combat (depart, custom_bonus) les indices les plus
-hauts du JSON, après la séquence combat complète.
-
-### Navigation par flèches
-
-Le moteur calcule pour chaque paire de cases adjacentes la **direction
-dominante** (haut/bas/gauche/droite) d'après le delta (x, y) écran.
-Quand le joueur presse une flèche :
-
-- Si elle pointe vers `display_step - 1` (case précédente ou case `depart`)
-  → le token recule.
-- Si elle pointe vers `display_step + 1` ET `display_step < campaign_step`
-  (ou `display_step == -1` pour aller de depart à la case 0) → le token
-  avance.
-- Si elle ne correspond à aucun voisin valide → rien ne se passe.
-
-Un **Tween 0.35 s EASE_IN_OUT SINE** anime `_token_draw_position` entre
-les positions. Les inputs sont ignorés pendant le tween.
-
-### Dialog de confirmation
-
-Quand le token **arrive** sur une case `campaign_step` (de type
-mook/miniboss/boss), un dialog s'affiche :
-
-> Voulez-vous déclencher le combat ?
-> [Oui (Espace/Entrée)]  [Non (Échap)]
-
-- **Oui** → `_confirm_selection()` → changement de scène vers le combat.
-- **Non** → ferme le dialog ; le joueur peut reculer et explorer.
-- Appuyer sur une flèche vers l'arrière (depuis le dialog) le ferme aussi
-  et lance le déplacement.
-
-Le token (`_draw_player_token`) suit toujours `_token_draw_position`
-(animé). Le marqueur de statut pulsant (ring blanc) reste ancré sur la
-case `campaign_step`, même si le token est ailleurs.
-
-### Invariants à ne jamais violer
-
-1. `_display_step` ne dépasse jamais `campaign_step`.
-2. `_tile_status(i)` (done/current/locked) reste basé sur `campaign_step`,
-   pas sur `_display_step`.
-3. La case `depart` est **toujours filtrée** de `_tile_types` / `_tile_positions`
-   — elle n'est pas une case de combat. Elle est lue séparément dans
-   `_load_depart_position()`.
-4. `_arrow_prev` est toujours synchronisé chaque frame via `_sync_arrow_prev()`
-   même quand la navigation est bloquée (tween en cours, dialog ouvert).
-   Ne jamais laisser `_arrow_prev` stale : un `false` stale + touche tenue =
-   edge-detect fantôme = déplacement automatique non désiré (Bug 2026-08-30).
-5. Les indices JSON des cases non-combat (depart, bonus) doivent être
-   **supérieurs** aux indices des cases combat. L'invariant "triés par index
-   croissant = ordre des combats" s'applique à la séquence filtrée ; les
-   non-combat sont ignorés lors du tri mais leur index doit rester cohérent.
+- Sur victoire en mode graphe (`CampaignContext.is_graph_mode == true`) :
+  → `CampaignSave.add_resolved_case_id(character_id, CampaignContext.current_graph_node_id)`
+  → PAS d'`advance_step()` ni de `set_campaign_progress()` (inutiles en mode graphe).
 
 ## Avant d'intégrer une nouvelle carte
 
 1. Vérifier que le pool de rencontres dans les branches couvre le nombre de
-   cases de chaque type dans le JSON (mooks, rivals). Si trop petit :
-   ajouter une branche supplémentaire ou des rencontres standalone.
-2. Déposer les deux fichiers sous `res://assets/art/worldmap/maps/`, lancer
+   cases de chaque type dans le JSON (mooks, rivals). Pool trop petit → warning.
+2. Vérifier que le JSON a `path_nodes` + `connections` pour activer le mode graphe.
+3. Déposer les deux fichiers sous `res://assets/art/worldmap/maps/`, lancer
    un boot headless de `CampaignMap.tscn` avec ce personnage et confirmer
    dans les logs qu'aucun `push_warning` de repli ne sort (le WARNING sur
-   le PNG lui-même est normal et attendu, pas un problème).
-3. Le SKILL.md et le `branch_count` dans le JSON sont des métadonnées
-   indicatives pour l'auteur de la carte — ce qui fait foi pour le moteur,
-   c'est le compte réel de cases mook/miniboss/boss dans `cases[]`.
-4. Si la carte a une case `depart`, s'assurer que sa position (x, y) est
-   visuellement adjacent à la case 0 dans une direction clairement lisible
-   (la flèche à presser sera calculée automatiquement par `_dominant_direction()`
-   mais une direction ambiguë (delta ~45°) donne des résultats surprenants).
+   le PNG lui-même est normal et attendu).
+4. Le `branch_count` dans le JSON est une métadonnée indicative pour l'auteur —
+   ce qui fait foi pour le moteur, c'est le compte réel de cases dans `cases[]`.
+5. Après intégration, lancer la suite de régression complète pour vérifier
+   que les autres personnages (mode branche/linéaire) ne sont pas affectés.
+
+## Invariants à ne jamais violer (mode graphe)
+
+1. `_current_node_id` est toujours une clé valide de `_graph_nodes` (ou `""` avant init).
+2. `_tile_node_ids`, `_tile_types`, `_tile_positions` sont des tableaux parallèles
+   de même taille — toujours remplis ensemble dans `_assign_graph_encounters()` +
+   `_build_layout()`.
+3. `_resolved_ids` est toujours synchronisé avec `CampaignSave.get_resolved_case_ids()`
+   au chargement de la carte. Jamais modifié localement — les modifications passent
+   par `CampaignSave.add_resolved_case_id()` (appelé par MatchArena/Breakout/SpaceInvaders).
+4. `CampaignContext.pending_graph_encounter` est toujours `null` sauf pendant
+   le transit entre CampaignMap et la scène de combat — remis à null par `return_to_map()`.
+5. Les cases custom (`custom_depart`, `custom_bonus`) ne sont JAMAIS dans
+   `_tile_node_ids` / `_tile_types` / `_tile_positions` — elles sont stockées
+   dans `_graph_nodes` et `_graph_adj` uniquement pour la navigation, pas pour le rendu des statuts.

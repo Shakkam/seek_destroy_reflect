@@ -321,10 +321,15 @@ func _resolve(won: bool, loss_reason: String = "") -> void:
 		CampaignSave.add_currency(character_id, current_encounter.reward_currency)
 		message_label.text = "Victoire (+%d)" % current_encounter.reward_currency
 		await get_tree().create_timer(1.5).timeout
-		# 2026-08-24 world-map rework — one flat step counter, always the
-		# same single CampaignMap on return (no separate MiniBranchMap).
-		CampaignContext.advance_step()
-		CampaignSave.set_campaign_progress(character_id, CampaignContext.campaign_step)
+		# 2026-08-31 graph-mode: mark node resolved by id; branch-mode uses
+		# the old linear step counter.
+		if CampaignContext.is_graph_mode:
+			CampaignSave.add_resolved_case_id(character_id, CampaignContext.current_graph_node_id)
+		else:
+			# 2026-08-24 world-map rework — one flat step counter, always the
+			# same single CampaignMap on return (no separate MiniBranchMap).
+			CampaignContext.advance_step()
+			CampaignSave.set_campaign_progress(character_id, CampaignContext.campaign_step)
 		CampaignContext.return_to_map()
 		get_tree().change_scene_to_file("res://scenes/CampaignMap.tscn")
 	else:

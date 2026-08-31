@@ -98,7 +98,9 @@ func mark_organizer_defeated(character_id: String) -> void:
 func has_any_progress() -> bool:
 	for character_id in _data.keys():
 		var entry: Dictionary = _data[character_id]
-		if int(entry.get("currency", 0)) > 0 or int(entry.get("campaign_progress", 0)) > 0 or entry.get("organizer_defeated", false):
+		if int(entry.get("currency", 0)) > 0 or int(entry.get("campaign_progress", 0)) > 0 \
+				or entry.get("organizer_defeated", false) \
+				or (entry.get("resolved_case_ids", []) as Array).size() > 0:
 			return true
 	return false
 
@@ -108,9 +110,30 @@ func has_any_progress() -> bool:
 func character_with_progress() -> String:
 	for character_id in _data.keys():
 		var entry: Dictionary = _data[character_id]
-		if int(entry.get("currency", 0)) > 0 or int(entry.get("campaign_progress", 0)) > 0 or entry.get("organizer_defeated", false):
+		if int(entry.get("currency", 0)) > 0 or int(entry.get("campaign_progress", 0)) > 0 \
+				or entry.get("organizer_defeated", false) \
+				or (entry.get("resolved_case_ids", []) as Array).size() > 0:
 			return character_id
 	return ""
+
+## 2026-08-31 graph-mode campaigns (JSON with path_nodes + connections):
+## returns the set of resolved combat node ids for this character. Empty
+## array for branch-mode characters (they use campaign_progress instead).
+func get_resolved_case_ids(character_id: String) -> Array:
+	return _character_entry(character_id).get("resolved_case_ids", [])
+
+## Called after winning a fight in graph-mode campaigns. Records the case id
+## as permanently resolved for this character. Safe to call with a duplicate
+## id (idempotent). Does not interfere with campaign_progress (branch-mode).
+func add_resolved_case_id(character_id: String, case_id: String) -> void:
+	if case_id == "":
+		return
+	var entry := _character_entry(character_id)
+	var ids: Array = entry.get("resolved_case_ids", [])
+	if not case_id in ids:
+		ids.append(case_id)
+	entry["resolved_case_ids"] = ids
+	save_to_disk()
 
 ## "Nouvelle partie" after the "progression sera perdue" warning is confirmed.
 func reset_all() -> void:
