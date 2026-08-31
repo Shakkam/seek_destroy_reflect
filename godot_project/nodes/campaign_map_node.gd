@@ -472,7 +472,7 @@ func _process(delta: float) -> void:
 		if _graph_mode and not _is_tweening:
 			var arrow_keys_d := [KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]
 			for key in arrow_keys_d:
-				var pressed_now_d: bool = Input.is_physical_key_pressed(key)
+				var pressed_now_d: bool = _direction_key_physically_pressed(key)
 				var was_pressed_d: bool = _arrow_prev.get(key, false)
 				if pressed_now_d and not was_pressed_d:
 					var target_id_d := _target_node_for_graph_key(key)
@@ -804,6 +804,28 @@ func _get_position_for_step(step: int) -> Vector2:
 		return _tile_positions[step]
 	return Vector2.ZERO
 
+## Bug report (Camil, 2026-08-31, re: Ben's playtest — "les fleches, c'est
+## uniquement J2" for anything menu/map-side, and J1's own equivalent is
+## WASD) — the map has exactly one navigator, never two players sharing it,
+## so it should accept WASD (Z/Q/S/D on Camil's AZERTY keyboard, same
+## physical keys as J1's ship controls) as well as the arrow keys, not
+## arrows only. Every direction check below still keys off the canonical
+## KEY_UP/DOWN/LEFT/RIGHT constants (used as direction IDs throughout this
+## file, e.g. _dominant_direction()'s return value) — this only widens
+## which PHYSICAL key counts as "that direction is currently held".
+func _direction_key_physically_pressed(direction_key: int) -> bool:
+	match direction_key:
+		KEY_UP:
+			return Input.is_physical_key_pressed(KEY_UP) or Input.is_physical_key_pressed(KEY_W)
+		KEY_DOWN:
+			return Input.is_physical_key_pressed(KEY_DOWN) or Input.is_physical_key_pressed(KEY_S)
+		KEY_LEFT:
+			return Input.is_physical_key_pressed(KEY_LEFT) or Input.is_physical_key_pressed(KEY_A)
+		KEY_RIGHT:
+			return Input.is_physical_key_pressed(KEY_RIGHT) or Input.is_physical_key_pressed(KEY_D)
+		_:
+			return false
+
 ## Returns the KEY_* constant (UP / DOWN / LEFT / RIGHT) that most closely
 ## describes the screen direction from `from_pos` to `to_pos`, using Godot's
 ## y-down screen coordinate convention (positive y = downward = KEY_DOWN).
@@ -819,10 +841,10 @@ func _dominant_direction(from_pos: Vector2, to_pos: Vector2) -> int:
 ## "just pressed" event after a guard (tween / dialog) lifts. Called every
 ## frame when navigation is blocked instead of calling _handle_arrow_navigation().
 func _sync_arrow_prev() -> void:
-	_arrow_prev[KEY_UP]    = Input.is_physical_key_pressed(KEY_UP)
-	_arrow_prev[KEY_DOWN]  = Input.is_physical_key_pressed(KEY_DOWN)
-	_arrow_prev[KEY_LEFT]  = Input.is_physical_key_pressed(KEY_LEFT)
-	_arrow_prev[KEY_RIGHT] = Input.is_physical_key_pressed(KEY_RIGHT)
+	_arrow_prev[KEY_UP]    = _direction_key_physically_pressed(KEY_UP)
+	_arrow_prev[KEY_DOWN]  = _direction_key_physically_pressed(KEY_DOWN)
+	_arrow_prev[KEY_LEFT]  = _direction_key_physically_pressed(KEY_LEFT)
+	_arrow_prev[KEY_RIGHT] = _direction_key_physically_pressed(KEY_RIGHT)
 
 ## Edge-detects freshly-pressed arrow keys and starts a Tween toward the
 ## adjacent step in that direction when valid. One move per call at most
@@ -831,7 +853,7 @@ func _handle_arrow_navigation() -> void:
 	var arrow_keys := [KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]
 	var moved := false
 	for key in arrow_keys:
-		var pressed_now: bool = Input.is_physical_key_pressed(key)
+		var pressed_now: bool = _direction_key_physically_pressed(key)
 		var was_pressed: bool = _arrow_prev.get(key, false)
 		if pressed_now and not was_pressed and not moved:
 			var target := _target_step_for_key(key)
@@ -1164,7 +1186,7 @@ func _handle_graph_arrow_navigation() -> void:
 	var arrow_keys := [KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]
 	var moved := false
 	for key in arrow_keys:
-		var pressed_now: bool = Input.is_physical_key_pressed(key)
+		var pressed_now: bool = _direction_key_physically_pressed(key)
 		var was_pressed: bool = _arrow_prev.get(key, false)
 		if pressed_now and not was_pressed and not moved:
 			var target_id := _target_node_for_graph_key(key)

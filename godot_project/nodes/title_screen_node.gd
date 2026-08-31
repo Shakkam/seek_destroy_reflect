@@ -154,9 +154,12 @@ func _process(delta: float) -> void:
 			popup_label.text = ""
 
 	var move := 0.0
-	if Input.is_physical_key_pressed(KEY_DOWN):
+	# Bug report (Camil, 2026-08-31, re: Ben's playtest — "les fleches,
+	# c'est uniquement J2", every menu/map is a solo screen and should
+	# accept J1's own WASD too, not arrows only).
+	if Input.is_physical_key_pressed(KEY_DOWN) or Input.is_physical_key_pressed(KEY_S):
 		move += 1.0
-	if Input.is_physical_key_pressed(KEY_UP):
+	if Input.is_physical_key_pressed(KEY_UP) or Input.is_physical_key_pressed(KEY_W):
 		move -= 1.0
 	var stick_y := Input.get_joy_axis(0, JOY_AXIS_LEFT_Y)
 	if absf(stick_y) > 0.3:
