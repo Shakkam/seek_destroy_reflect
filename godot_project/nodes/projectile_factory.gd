@@ -101,7 +101,7 @@ static func spawn(weapon: WeaponData, shooter: ShipNode, target: ShipNode, angle
 		projectile.lifetime = LA_MEUTE_LIFETIME
 		projectile.expiry_explosion_radius = LA_MEUTE_EXPLOSION_RADIUS
 		projectile.expiry_explosion_damage = LA_MEUTE_EXPLOSION_DAMAGE
-	projectile.damage = int(round(weapon.damage * damage_multiplier))
+	projectile.damage = weapon.damage * damage_multiplier # no more int(round(...)) — WeaponData.damage is float since 2026-09-01, rounding here would silently defeat a fractional value like Boomerang's 1.5
 	projectile.effect_type = weapon.effect_type
 	projectile.effect_duration = weapon.effect_duration
 	projectile.tint = weapon_tint(weapon.id)

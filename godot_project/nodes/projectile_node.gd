@@ -10,7 +10,7 @@ extends Node2D
 
 var velocity: Vector2 = Vector2.ZERO
 var lifetime: float = 2.0
-var damage: int = 0
+var damage: float = 0.0 # matches WeaponData.damage's own type (float since 2026-09-01, to allow fractional per-hit values like Boomerang's 1.5)
 var target: ShipNode = null
 var homing_strength: float = 0.0 # 0 = straight line; >0 = gently steers toward target (bazooka only)
 # 2026-08-15 (Camil, Traqueur's La Meute ultra): "il faut vraiment que les

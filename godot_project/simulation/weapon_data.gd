@@ -7,7 +7,7 @@ extends Resource
 
 @export var id: String = ""
 @export var display_name: String = ""
-@export var damage: int = 2 # fixed damage per hit (GDD anchors: mitraillette ~2, bazooka ~10, super 20-30). For effect_type == "beam", this is reinterpreted as damage PER SECOND for the pulse's duration instead of per-hit.
+@export var damage: float = 2.0 # fixed damage per hit (GDD anchors: mitraillette ~2, bazooka ~10, super 20-30). For effect_type == "beam", this is reinterpreted as damage PER SECOND for the pulse's duration instead of per-hit. Was int until 2026-09-01 (Camil: "boomerang c'est que 1 ? => 1.5") — needed a fractional value to make that possible.
 @export var fire_rate: float = 5.0 # shots per second — for effect_type == "beam" this gates the cooldown between pulses, same as any other weapon
 @export var gauge_max: float = 100.0
 @export var gauge_cost_per_shot: float = 10.0 # one-time cost per pulse for effect_type == "beam" too, same as any other weapon

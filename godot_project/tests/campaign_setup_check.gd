@@ -366,7 +366,12 @@ func _ready() -> void:
 	# it must NOT also get the burst-shrink meant for the normal 3-throw
 	# fan (2026-08-10 bug: the shrink was keyed off the NORMAL projectile_
 	# count, which wrongly shrank this single charged shot too).
-	var expected_charged_damage := int(round(stun_boomerang.damage * stun_boomerang.charged_damage_multiplier))
+	# 2026-09-01: WeaponData.damage became a float (Camil: "Boomerang c'est
+	# que 1 ? => 1.5") and projectile_factory.gd stopped rounding it to an
+	# int on spawn — this expectation must stop rounding too, or a
+	# fractional base damage (like Boomerang's own 1.5) mismatches the
+	# real un-rounded value the factory now produces.
+	var expected_charged_damage: float = stun_boomerang.damage * stun_boomerang.charged_damage_multiplier
 	# 1.4 = the boomerang's base visual_scale set in _spawn_projectile();
 	# visual_scale_multiplier (2026-08-18, Camil: "grossir un peu x1.3")
 	# applies on top of both normal AND charged releases, same as every
@@ -374,9 +379,9 @@ func _ready() -> void:
 	# no-op) when this formula was first written, so it wasn't in it yet.
 	var expected_charged_scale := 1.4 * stun_boomerang.visual_scale_multiplier * stun_boomerang.charged_visual_scale_multiplier
 	var boomerang_giant_ok: bool = spawned_charged_boomerang != null \
-		and spawned_charged_boomerang.damage == expected_charged_damage \
+		and is_equal_approx(spawned_charged_boomerang.damage, expected_charged_damage) \
 		and is_equal_approx(spawned_charged_boomerang.visual_scale, expected_charged_scale)
-	print("PASS: the charged boomerang is 5x damage/size, not shrunk like a normal-fire burst unit" if boomerang_giant_ok else "FAIL: expected damage=%d scale=%.2f, got damage=%s scale=%s" % [expected_charged_damage, expected_charged_scale, spawned_charged_boomerang.damage if spawned_charged_boomerang else "n/a", spawned_charged_boomerang.visual_scale if spawned_charged_boomerang else "n/a"])
+	print("PASS: the charged boomerang is 5x damage/size, not shrunk like a normal-fire burst unit" if boomerang_giant_ok else "FAIL: expected damage=%.2f scale=%.2f, got damage=%s scale=%s" % [expected_charged_damage, expected_charged_scale, spawned_charged_boomerang.damage if spawned_charged_boomerang else "n/a", spawned_charged_boomerang.visual_scale if spawned_charged_boomerang else "n/a"])
 
 	# The NORMAL throw fires 3 boomerangs per press (like the missile swarm) —
 	# staggered (burst_stagger > 0), so only the first (i=0) spawns

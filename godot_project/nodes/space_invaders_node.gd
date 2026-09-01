@@ -80,10 +80,12 @@ const FORMATION_START_Y := 150.0
 # mitrailleurs, c'est trop facile. Il faudrait que les invaders aient des
 # PV (au moins 2 tirs de mitrailleuse necessaires)" — was 2.0, exactly
 # equal to machine_gun.tres's own damage (2), so a single hit killed
-# outright. Bumped just past that: machine_gun (2 dmg) and stun_boomerang
-# (1 dmg, the roster's other low-damage weapon) now need 2-3 hits; every
-# other weapon (3+ damage, data/weapons/*.tres) still one-shots, unchanged.
-const ALIEN_HP := 3.0
+# outright. First bumped to 3.0, then straight to 4.0 same day (Camil:
+# "passe les PV des space invaders a 4") — machine_gun (2 dmg) needs 2
+# hits either way; at 4.0, stun_boomerang (now 1.5 dmg) needs 3 instead
+# of 2-3, mini_shot/turret/vortex/missiles (3 dmg) now need 2 instead of
+# 1. Only bazooka (10) and laser (20) still one-shot.
+const ALIEN_HP := 4.0
 const ALIEN_FIRE_RATE := 0.35 # a basic single shot, more frequent than Breakout's occasional popups — this IS the core threat here
 const ALIEN_DAMAGE := 6.0
 const ALIEN_COLOR := Color(0.85, 0.3, 0.35)
