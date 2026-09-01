@@ -76,7 +76,14 @@ const FORMATION_START_X := 910.0
 # half-extent margin on each end, 150 leaves an even ~70px gap at both
 # the arena's top (60) and bottom (660) edges.
 const FORMATION_START_Y := 150.0
-const ALIEN_HP := 2.0
+# Bug report (Camil's Mitrailleur campaign playtest, 2026-09-01): "avec
+# mitrailleurs, c'est trop facile. Il faudrait que les invaders aient des
+# PV (au moins 2 tirs de mitrailleuse necessaires)" — was 2.0, exactly
+# equal to machine_gun.tres's own damage (2), so a single hit killed
+# outright. Bumped just past that: machine_gun (2 dmg) and stun_boomerang
+# (1 dmg, the roster's other low-damage weapon) now need 2-3 hits; every
+# other weapon (3+ damage, data/weapons/*.tres) still one-shots, unchanged.
+const ALIEN_HP := 3.0
 const ALIEN_FIRE_RATE := 0.35 # a basic single shot, more frequent than Breakout's occasional popups — this IS the core threat here
 const ALIEN_DAMAGE := 6.0
 const ALIEN_COLOR := Color(0.85, 0.3, 0.35)
