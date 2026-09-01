@@ -267,6 +267,18 @@ func reset_to_center(target_side: int = -1, freeze_on_respawn: bool = false) -> 
 	else:
 		state = BallState.new(_random_spawn_position(), launch_velocity)
 		_respawn_freeze_timer = 0.0
+		# Bug report (Camil, 2026-09-01: "j'ai perdu la balle, decompte 3 2 1,
+		# mais la balle est restee grosse... il bougeait mais ne
+		# rapetissait/disparaissait jamais") — if a round ends (HP hits 0,
+		# _check_round_end()) WHILE a miss's pop-in-and-shrink animation is
+		# still playing (_respawn_freeze_timer > 0), _physics_process()'s
+		# `if not active: return` guard (set the instant the round ends)
+		# aborts the shrink mid-flight, stranding _sprite.scale at whatever
+		# enlarged value it had. The next round then starts here, in the
+		# non-freeze branch, which never touched _sprite.scale at all — the
+		# stuck oversized ball carried silently into every round after.
+		if _sprite:
+			_sprite.scale = BALL_SPRITE_SCALE
 	position = state.position
 	_blocked_side = -1
 	_last_half = -1
