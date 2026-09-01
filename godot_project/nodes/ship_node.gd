@@ -9,6 +9,7 @@ signal weapon_fired(weapon: WeaponData) # carries the full weapon so callers can
 signal charged_weapon_fired(weapon: WeaponData) # 2026-08-09 "tir charge" — released at full charge, MatchArenaNode spawns the weapon's bespoke charged burst instead of a normal shot
 signal gauge_filled(amount: float)
 signal ultra_triggered # 2026-08-13 "systeme des 5 balles" — meter's full and the player triggered it; MatchArenaNode (which has both ships) resolves the actual effect, same split as weapon_fired. Named "ultra" not "super" — collides with the GDD's existing "arme 'super'/lourde" weapon-tier naming otherwise (separate party-mode brainstorm, Epic 4 memlog).
+signal ultra_denied # 2026-08-31 (Ben's playtest via Camil) — the ultra key was pressed but the meter isn't full yet; MatchArenaNode flashes that ship's UltraMeterNode so the press reads as acknowledged instead of silently ignored.
 
 @export var player_index: int = 1 # 1 or 2 — selects which local input scheme to read
 @export var side: int = 0 # 0 = left half, 1 = right half
@@ -711,9 +712,12 @@ func _process_weapon_selection() -> void:
 ## can never fire twice for one press even if a listener is slow/absent.
 func _process_ultra_trigger() -> void:
 	var pressed := _read_ultra_pressed()
-	if pressed and not _ultra_prev and weapon_state.ultra_ready():
-		weapon_state = weapon_state.with_ultra_consumed()
-		ultra_triggered.emit()
+	if pressed and not _ultra_prev:
+		if weapon_state.ultra_ready():
+			weapon_state = weapon_state.with_ultra_consumed()
+			ultra_triggered.emit()
+		else:
+			ultra_denied.emit()
 	_ultra_prev = pressed
 
 ## Dedicated inputs, separate from movement keys (Story 1.4 AC: movement

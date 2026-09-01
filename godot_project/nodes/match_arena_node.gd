@@ -200,6 +200,8 @@ func _ready() -> void:
 	ship_2.gauge_filled.connect(_on_gauge_filled.bind(ship_2))
 	ship_1.ultra_triggered.connect(_on_ultra_triggered.bind(ship_1))
 	ship_2.ultra_triggered.connect(_on_ultra_triggered.bind(ship_2))
+	ship_1.ultra_denied.connect(p1_ultra_meter.flash_denied)
+	ship_2.ultra_denied.connect(p2_ultra_meter.flash_denied)
 
 	_update_round_label()
 	_begin_round_ready_gate()
