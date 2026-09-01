@@ -80,6 +80,19 @@ const BRICK_COLUMN_COLORS := [
 # 2026-08-18 (Camil, after playing it: "mega dur... les ennemis
 # apparaissent 2x moins souvent") — was 6.0.
 const ENEMY_SPAWN_INTERVAL := 12.0
+# Bug report (Ben's playtest via Camil, 2026-08-31: "les canons
+# apparaissaient trop vite (j'avais bazooka)") — the flat 12s interval
+# above was tuned by feel with whatever weapon Camil happened to be
+# testing. Bazooka fires at 0.8 shots/sec against machine_gun's 9.0 (data/
+# weapons/*.tres) — an 11x gap in how much brick-clearing progress a
+# player makes per spawn cycle, so the SAME interval lands very differently
+# depending on the equipped weapon. Scaled by the ratio to this reference
+# rate (WeaponData.fire_rate's own default, i.e. "an average weapon"),
+# clamped so neither extreme swings wildly: slow weapons get more
+# breathing room, fast weapons get pressed a bit harder, sooner.
+const ENEMY_SPAWN_REFERENCE_FIRE_RATE := 5.0
+const ENEMY_SPAWN_INTERVAL_MIN_MULTIPLIER := 0.5
+const ENEMY_SPAWN_INTERVAL_MAX_MULTIPLIER := 2.5
 const ENEMY_MAX_ALIVE := 5
 const ENEMY_HP := 4.0
 const ENEMY_FIRE_RATE := 0.6 # a basic, occasional shot — "un tir banal... pas de mitraillage"
@@ -171,6 +184,7 @@ func _ready() -> void:
 
 	_spawn_brick_grid()
 	message_label.text = ""
+	_enemy_spawn_timer = _current_enemy_spawn_interval() # ship_1's weapon is set by now (set_character() above) — the very first wave should already respect it, not just the ones after
 
 func _spawn_brick_grid() -> void:
 	var brick_weapon := WeaponData.new()
@@ -237,7 +251,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		_enemy_spawn_timer -= delta
 		if _enemy_spawn_timer <= 0.0:
-			_enemy_spawn_timer = ENEMY_SPAWN_INTERVAL
+			_enemy_spawn_timer = _current_enemy_spawn_interval()
 			_spawn_enemy_group()
 
 	_update_hud()
@@ -251,6 +265,21 @@ func _physics_process(delta: float) -> void:
 		_resolved = true
 		_freeze_gameplay()
 		_resolve.call_deferred(false)
+
+## See ENEMY_SPAWN_REFERENCE_FIRE_RATE's own doc comment — scales the base
+## interval by how much slower/faster the player's CURRENT weapon fires
+## relative to that reference, so a bazooka run gets meaningfully more
+## breathing room than a machine_gun run without touching either weapon's
+## own balance.
+func _current_enemy_spawn_interval() -> float:
+	if not ship_1.weapon_state:
+		return ENEMY_SPAWN_INTERVAL
+	var weapon := ship_1.weapon_state.selected_weapon()
+	if not weapon or weapon.fire_rate <= 0.0:
+		return ENEMY_SPAWN_INTERVAL
+	var ratio := ENEMY_SPAWN_REFERENCE_FIRE_RATE / weapon.fire_rate
+	ratio = clampf(ratio, ENEMY_SPAWN_INTERVAL_MIN_MULTIPLIER, ENEMY_SPAWN_INTERVAL_MAX_MULTIPLIER)
+	return ENEMY_SPAWN_INTERVAL * ratio
 
 func _spawn_enemy_group() -> void:
 	var alive_count := _enemies.filter(func(e): return is_instance_valid(e)).size()
