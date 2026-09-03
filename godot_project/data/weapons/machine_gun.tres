@@ -8,6 +8,13 @@ id = "machine_gun"
 display_name = "Mitraillette"
 damage = 2
 fire_rate = 9.0
+; 2026-09-03 (Camil: "on tirait souvent dans le vide. Je pense qu'on peut
+; accelerer legerement (+15%) la vitesse des missiles" — ses tirs a lui,
+; pas le personnage Missiles/Traqueur). Etait le defaut partage
+; (projectile_speed=620.0 dans weapon_data.gd, utilise par la plupart des
+; autres armes) — override propre a la mitraillette pour ne pas toucher
+; aux autres. 620 * 1.15 = 713.
+projectile_speed = 713.0
 gauge_max = 100.0
 gauge_cost_per_shot = 4.0
 is_heavy = false
