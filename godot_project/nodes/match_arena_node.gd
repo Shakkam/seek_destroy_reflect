@@ -145,6 +145,13 @@ func _ready() -> void:
 		ship_2.set_character(encounter.opponent)
 		ship_2.ai_controlled = true
 		if encounter.is_mook:
+			# 2026-09-01 — activate mook AI scaling BEFORE reset so the
+			# reduced approach/depth/lift profile is live from frame 1.
+			# _apply_ai_profile() was already called inside set_character()
+			# above (with ai_is_mook still false); we re-call it here now
+			# that the flag is set, so the mook scaling is actually applied.
+			ship_2.ai_is_mook = true
+			ship_2._apply_ai_profile()
 			ship_2.max_hp_override = ShipState.START_HP * encounter.mook_hp_multiplier
 			# ship_2._ready() already ran (children ready before their parent
 			# in Godot) and built `state` using the *old* default max_hp_override

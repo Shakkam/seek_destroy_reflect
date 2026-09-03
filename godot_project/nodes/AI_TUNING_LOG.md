@@ -131,3 +131,92 @@ Historique des ajustements de l'IA, dans l'ordre chronologique. Lu intégralemen
 **Test coverage :** `tests/perturbateur_fire_trail_check.gd` — 6 checks (scale, charged-only opt-in, normal-fire n'opte PAS in, degats reels au contact, expiration a 3s, compensation d'aim). Tous verts, suite complete inchangee.
 
 **À surveiller :** pas encore re-mesuré en batch (lancé juste après cette passe) — Perturbateur restait a 24% sur l'echantillon fiable AVANT ces 4 changements, donc la prochaine mesure est le vrai test.
+
+---
+
+## 2026-09-01 — Mook Vif trop difficile en premier combat de la campagne Mitrailleur
+
+**Demande utilisateur :** "Premier combat contre Vif. Il me DEFONCE. ses tirs sont hyper rapides, je peux rien faire." — le premier combat de la campagne de Mitrailleur est `mook_1_vif` (Vif affaibli, `mook_hp_multiplier=0.6` sur les PV), censé être un échauffement.
+
+**Diagnostic :** trois facteurs cumulés, pas un seul :
+1. `vortex.tres` a été buffé le 2026-08-17 pour équilibrer Vif en batch IA-vs-IA (`fire_rate` 1.905→2.3, `damage` 2→3). Ce buff a été calibré sur des matchs bot-vs-bot ; un joueur humain face à des sinusoïdes à 2.3/s depuis un adversaire qui se colle au filet n'a pratiquement aucun temps de réaction.
+2. Le profil IA de Vif est le plus agressif du roster (`approach_distance=340`, `depth_min=0.35`, `depth_max=0.65`, `lift_chance=0.45`) — il se rapproche du filet avant de tirer, ce qui réduit le temps de vol des balles et rend la sinusoïde illisible.
+3. `mook_hp_multiplier=0.6` réduit uniquement les PV, pas l'agressivité IA. Le mook vivait moins longtemps mais frappait aussi vite et aussi près que le vrai rival.
+
+**Changement :** ajout du flag `ai_is_mook: bool = false` sur `ShipNode` + trois constantes `AI_MOOK_APPROACH_SCALE = 0.65`, `AI_MOOK_DEPTH_SCALE = 0.65`, `AI_MOOK_LIFT_SCALE = 0.60` dans `ship_node.gd`. `_apply_ai_profile()` applique ces multiplicateurs sur les valeurs du profil quand `ai_is_mook = true` (les valeurs de base de `AI_PROFILES` restent inchangées — seule l'instance runtime est réduite). Dans `match_arena_node.gd`, le bloc `if encounter.is_mook:` existant set le flag et rappelle `_apply_ai_profile()` avant `reset_for_new_round()`.
+
+Valeurs finales pour mook Vif : `approach_distance` 340→221, `depth_max` 0.65→0.42, `depth_min` 0.35→0.23, `lift_chance` 0.45→0.27 — soit un niveau d'agressivité proche du profil Mitrailleur ou Perturbateur. `signature_bias` reste 0.7 (l'identité arme du personnage ne change pas). S'applique à tous les mooks du roster, pas seulement Vif.
+
+**Raisonnement :** le problème n'était pas dans le weapon data (simulation partagée, hors périmètre) ni dans le `mook_hp_multiplier` — uniquement dans le fait que le profil IA ne distinguait pas "mook" de "rival". Le fix réutilise exactement le hook `is_mook` déjà présent dans `match_arena_node.gd`, et n'ajoute aucune mécanique nouvelle. Les constantes de scale sont documentées et ajustables indépendamment des profiles nominaux.
+
+**À surveiller :** le scaling s'applique à tous les mooks uniformément (y compris les mooks Lourd, Controleur, etc. qui étaient déjà peu agressifs) — si un mook d'un autre archétype semble maintenant trop passif/insignifiant, le `AI_MOOK_DEPTH_SCALE` peut être remonté prudemment (0.65→0.75 par exemple). Les stats batch IA-vs-IA ne sont pas affectées (ces simulations utilisent `ai_controlled` mais pas `ai_is_mook`, donc les taux de victoire mesurés précédemment restent valides comme référence).
+
+---
+
+## 2026-09-02 — Batch post-buff Boomerang : résultats mitigés, Missiles/Mini en hausse, Zoneur toujours plancher
+
+**Demande utilisateur :** vérifier l'équilibrage du roster post-changements de session (mook Vif + boomerang damage 1→1.5). "Un petit test avec des IA expérimentées" — aperçu rapide, pas une étude complète.
+
+**Méthode :** harnais existant `tests/balance_simulation.gd` (tous-vs-tous, les deux ships en `ai_controlled=true`, `ai_is_mook=false`). `RUNS_PER_MATCHUP` réduit temporairement à 20 (±10pt d'erreur standard) pour rentrer dans les contraintes de la session — restauré à 45 immédiatement après. 560 matchs au total.
+
+**Piège de timing retrouvé :** `--quit-after 3000000` (calculé proportionnellement depuis le `6000000` du run n=45) s'est avéré insuffisant — la simulation a été coupée à 310/560 matchs. Cause : les matchups de la deuxième moitié (Vif/Perturbateur/Missiles/Mini entre eux) sont significativement plus longs en ticks que les matchups de la première moitié (Controleur/Lourd qui finissent vite). Le `6000000` du run n=45 passait parce que les 1260 matchs de toutes durées étaient distribués uniformément. Fix pour n=20 : utiliser `--quit-after 10000000` (pas proportionnel au n, mais au contenu des matchups). Durée réelle du run : ~21 minutes (vs ~9 estimées).
+
+**Résultats (n=20, 560 matchs) — comparaison avec n=45 du 2026-08-17 :**
+
+| Personnage | 2026-09-02 (n=20) | 2026-08-17 (n=45) | Delta |
+|---|---|---|---|
+| controleur | **90%** | 96% | -6pt |
+| missiles | **84%** | 78% | +6pt ⚠ |
+| mini | **76%** | 72% | +4pt |
+| lourd | **62%** | 67% | -5pt |
+| vif | **34%** | 27% | +7pt |
+| mitrailleur | **26%** | 34% | -8pt |
+| perturbateur | **22%** | 24% | -2pt |
+| zoneur | **6%** | 3% | +3pt |
+
+Les deltas de ±4-8pt sont dans la marge de bruit de n=20 (±10pt) — aucun mouvement n'est statistiquement certain sauf les cas extrêmes ci-dessous.
+
+**Résultats matchup à matchup (extrait des plus informatifs) :**
+
+```
+lourd vs controleur: 1-19  (lourd 5% / controleur 95%)
+lourd vs mitrailleur: 20-0  (lourd 100% / mitrailleur 0%)
+lourd vs vif: 20-0  (lourd 100% / vif 0%)
+lourd vs zoneur: 20-0  (lourd 100% / zoneur 0%)
+lourd vs perturbateur: 17-3  (lourd 85% / perturbateur 15%)
+controleur vs mitrailleur: 20-0  (controleur 100% / mitrailleur 0%)
+controleur vs vif: 20-0  (controleur 100% / vif 0%)
+controleur vs zoneur: 20-0  (controleur 100% / zoneur 0%)
+controleur vs perturbateur: 20-0  (controleur 100% / perturbateur 0%)
+mitrailleur vs perturbateur: 9-11  (mitrailleur 45% / perturbateur 55%)
+mitrailleur vs missiles: 0-20  (mitrailleur 0% / missiles 100%)
+mitrailleur vs mini: 0-20  (mitrailleur 0% / mini 100%)
+vif vs missiles: 0-20  (vif 0% / missiles 100%)
+vif vs mini: 0-20  (vif 0% / mini 100%)
+zoneur vs missiles: 0-20  (zoneur 0% / missiles 100%)
+zoneur vs mini: 0-20  (zoneur 0% / mini 100%)
+perturbateur vs missiles: 0-20  (perturbateur 0% / missiles 100%)
+perturbateur vs mini: 0-20  (perturbateur 0% / mini 100%)
+missiles vs mini: 14-6  (missiles 70% / mini 30%)
+```
+
+**Analyse du buff Boomerang (damage 1→1.5, objectif de la session) :**
+- Matchup mitrailleur vs perturbateur : précédemment ~76% mitrailleur (déduit du 24% global de perturbateur) → maintenant 45% mitrailleur / 55% perturbateur. C'est le plus gros déplacement individuel observé — le buff a clairement aidé ce matchup.
+- Taux global perturbateur : 22% (vs 24% avant) — quasi inchangé. Cause : missiles et mini sont des murs à 100% pour perturbateur. Améliorer le matchup mitrailleur ne suffit pas à remonter l'ensemble quand deux personnages gagnent 100% contre lui.
+- Verdict : le buff est "directionnellement correct" mais insuffisant pour que perturbateur sorte du bas de tableau. Le vrai problème est missiles/mini, pas mitrailleur.
+
+**Flags à soumettre à Camil pour décision :**
+
+1. **MISSILES 84% (⚠ potentiel problème)** : hausse de 6pt vs la dernière mesure fiable (78% à n=45). Dans le bruit à n=20, mais la tendance est à la hausse depuis août. Gagne 100% contre mitrailleur, vif, zoneur, perturbateur — en un mot contre tout le bas de tableau. À re-mesurer si Camil sent que les Missiles sont trop forts en jeu réel.
+
+2. **MINI 76% (à surveiller)** : même profil que missiles (100% vs les mêmes 4 adversaires). Également en hausse légère. Moins urgent que missiles, mais les deux forment un "bloc dominant" dans le bas du tableau des autres personnages.
+
+3. **ZONEUR 6% (problème structurel non résolu)** : aucune amélioration malgré trois sessions. Le laser high-DPS ne se traduit pas en victoires — probablement parce que l'IA de Zoneur tire rarement en situation d'alignement réel (signature_bias élevé mais positionnement défensif trop profond). Ne pas retoucher les leviers déjà essayés (damage, fire_rate). À laisser en l'état sauf décision explicite de Camil.
+
+4. **MITRAILLEUR 26%** : apparemment en baisse (était 34%). Les matchups missiles et mini sont à 0%/20 chacun — c'est un signal fort même à n=20. Si ces matchups étaient déjà à 0% avant (non mesurable rétrospectivement), alors le 34% était tiré par d'anciens matchups perturbateur maintenant perdus (55% perturbateur désormais). Aucune action immédiate suggérée — à surveiller si Camil ressent mitrailleur comme trop faible.
+
+5. **CONTROLEUR 90%** : en baisse apparente (était 96%), probablement du bruit à n=20. Reste le personnage le plus dominant. Toujours non résolu (les leviers turret_lifetime et turret_hp ont déjà été tentés — ne pas retenter).
+
+**Changements apportés au code :** aucun. Run de mesure pure.
+
+**Fichier de test :** `balance_simulation.gd` temporairement modifié (`RUNS_PER_MATCHUP` 45→20) puis immédiatement restauré à 45 dans la même session. Aucun fichier _tmp_ laissé.

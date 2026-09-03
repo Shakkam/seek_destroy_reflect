@@ -210,6 +210,11 @@ var _spawn_position: Vector2
 
 # Story 1.12 — set by MatchArenaNode when this ship is AI-controlled.
 var ai_controlled := false
+# 2026-09-01 — when true, _apply_ai_profile() scales back aggressiveness
+# (approach_distance, depth, lift_chance) so a mook fight reads as a
+# warm-up rather than a full-strength encounter. Set by MatchArenaNode
+# inside the is_mook block, immediately followed by _apply_ai_profile().
+var ai_is_mook: bool = false
 var ball_ref: BallNode
 var opponent_ref: ShipNode
 var _ai_vertical_dir := 0.0 # persists between frames — hysteresis avoids jittery on/off "freeze"
@@ -283,6 +288,20 @@ const AI_PROFILES := {
 	"missiles": {"depth_min": 0.15, "depth_max": 0.35, "approach_distance": 220.0, "lift_chance": 0.2, "signature_bias": 0.8},
 	"mini": {"depth_min": 0.3, "depth_max": 0.6, "approach_distance": 340.0, "lift_chance": 0.4, "signature_bias": 0.85},
 }
+# 2026-09-01 — mook encounters are supposed to be warm-ups, not full fights.
+# The mook already starts with reduced HP (mook_hp_multiplier in
+# RivalEncounterData); these scales give its AI a matching reduction in
+# aggressiveness when ai_is_mook = true (applied in _apply_ai_profile()).
+# - APPROACH_SCALE: mook stays further from the net → player has more time
+#   to read sinusoidal/tricky projectile patterns before they arrive.
+# - DEPTH_SCALE: mook roams less far forward → mid-court rather than net.
+# - LIFT_SCALE: fewer mid-flight repositions → more predictable positioning.
+# These multipliers apply on top of whatever the character's AI_PROFILES
+# values are — a mook Lourd stays even more in the back than a rival Lourd,
+# a mook Vif drops from ultra-aggressive to roughly Mitrailleur-level.
+const AI_MOOK_APPROACH_SCALE := 0.65  # Vif example: 340 → 221
+const AI_MOOK_DEPTH_SCALE    := 0.65  # Vif example: depth_max 0.65 → 0.42
+const AI_MOOK_LIFT_SCALE     := 0.60  # Vif example: lift_chance 0.45 → 0.27
 var _ai_depth_min := AI_DEPTH_MIN
 var _ai_depth_max := AI_DEPTH_MAX
 var _ai_approach_distance := AI_APPROACH_DISTANCE
@@ -364,6 +383,11 @@ func _update_character_art() -> void:
 
 ## Story 2.7 — loads this ship's AI tuning from AI_PROFILES if its character
 ## has one, else falls back to the original Story 1.12 defaults.
+## 2026-09-01: when ai_is_mook is true (set by MatchArenaNode for campaign
+## warm-up fights), applies AI_MOOK_*_SCALE multipliers on top of the
+## character profile to reduce aggressiveness. signature_bias is left
+## untouched — the mook's identity (which weapon it prefers) stays intact,
+## only its positioning / approach behavior is dialled back.
 func _apply_ai_profile() -> void:
 	if not character or not AI_PROFILES.has(character.id):
 		_ai_depth_min = AI_DEPTH_MIN
@@ -378,6 +402,11 @@ func _apply_ai_profile() -> void:
 	_ai_approach_distance = profile.approach_distance
 	_ai_lift_chance = profile.lift_chance
 	_ai_signature_bias = profile.signature_bias
+	if ai_is_mook:
+		_ai_depth_min    *= AI_MOOK_DEPTH_SCALE
+		_ai_depth_max    *= AI_MOOK_DEPTH_SCALE
+		_ai_approach_distance *= AI_MOOK_APPROACH_SCALE
+		_ai_lift_chance  *= AI_MOOK_LIFT_SCALE
 
 func _physics_process(delta: float) -> void:
 	if not active:
