@@ -97,6 +97,7 @@ var _extra_balls: Array = [] # of BallNode — "multi_ball"
 var _hazard_spawn_timer := 0.0 # "hazard_zones"
 var _decoy: DecoyNode = null # "visual_decoy"
 var _energy_orb_timer := 0.0 # "energy_orb_pickup"
+var _boss_phase := 1 # "energy_orb_pickup" epic-boss escalation — see _setup_boss_ship()/_process_boss_phases()
 var _base_frontier_x: float # the un-twisted center — drift/shrink animate away from and back toward this
 var _current_frontier_x: float # what ships/ball are actually fed each tick — animates for "drifting_neutral_zone"
 var _current_arena_bounds: Rect2 # what ships/ball are actually fed each tick — animates for "shrinking_arena"
@@ -1335,14 +1336,21 @@ func _resolve_campaign_result(winner_side: int) -> void:
 
 	if CampaignContext.is_organizer_fight():
 		CampaignSave.mark_organizer_defeated(character_id)
-		match_label.text = "Tournoi remporte !"
+		# 2026-09-05 (epic boss design, "L'Organisateur" masked identity) —
+		# _update_campaign_label() already never shows the real opponent
+		# name during an organizer fight (falls through to the generic
+		# "Organisateur du tournoi" label), but nothing ever paid that off
+		# with a reveal. current_encounter() is still valid here (read
+		# before CampaignContext.clear() below wipes it).
+		var unmasked: CharacterData = CampaignContext.current_encounter().opponent
+		match_label.text = "Tournoi remporte !\nL'Organisateur etait... %s !" % (unmasked.display_name if unmasked else "?")
 		# 2026-08-16 UX audit (Sally): "'Rival vaincu !' gets the same second
 		# and a half as a routine mook kill" — the whole campaign's biggest
 		# beat used to hold for barely longer than a throwaway fight. Bigger
 		# flash (same "big moment" font-bump the round-start GO! beat already
 		# uses) plus a real hold to let it land.
-		match_label.add_theme_font_size_override("font_size", 48)
-		await get_tree().create_timer(3.0).timeout
+		match_label.add_theme_font_size_override("font_size", 40)
+		await get_tree().create_timer(3.6).timeout
 		match_label.remove_theme_font_size_override("font_size")
 		# 2026-08-22 (Camil: "fin du tournoi => Tournoi remporte, il
 		# faudrait revenir a l'accueil ensuite") — was CampaignMap.tscn
@@ -1536,9 +1544,11 @@ func apply_twist(twist: TwistData) -> void:
 					ship.hidden_from_opponent = true
 		"visual_decoy":
 			_spawn_decoy()
-		# shrinking_arena / hazard_zones / drifting_neutral_zone /
-		# energy_orb_pickup are pure timers/animations, handled continuously
-		# in _process_twist() instead of a one-time setup step here.
+		"energy_orb_pickup":
+			_setup_boss_ship(twist)
+		# shrinking_arena / hazard_zones / drifting_neutral_zone are pure
+		# timers/animations, handled continuously in _process_twist()
+		# instead of a one-time setup step here.
 		_:
 			pass
 
@@ -1552,6 +1562,65 @@ func _process_twist(delta: float) -> void:
 			_process_hazard_spawns(delta)
 		"energy_orb_pickup":
 			_process_energy_orb_spawns(delta)
+			_process_boss_phases()
+
+## Epic boss design (Camil, 2026-09-05): "gros, imposant, qu'il ait toutes
+## les armes". Runs once when the fight starts — ship_2 is always the
+## AI/boss side here (the organizer is never a human opponent). Re-inits
+## `state` after resizing so the new half_extents/max_hp_override actually
+## take effect immediately (ShipNode._ready() already built `state` once
+## from the pre-resize values).
+const BOSS_FULL_KIT_PATHS := [
+	"res://data/weapons/machine_gun.tres", "res://data/weapons/bazooka.tres",
+	"res://data/weapons/laser.tres", "res://data/weapons/turret.tres",
+	"res://data/weapons/vortex.tres", "res://data/weapons/mini_shot.tres",
+	"res://data/weapons/stun_boomerang.tres", "res://data/weapons/homing_missile.tres",
+]
+func _setup_boss_ship(twist: TwistData) -> void:
+	_boss_phase = 1
+	ship_2.half_extents *= twist.boss_size_multiplier
+	ship_2.max_hp_override *= twist.boss_hp_multiplier
+	ship_2.state = ShipState.new(ship_2.position, ship_2.side, ship_2.half_extents, ship_2.max_hp_override)
+	var full_kit: Array = BOSS_FULL_KIT_PATHS.map(func(p): return load(p))
+	ship_2.weapon_state = WeaponSystemState.new(full_kit)
+	ship_2.boss_simultaneous_fire_indices = []
+
+## Escalates as ship_2's HP crosses each phase threshold (falling only —
+## never re-triggers if HP climbs back up, e.g. from a twist/heal quirk).
+## Phase 2: a second weapon joins in, orbs spawn twice as often. Phase 3: a
+## third weapon joins, and the boss's own Ultra meter refills once for a
+## genuine "it's not over yet" beat.
+func _process_boss_phases() -> void:
+	if not is_instance_valid(ship_2) or ship_2.max_hp_override <= 0.0:
+		return
+	var hp_fraction := ship_2.state.hp / ship_2.max_hp_override
+	if _boss_phase == 1 and hp_fraction <= active_twist.boss_phase2_hp_fraction:
+		_boss_phase = 2
+		var extra := randi() % ship_2.weapon_state.kit.size()
+		ship_2.boss_simultaneous_fire_indices = [extra]
+		_flash_boss_phase_message("L'Organisateur se dechaine !")
+	elif _boss_phase == 2 and hp_fraction <= active_twist.boss_phase3_hp_fraction:
+		_boss_phase = 3
+		var extra2 := randi() % ship_2.weapon_state.kit.size()
+		if not ship_2.boss_simultaneous_fire_indices.has(extra2):
+			ship_2.boss_simultaneous_fire_indices.append(extra2)
+		while not ship_2.weapon_state.ultra_ready():
+			ship_2.add_ultra_pip()
+		_flash_boss_phase_message("DERNIERE CHANCE !")
+
+## Same "big moment" font-bump the round-start GO!/match-end labels already
+## use, but non-blocking (no await — gameplay keeps running under it) and
+## self-clearing after a couple seconds via a one-shot timer instead of
+## freezing the whole node waiting on it.
+func _flash_boss_phase_message(text: String) -> void:
+	match_label.text = text
+	match_label.add_theme_font_size_override("font_size", 40)
+	var t := get_tree().create_timer(2.2)
+	t.timeout.connect(func():
+		if is_instance_valid(match_label):
+			match_label.text = ""
+			match_label.remove_theme_font_size_override("font_size")
+	)
 
 func _spawn_extra_balls(count: int) -> void:
 	var ball_scene := preload("res://scenes/Ball.tscn")

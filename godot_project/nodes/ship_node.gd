@@ -68,6 +68,14 @@ var hidden_from_opponent := false # "invisible_opponent" twist — rendering onl
 ## ShipState.START_HP for every non-campaign match.
 var max_hp_override: float = ShipState.START_HP
 
+## 2026-09-05 (Camil, epic boss design: "qu'il en utilise plusieurs [armes]
+## en meme temps") — kit indices (besides whichever is selected_index) that
+## ALSO fire, for free, every time the selected weapon successfully fires.
+## Bypasses their own gauge/cooldown entirely — a scripted boss-only
+## ability, not a resource the AI manages like a real weapon choice. Empty
+## (default) everywhere else. Set by MatchArenaNode._process_boss_phases().
+var boss_simultaneous_fire_indices: Array[int] = []
+
 var state: ShipState
 var arena_bounds: Rect2
 var frontier_x: float
@@ -566,6 +574,14 @@ func _physics_process(delta: float) -> void:
 				_mobility_boost_active_multiplier = weapon.effect_speed_multiplier
 			else:
 				weapon_fired.emit(weapon)
+				# Epic boss "plusieurs armes en meme temps" — fire other
+				# kit slots for free, riding the SAME successful-fire edge
+				# as the selected weapon (so the whole barrage still obeys
+				# the selected weapon's own cooldown pace, just not each
+				# extra gun's individual gauge/cooldown).
+				for extra_index in boss_simultaneous_fire_indices:
+					if extra_index >= 0 and extra_index < weapon_state.kit.size() and extra_index != weapon_state.selected_index:
+						weapon_fired.emit(weapon_state.kit[extra_index])
 			if weapon.fire_recoil_speed_boost > 0.0:
 				_fire_recoil_boost_timer = weapon.fire_recoil_boost_decay_time
 			print("%s fired %s (gauge left: %.0f)" % [

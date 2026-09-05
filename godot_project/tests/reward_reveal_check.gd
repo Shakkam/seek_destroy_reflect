@@ -64,7 +64,10 @@ func _ready() -> void:
 	CampaignContext.enter_campaign(vif_campaign, vif_campaign.mini_branches.size() * 3) # the organizer is always the last tile
 	var organizer_defeated_before_ok: bool = not CampaignSave.is_organizer_defeated("vif")
 	organizer_arena._resolve_campaign_result(0) # side 0 (the player) wins
-	var organizer_win_ok: bool = CampaignSave.is_organizer_defeated("vif") and organizer_arena.match_label.text == "Tournoi remporte !"
+	# 2026-09-05 (epic boss design) — the label now also reveals who was
+	# really behind "L'Organisateur" ("Tournoi remporte !\nL'Organisateur
+	# etait... X !"), so this checks the fixed prefix, not an exact match.
+	var organizer_win_ok: bool = CampaignSave.is_organizer_defeated("vif") and organizer_arena.match_label.text.begins_with("Tournoi remporte !")
 	print(("PASS: winning the organizer fight marks it defeated and shows 'Tournoi remporte !'" if organizer_win_ok else ("FAIL: organizer_defeated=%s match_label='%s'" % [CampaignSave.is_organizer_defeated("vif"), organizer_arena.match_label.text])))
 	organizer_arena.queue_free()
 	CampaignContext.clear()

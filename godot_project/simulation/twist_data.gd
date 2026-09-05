@@ -54,3 +54,18 @@ extends Resource
 # state machine, not worth the cost for every rival fight).
 @export var orb_gauge_bonus_percent: float = 20.0 # reuses WeaponSystemState.with_gauge_added(), no new gauge system
 @export var orb_spawn_interval: float = 10.0
+
+# 2026-09-05 (Camil: "je pense qu'on va faire un boss en 3 phases... gros,
+# imposant, qu'il ait toutes les armes et qu'il switche de l'une a l'autre,
+# voire qu'il en utilise plusieurs en meme temps... faut que ce soit
+# epique") — same energy_orb_pickup twist, extended rather than a second
+# boss-only twist_type: this IS already "the boss's own mechanic", so the
+# escalating 3-phase behavior belongs right alongside the orb fields above,
+# not a parallel system. See MatchArenaNode._setup_boss_ship()/
+# _process_boss_phases().
+@export var boss_size_multiplier: float = 1.8 # half_extents scale — Camil: "il faut qu'il soit gros, imposant"
+@export var boss_hp_multiplier: float = 2.2 # on top of ShipState.START_HP
+@export var boss_permanent_buff_percent: float = 15.0 # phase 1 baseline edge over a normal character (fire_rate + damage)
+@export var boss_phase2_hp_fraction: float = 0.65 # crossing this (falling) triggers phase 2
+@export var boss_phase3_hp_fraction: float = 0.30 # crossing this (falling) triggers phase 3
+@export var boss_phase2_orb_interval_multiplier: float = 0.5 # halves orb_spawn_interval from phase 2 onward (i.e. orbs twice as often)
