@@ -254,6 +254,16 @@ func _begin_round_ready_gate() -> void:
 	ship_1.active = false
 	ship_2.active = false
 	ball.active = false
+	# Bug report (Camil, 2026-09-05: "il y a toujours 2 manches, et si je
+	# perds, le boss est toujours en mode dechaine") — reset_for_new_round()
+	# (called right before this, for round 2/3) already restores ship_2's HP
+	# to full, but _boss_phase/boss_simultaneous_fire_indices are a
+	# falling-HP-only ratchet that never reset on their own — round 2 was
+	# starting already mid-escalation despite a full HP bar. Every round
+	# (including round 1's own call from _ready()) starts phase 1 clean.
+	if active_twist and active_twist.twist_type == "energy_orb_pickup":
+		_boss_phase = 1
+		ship_2.boss_simultaneous_fire_indices = []
 	for extra in _extra_balls: # multi_ball twist — extra balls stay in sync with the primary's active flag (see _spawn_extra_balls)
 		if is_instance_valid(extra):
 			extra.active = false
