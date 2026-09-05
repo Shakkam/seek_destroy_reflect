@@ -63,7 +63,7 @@ extends Resource
 # escalating 3-phase behavior belongs right alongside the orb fields above,
 # not a parallel system. See MatchArenaNode._setup_boss_ship()/
 # _process_boss_phases().
-@export var boss_size_multiplier: float = 1.8 # half_extents scale — Camil: "il faut qu'il soit gros, imposant"
+@export var boss_size_multiplier: float = 2.5 # half_extents scale — Camil: "il faut qu'il soit gros, imposant" then "faudrait qu'il soit plus gros" (was 1.8). Arena is 1200x600 (match_arena_node.gd's own arena_size) — even at this scale the boss's full height (~168px) is under 30% of it, still room to move.
 @export var boss_hp_multiplier: float = 2.2 # on top of ShipState.START_HP
 @export var boss_permanent_buff_percent: float = 15.0 # phase 1 baseline edge over a normal character (fire_rate + damage)
 @export var boss_phase2_hp_fraction: float = 0.65 # crossing this (falling) triggers phase 2

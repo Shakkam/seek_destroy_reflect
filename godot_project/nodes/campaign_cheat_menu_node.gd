@@ -29,6 +29,17 @@ var _opponent_index := 0
 var _move_prev := 0.0
 var _side_move_prev := 0.0
 var _confirm_prev := true # seeded true — same held-key carryover guard as every other menu (2026-08-08 bug pattern)
+# 2026-09-05 (Camil: "il faudrait aussi un cheat pour que je me batte avec
+# le boss comme si j'avais vaincu tous mes rivaux (avec les armes qui vont
+# bien)") — testing the epic boss properly means testing it with the
+# passive rewards a real playthrough would have earned by then
+# (_setup_passive_rewards() in match_arena_node.gd reads CampaignSave.
+# unlocks_for(), which normally only grows one grant_unlock() at a time as
+# rivals fall). This toggle backfills every unlock from the PLAYER's own
+# campaign's branches before launching, instead of "no permanent
+# unlocks" (a debug fight has never granted any).
+var _with_all_unlocks := false
+var _unlocks_toggle_prev := false
 
 func _ready() -> void:
 	title_label.text = "Cheat menu — tester un twist"
@@ -78,6 +89,12 @@ func _process(_delta: float) -> void:
 		_refresh()
 	_side_move_prev = side_move
 
+	var unlocks_toggle := Input.is_physical_key_pressed(KEY_U)
+	if unlocks_toggle and not _unlocks_toggle_prev:
+		_with_all_unlocks = not _with_all_unlocks
+		_refresh()
+	_unlocks_toggle_prev = unlocks_toggle
+
 	var confirm := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_ENTER) \
 		or Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) > 0.4
 	if confirm and not _confirm_prev:
@@ -96,14 +113,28 @@ func _refresh() -> void:
 		lines.append("%s%s" % [marker, twist_name])
 	twist_list_label.text = "\n".join(lines)
 	var opponent: CharacterData = CHARACTERS[_opponent_index]
-	opponent_label.text = "<  Adversaire : %s  >" % opponent.display_name
-	hint_label.text = "Haut/Bas : twist — Gauche/Droite : adversaire — Espace : lancer — Echap : retour"
+	opponent_label.text = "<  Adversaire : %s  >  [U] Unlocks tous rivaux : %s" % [
+		opponent.display_name, "ON" if _with_all_unlocks else "off"
+	]
+	hint_label.text = "Haut/Bas : twist — Gauche/Droite : adversaire — U : tous les unlocks — Espace : lancer — Echap : retour"
 
 func _launch() -> void:
 	var campaign_data: CampaignData = CampaignContext.campaign if CampaignContext.campaign else CampaignCharacterSelectNode.CAMPAIGNS["vif"]
+	if _with_all_unlocks:
+		_grant_all_branch_unlocks(campaign_data)
 	var encounter := RivalEncounterData.new()
 	encounter.opponent = CHARACTERS[_opponent_index]
 	encounter.is_mook = false
 	encounter.twist = _twists[_twist_index]
 	CampaignContext.start_debug_fight(campaign_data, encounter)
 	get_tree().change_scene_to_file("res://scenes/MatchArena.tscn")
+
+## Grants every rival's unlock_reward across the whole campaign — "as if"
+## every branch had already been beaten for real — WITHOUT touching
+## resolved_case_ids/campaign_progress/organizer_defeated, so this can't be
+## mistaken for real progress and never marks the campaign complete.
+func _grant_all_branch_unlocks(campaign_data: CampaignData) -> void:
+	var character_id: String = campaign_data.character.id
+	for branch in campaign_data.mini_branches:
+		if branch and branch.rival and branch.rival.unlock_reward:
+			CampaignSave.grant_unlock(character_id, branch.rival.unlock_reward.id)
