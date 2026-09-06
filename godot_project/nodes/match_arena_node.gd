@@ -44,6 +44,11 @@ extends Node2D
 # real rival win, see _resolve_campaign_result().
 @onready var reward_icon: ColorRect = $DebugHUD/RewardIcon
 @onready var reward_label: Label = $DebugHUD/RewardLabel
+# Epic boss (2026-09-05, Camil: "clin d'oeil au dr wily... son propre skin
+# (in game et hors game)") — the "hors jeu" half: shown alongside the
+# "Tournoi remporte ! L'Organisateur etait..." reveal text, see
+# _resolve_campaign_result()'s organizer-win branch.
+@onready var organizer_reveal_portrait: TextureRect = $DebugHUD/OrganizerRevealPortrait
 # 2026-08-16 UX audit (Sally) — "the full control legend is glued to the
 # screen, forever": see _begin_round_ready_gate(), now hides these after
 # round 1.
@@ -393,9 +398,12 @@ func _on_ultra_triggered(ship: ShipNode) -> void:
 	for extra in _extra_balls:
 		if is_instance_valid(extra):
 			extra.active = false
+	_set_projectiles_and_turrets_active(false)
 
 	var intro := UltraIntroNode.new()
 	intro.character = ship.character
+	if _is_boss_ship(ship):
+		intro.override_texture = _boss_intro_texture()
 	debug_hud.add_child(intro) # inside the CanvasLayer, not the world-space root, so it draws over the HP bars/labels too — this is meant to cover the whole screen
 	await intro.finished
 	intro.queue_free()
@@ -408,8 +416,23 @@ func _on_ultra_triggered(ship: ShipNode) -> void:
 	for extra in _extra_balls:
 		if is_instance_valid(extra):
 			extra.active = true
+	_set_projectiles_and_turrets_active(true)
 	_resolve_ultra_effect(ship)
 	_apply_perturbateur_ultra_passive(ship)
+
+## 2026-09-06 bug report (Camil: "pendant l'animation 'ULTRA' le jeu doit se
+## freezer, y compris les boulettes. Tout se defrise des que l'anim est
+## passee") — ship_1/ship_2/ball/extra balls were already frozen for the
+## Ultra intro's duration via their own `active` flags; in-flight
+## projectiles and placed turrets had no such flag at all, so they kept
+## moving/firing/expiring straight through the freeze. Same node types
+## _clear_round_entities() already sweeps for round-end cleanup, minus the
+## VFX-only ones (beams/hazards/etc.) that don't move/act on their own
+## timeline the same way and weren't part of the report.
+func _set_projectiles_and_turrets_active(value: bool) -> void:
+	for child in get_children():
+		if child is ProjectileNode or child is TurretNode:
+			child.active = value
 
 ## Epic 4 reward system (2026-08-16, Camil: "lors de l'ultra du joueur,
 ## applique aussi le brouillage, mais uniquement 5 sec") — Perturbateur's
@@ -428,8 +451,38 @@ func _apply_perturbateur_ultra_passive(ship: ShipNode) -> void:
 	if is_instance_valid(opponent):
 		opponent.apply_control_scramble(PASSIVE_PERTURBATEUR_ULTRA_SCRAMBLE_DURATION)
 
+## Epic boss (2026-09-05, Camil: "une ultra bien a lui") — true only for
+## ship_2 during the energy_orb_pickup twist (the organizer fight), same
+## gate _setup_boss_ship()/_process_boss_phases() already use. Never true
+## for ship_1 (the organizer is never a human opponent) or for a normal
+## rival fight with no boss twist active.
+func _is_boss_ship(ship: ShipNode) -> bool:
+	return ship == ship_2 and active_twist != null and active_twist.twist_type == "energy_orb_pickup"
+
+## Boss-only art for the Ultra intro's "perso en -image" slot (2026-09-05,
+## Camil: "sa tronche plutot que celle de LOURD" — ship.character is still
+## whichever rival is secretly playing the organizer, so UltraIntroNode's
+## normal FULL_TEXTURES.get(character.id) lookup would show the wrong
+## face). Prefers a full-body pose if one ever gets made, falls back to
+## the portrait, then the ship art itself — same "art drops in as it's
+## ready" convention as ShipNode._update_character_art().
+const BOSS_INTRO_TEXTURE_CANDIDATES := [
+	"res://assets/art/characters/organisateur/full.png",
+	"res://assets/art/characters/organisateur/portrait.png",
+	"res://assets/art/characters/organisateur/ship.png",
+]
+
+func _boss_intro_texture() -> Texture2D:
+	for path in BOSS_INTRO_TEXTURE_CANDIDATES:
+		if ResourceLoader.exists(path):
+			return load(path)
+	return null
+
 func _resolve_ultra_effect(ship: ShipNode) -> void:
 	var opponent := ship_2 if ship == ship_1 else ship_1
+	if _is_boss_ship(ship):
+		_ultra_arsenal_total(ship, opponent)
+		return
 	var character_id := ship.character.id if ship.character else ""
 	match character_id:
 		"missiles": # Traqueur
@@ -869,6 +922,51 @@ func _ultra_bourrasque(ship: ShipNode, opponent: ShipNode) -> void:
 	gust.target = opponent
 	add_child(gust)
 
+## The Organisateur's own Ultra — "Arsenal Total" (2026-09-05, Camil: "une
+## ultra bien a lui: genre pendant 3 secondes il tire la version boostee
+## de chaque arme, mais tout en meme temps"). Same guaranteed-floor-plus-
+## dodgeable-bulk pattern as every other Ultra, but the "bulk" is the
+## boss's entire 8-weapon kit (see _setup_boss_ship()) firing together in
+## repeated volleys for ARSENAL_TOTAL_DURATION, each shot boosted
+## (damage/speed) over its normal stats. Reuses _on_weapon_fired() itself
+## for the actual dispatch — the same turret/beam/burst-fan logic every
+## normal shot already goes through, just fed a duplicated+boosted copy
+## of each WeaponData so nothing here has to reimplement per-effect_type
+## behavior. The turret is the one exception: placed ONCE at cast time
+## with its lifetime stretched to cover the whole window, not re-spawned
+## every volley (a fresh 25s turret every half-second would bury the
+## arena in them).
+const ARSENAL_TOTAL_GUARANTEED_DAMAGE := 10.0
+const ARSENAL_TOTAL_DURATION := 3.0
+const ARSENAL_TOTAL_VOLLEY_INTERVAL := 0.5
+const ARSENAL_TOTAL_DAMAGE_MULTIPLIER := 1.5
+const ARSENAL_TOTAL_SPEED_MULTIPLIER := 1.3
+const ARSENAL_TOTAL_TURRET_LIFETIME_PADDING := 1.0 # so the turret outlives the last volley by a beat rather than vanishing mid-barrage
+
+func _ultra_arsenal_total(ship: ShipNode, opponent: ShipNode) -> void:
+	opponent.apply_damage(ARSENAL_TOTAL_GUARANTEED_DAMAGE)
+	for weapon in ship.weapon_state.kit:
+		if weapon.effect_type == "turret":
+			_spawn_turret(weapon, ship, false, ARSENAL_TOTAL_DURATION + ARSENAL_TOTAL_TURRET_LIFETIME_PADDING)
+			break
+	var volley_count := int(ARSENAL_TOTAL_DURATION / ARSENAL_TOTAL_VOLLEY_INTERVAL)
+	for v in volley_count:
+		if v == 0:
+			_fire_arsenal_volley(ship)
+		else:
+			get_tree().create_timer(v * ARSENAL_TOTAL_VOLLEY_INTERVAL).timeout.connect(_fire_arsenal_volley.bind(ship))
+
+func _fire_arsenal_volley(ship: ShipNode) -> void:
+	if not is_instance_valid(ship) or not _round_playing:
+		return # round ended/reset mid-barrage
+	for weapon in ship.weapon_state.kit:
+		if weapon.effect_type == "turret":
+			continue # placed once in _ultra_arsenal_total(), not re-spammed every volley
+		var boosted: WeaponData = weapon.duplicate()
+		boosted.damage *= ARSENAL_TOTAL_DAMAGE_MULTIPLIER
+		boosted.projectile_speed *= ARSENAL_TOTAL_SPEED_MULTIPLIER
+		_on_weapon_fired(boosted, ship)
+
 # Placeholder R-Type sprites (2026-08-02) — replace with final art later.
 # 2026-08-18: the actual texture consts (MACHINE_GUN_TEX_P1/P2, BAZOOKA_/
 # VORTEX_/BONBON_/BOOMERANG_TEXTURES) moved to ProjectileFactory, the only
@@ -1197,12 +1295,26 @@ func _weapon_tint(weapon_id: String) -> Color:
 
 ## Story 2.4 — turret weapons spawn a persistent autonomous-firing node at
 ## the shooter's position instead of a traveling projectile.
+## 2026-09-06 — real art (Camil supplied turret.png, matching the PRD's
+## audit prompt: steel-gray compact automated turret). TurretNode's
+## sprite_textures opt-in already existed for Breakout/Space Invaders'
+## alien art; every REAL turret (Controleur's own weapon, and the boss's
+## Arsenal Total one) goes through this one function, so wiring it here
+## covers both at once.
+const TURRET_TEXTURE := preload("res://assets/art/vfx/turret.png")
+# 2026-09-06 — Camil supplied a dedicated charged-turret sprite (gold/brass
+# "overcharged" look) instead of the programmatic CHARGED_TINT modulate
+# tried first; real art wins, see TurretNode's own doc comment.
+const TURRET_CHARGED_TEXTURE := preload("res://assets/art/vfx/turret_charged.png")
+
 func _spawn_turret(weapon: WeaponData, ship: ShipNode, is_charged: bool = false, lifetime_override: float = 0.0) -> void:
 	var turret := TurretNode.new()
 	turret.position = ship.position
 	turret.weapon = weapon
 	turret.target = ship_2 if ship == ship_1 else ship_1
 	turret.owner_side = ship.side
+	turret.sprite_textures = [TURRET_CHARGED_TEXTURE if is_charged else TURRET_TEXTURE]
+	turret.flip_sprite_by_side = true # mirrors the dial/handle detail for a side-1 turret, see TurretNode's own doc comment
 	if is_charged:
 		# Controleur (2026-08-10): "pose une tourelle ephemere, qui tire 4x
 		# plus vite, mais ne dure que 5 secondes".
@@ -1354,6 +1466,12 @@ func _resolve_campaign_result(winner_side: int) -> void:
 		# before CampaignContext.clear() below wipes it).
 		var unmasked: CharacterData = CampaignContext.current_encounter().opponent
 		match_label.text = "Tournoi remporte !\nL'Organisateur etait... %s !" % (unmasked.display_name if unmasked else "?")
+		# 2026-09-05 (epic boss skin) — the "hors jeu" reveal: the
+		# Organisateur's own face (its own dedicated portrait, not the
+		# unmasked character's), shown alongside the text line above.
+		if ResourceLoader.exists("res://assets/art/characters/organisateur/portrait.png"):
+			organizer_reveal_portrait.texture = load("res://assets/art/characters/organisateur/portrait.png")
+			organizer_reveal_portrait.visible = true
 		# 2026-08-16 UX audit (Sally): "'Rival vaincu !' gets the same second
 		# and a half as a routine mook kill" — the whole campaign's biggest
 		# beat used to hold for barely longer than a throwaway fight. Bigger
@@ -1362,6 +1480,7 @@ func _resolve_campaign_result(winner_side: int) -> void:
 		match_label.add_theme_font_size_override("font_size", 40)
 		await get_tree().create_timer(3.6).timeout
 		match_label.remove_theme_font_size_override("font_size")
+		organizer_reveal_portrait.visible = false
 		# 2026-08-22 (Camil: "fin du tournoi => Tournoi remporte, il
 		# faudrait revenir a l'accueil ensuite") — was CampaignMap.tscn
 		# (this character's own map, nothing left to do there once its
@@ -1594,6 +1713,7 @@ func _setup_boss_ship(twist: TwistData) -> void:
 	var full_kit: Array = BOSS_FULL_KIT_PATHS.map(func(p): return load(p))
 	ship_2.weapon_state = WeaponSystemState.new(full_kit)
 	ship_2.boss_simultaneous_fire_indices = []
+	ship_2.apply_boss_skin()
 
 ## Escalates as ship_2's HP crosses each phase threshold (falling only —
 ## never re-triggers if HP climbs back up, e.g. from a twist/heal quirk).

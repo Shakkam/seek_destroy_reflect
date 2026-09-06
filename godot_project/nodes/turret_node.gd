@@ -3,9 +3,11 @@ extends Node2D
 
 ## Story 2.4 — a turret weapon places this instead of firing a traveling
 ## projectile. Once placed it fires autonomously at `target` using its own
-## weapon's damage/fire_rate, with no further player input. No dedicated art
-## exists yet (2026-08-02) — rendered as a simple colored placeholder shape,
-## same "engine-side, no art needed yet" approach used elsewhere in Epic 2.
+## weapon's damage/fire_rate, with no further player input. Rendered via a
+## real sprite (see sprite_textures/MatchArenaNode._spawn_turret(), art
+## added 2026-09-06) when one is set, falling back to the original colored
+## placeholder shape (2026-08-02) otherwise — same "art drops in per-thing
+## as it's ready" convention as ShipNode's own character art.
 ##
 ## Destructible (2026-08-05 playtest: "faudrait qu'elle soit destructible") —
 ## any enemy projectile passing through its hitbox chips its HP (weapon.turret_hp)
@@ -84,6 +86,18 @@ var ball_bounce_damage: float = 0.0
 var sprite_textures: Array[Texture2D] = []
 const SPRITE_FRAME_DURATION := 0.4
 
+# 2026-09-06 (Camil, playtest: "pour la tourelle, bien, mais elle est a
+# l'envers quand je joue le joueur de droite") — turret.png/turret_charged.png
+# have an asymmetric detail (the dial/handle) baked in for a side-0 turret;
+# side 1 needs it mirrored. Opt-in (default false) rather than flipping
+# EVERY sprite_textures user by owner_side automatically — Breakout's
+# bricks all share owner_side 1 regardless of which visual half they sit
+# in (see BallNode's own owner_side doc comment on that), and Space
+# Invaders' aliens have no left/right asymmetry to correct, so blindly
+# flipping there would be wrong. Only MatchArenaNode._spawn_turret() (the
+# real Controleur/boss turret) sets this.
+var flip_sprite_by_side := false
+
 var _visual: Polygon2D
 var _sprite: Sprite2D
 var _sprite_frame_index := 0
@@ -92,6 +106,23 @@ var _lifetime_left := 0.0 # set from weapon.turret_lifetime in _ready() — weap
 var _fire_cooldown := 0.0
 var _flash_timer := 0.0
 const FLASH_DURATION := 0.08
+
+# 2026-09-06 (Camil, after supplying turret.png: "il faudra lui appliquer
+# une correction de couleur pour la tourelle amelioree (celle du tir
+# charge)") — first tried as a programmatic gold/brass modulate tint on
+# the normal sprite, but Camil then supplied a genuinely distinct
+# turret_charged.png (see MatchArenaNode._spawn_turret()) instead, so the
+# sprite path no longer needs a synthetic tint of its own — real art wins.
+# _base_tint stays white for a sprite turret; only the placeholder
+# Polygon2D path below still lightens itself programmatically (no
+# dedicated charged art exists for that fallback shape).
+var _base_tint := Color.WHITE
+
+# 2026-09-06 bug report (Camil: "pendant l'animation 'ULTRA' le jeu doit se
+# freezer, y compris les boulettes") — see ProjectileNode's own matching
+# `active` field/doc comment; a placed turret kept ticking its lifetime
+# AND firing through the Ultra intro freeze with nothing gating it here.
+var active := true
 
 func _ready() -> void:
 	hp = weapon.turret_hp
@@ -102,6 +133,8 @@ func _ready() -> void:
 		_sprite = Sprite2D.new()
 		_sprite.texture = sprite_textures[0]
 		_sprite.centered = true
+		_sprite.modulate = _base_tint
+		_sprite.flip_h = flip_sprite_by_side and owner_side == 1
 		var tex_size := sprite_textures[0].get_size()
 		if tex_size.x > 0.0 and tex_size.y > 0.0:
 			_sprite.scale = Vector2(half_extents.x * 2.0 / tex_size.x, half_extents.y * 2.0 / tex_size.y)
@@ -133,6 +166,8 @@ func _ready() -> void:
 	_fire_cooldown = 1.0 / (weapon.fire_rate * fire_rate_multiplier)
 
 func _physics_process(delta: float) -> void:
+	if not active:
+		return
 	_lifetime_left -= delta
 	if _lifetime_left <= 0.0 or not is_instance_valid(target):
 		queue_free()
@@ -157,7 +192,7 @@ func _physics_process(delta: float) -> void:
 	_flash_timer = maxf(_flash_timer - delta, 0.0)
 	var flash_tint := Color(1.7, 1.7, 1.7) if _flash_timer > 0.0 else Color(1.0, 1.0, 1.0)
 	if _sprite:
-		_sprite.modulate = flash_tint
+		_sprite.modulate = _base_tint * flash_tint # charged tint stays under the hit-flash, not replaced by it
 	elif _visual:
 		_visual.modulate = flash_tint
 	queue_redraw() # cheap even when DebugOverlay.show_hitboxes is false — _draw() below just no-ops
@@ -191,13 +226,62 @@ func fire_now(_weapon: WeaponData = null) -> void:
 	if is_instance_valid(target):
 		_fire_at_target()
 
+# 2026-09-06 — real art. First tried a single green sprite + a multiply
+# tint to distinguish side 1 (magenta) and charged (gold boost), but
+# Godot's modulate is pure multiply: it can only DARKEN/remove channels a
+# source pixel already has, never introduce one it lacks. turret_bullet.png
+# is fully-saturated green (near-zero red/blue at its core) — multiplying
+# by magenta (weak green) just goes near-black, not magenta (2026-09-06
+# playtest: "on voit bien mes tirs verts, par contre ceux de l'adversaire
+# pas du tout"). Fixed the side split the same way this project already
+# handles machine-gun bullets (MACHINE_GUN_TEX_P1/P2 in projectile_factory.
+# gd) — two separate authored sprites, not one tinted at runtime.
+#
+# 2026-09-06 follow-up bug report ("les tirs bleus sont toujours
+# inverses") — first shipped with a compensating PI rotation offset for
+# side 1, on the (wrong) assumption that turret_bullet_p2.png was drawn
+# facing the opposite default direction from turret_bullet.png. Zoomed
+# both sprites 15x to check: they're geometrically IDENTICAL (same
+# rounded-gem shape, same little nub on the left), only the color
+# differs. A single unmodified `rotation = aim.angle()` already orients
+# either one correctly for ANY aim direction (that's the whole point of
+# rotating instead of flipping) — the PI offset was actively wrong, not
+# a fix: for side 1's typical near-180-degree (leftward) aim, it cancelled
+# the needed rotation back down to ~0, leaving the sprite in its raw
+# rest pose instead of actually turning to face the shot's real direction.
+#
+# The charged boost has the same multiply limitation the side split did,
+# just less obviously broken: a hue-shifting "gold" tint (1.5, 1.3, 0.5)
+# darkens blue almost as badly as magenta darkened green. A uniform
+# BRIGHTEN (equal boost on every channel) instead preserves whichever hue
+# is already there while still reading as visibly "hotter/upgraded" on
+# either sprite.
+const BULLET_TEXTURE := preload("res://assets/art/vfx/turret_bullet.png")
+const BULLET_TEXTURE_SIDE_1 := preload("res://assets/art/vfx/turret_bullet_p2.png")
+const BULLET_CHARGED_BRIGHTEN := Color(1.6, 1.6, 1.6)
+
+# 2026-09-06 bug report (Camil: "les boulettes disparaissent avant de
+# quitter la scene") — ProjectileNode's own default lifetime (2.0s) caps a
+# 480px/s turret shot's range at 960px, but the arena is 1200px wide and a
+# turret can sit anywhere in its owner's half (up to 600px off-center) —
+# a shot aimed at a target near the far wall could easily need to travel
+# further than 960px, timing out (silently vanishing mid-flight) before
+# ever reaching it or even the frontier. 3.0s covers the arena's full
+# diagonal with real margin (3.0 * 480 = 1440px).
+const BULLET_LIFETIME := 3.0
+
 func _fire_at_target() -> void:
 	var projectile := ProjectileNode.new()
 	projectile.position = position
-	projectile.velocity = (target.position - position).normalized() * SHOT_SPEED
+	var aim := (target.position - position).normalized()
+	projectile.velocity = aim * SHOT_SPEED
+	projectile.lifetime = BULLET_LIFETIME
+	projectile.rotation = aim.angle() # both bullet sprites share the same rest orientation (see the const block above) — no per-side offset needed, this alone correctly faces either one toward wherever it's actually flying
 	projectile.damage = weapon.damage
 	projectile.effect_type = weapon.effect_type if weapon.effect_type == "stun" else "damage"
 	projectile.effect_duration = weapon.effect_duration
+	projectile.tint = BULLET_CHARGED_BRIGHTEN if fire_rate_multiplier > 1.0 else Color.WHITE
+	projectile.textures = [BULLET_TEXTURE_SIDE_1 if owner_side == 1 else BULLET_TEXTURE]
 	projectile.fallback_color = Color(0.4, 0.9, 0.4) if owner_side == 0 else Color(0.9, 0.4, 0.9)
 	projectile.target = target
 	get_parent().add_child(projectile)

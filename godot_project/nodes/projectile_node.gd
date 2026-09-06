@@ -38,6 +38,16 @@ var expiry_explosion_damage: float = 0.0
 var expiry_explosion_radius: float = 0.0
 var spin_speed: float = 0.0 # deg/sec — rotates the whole node; unused by the Tourbillon (its 3-frame texture cycle already reads as spinning) but left generic for any future weapon that wants it
 
+# 2026-09-06 bug report (Camil: "pendant l'animation 'ULTRA' le jeu doit se
+# freezer, y compris les boulettes. Tout se defrise des que l'anim est
+# passee") — MatchArenaNode._on_ultra_triggered() already froze
+# ship_1/ship_2/ball (their own `active` flags) for the intro's duration,
+# but never touched already-in-flight projectiles, which have no such
+# flag at all and kept flying/hitting through the freeze. Same convention
+# as ShipNode.active/BallNode.active — see MatchArenaNode's own
+# _set_battlefield_active() helper, which now also sweeps these.
+var active := true
+
 # Perturbateur's charged Boomerang de Feu (2026-08-17, Camil: "le tir
 # charge n'est pas bien... on lance un gros boomerang, mais il laisse une
 # trainee de feu (particules) derriere lui, qui font des degats si on les
@@ -221,6 +231,8 @@ func _ready() -> void:
 var position_before: Vector2 = Vector2.ZERO # last frame's pre-move position; exposed so TurretNode's swept hit-check (see turret_node.gd) always brackets a real, freshly-moved segment instead of racing physics-process order
 
 func _physics_process(delta: float) -> void:
+	if not active:
+		return
 	position_before = position
 	if is_boomerang:
 		_update_boomerang(delta)
@@ -294,6 +306,18 @@ func _physics_process(delta: float) -> void:
 			var turret: TurretNode = child
 			if turret.owner_side != target.side:
 				continue # this turret guards MY side, not the target's — not in the way
+			if turret.hp <= 0.0:
+				# 2026-09-06 bug report: "quand les tourelles disparaissent, les
+				# tirs adverses continuent a taper dedans (le tir disparait)" —
+				# take_damage() drops hp to <=0 and calls queue_free() the
+				# instant the KILLING shot lands, but queue_free() doesn't
+				# actually remove the node from get_children() until later
+				# that same frame — any OTHER projectile whose own swept
+				# segment also crosses this turret's rect during that same
+				# frame (a burst/cluster converging on one turret is common)
+				# would otherwise still register a "hit" and consume itself
+				# against a turret that's already dead, just not gone yet.
+				continue
 			# Inflated by hit_half_size (Minkowski sum) — a swept ROUGH-RECT vs
 			# RECT test reduces to a swept POINT vs (RECT grown by the moving
 			# rect's own half-size) test, so a big sprite (e.g. the 5x charged

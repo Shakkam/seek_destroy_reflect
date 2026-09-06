@@ -234,6 +234,15 @@ theme_override_colors/font_color = Color(0.95, 0.96, 1, 1)
 theme_override_font_sizes/font_size = 28
 text = ""
 
+[node name="OrganizerRevealPortrait" type="TextureRect" parent="DebugHUD"]
+offset_left = 576.0
+offset_top = 150.0
+offset_right = 704.0
+offset_bottom = 278.0
+visible = false
+texture_filter = 1
+stretch_mode = 5
+
 [node name="MatchLabel" type="Label" parent="DebugHUD"]
 offset_left = 340.0
 offset_top = 320.0

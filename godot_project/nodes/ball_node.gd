@@ -107,6 +107,23 @@ var _sprite: Sprite2D
 # different starting scale.
 const RESPAWN_POP_START_SCALE := 2.0
 
+# "Etoile filante" trail (2026-09-06, Camil, after the epic boss's "Arsenal
+# Total" made every fight busy with every weapon's projectiles at once:
+# "ca devient de plus en plus le bordel avec tous ces tirs, c'est exactement
+# ce que je voulais :) On pourrait avoir quelques petites particules
+# derriere la balle pour bien la distinguer, qui ferait un peu 'etoile
+# filante'") — same procedural-texture CPUParticles2D approach as
+# FireTrailNode (no imported art needed), just a trailing sparkle instead
+# of a stationary flame. `local_coords = false` is the one thing that
+# actually matters here and NOT on FireTrailNode's flame: FireTrailNode
+# never moves, so it never came up there, but a moving emitter with the
+# CPUParticles2D default (local_coords = true) drags every already-spawned
+# particle along with it instead of leaving them behind in world space —
+# the opposite of a trail.
+const TRAIL_PARTICLE_COUNT := 40 # 2026-09-06 playtest ("pas mal, mais on peut ameliorer") — was 18, too sparse: each particle drifted off on its own initial_velocity fast enough that the trail read as a dotted line rather than a continuous tapering tail
+const TRAIL_PARTICLE_LIFETIME := 0.35
+var _trail: CPUParticles2D
+
 ## 2026-08-15 bug report (Camil): "la balle spawn toujours en partant vers
 ## la droite... il faudrait qu'elle parte à gauche ou à droite au hasard,
 ## ensuite qu'elle parte vers le joueur qui l'a perdue." target_side picks
@@ -124,14 +141,58 @@ func _in_neutral_zone() -> bool:
 
 func _ready() -> void:
 	state = BallState.new(position, _spawn_velocity())
+	_setup_trail() # added first so it always draws behind the ball sprite
 	_sprite = Sprite2D.new()
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.texture = BALL_TEXTURE
 	_sprite.scale = BALL_SPRITE_SCALE
 	add_child(_sprite)
 
+func _setup_trail() -> void:
+	var img := Image.create(3, 3, false, Image.FORMAT_RGBA8)
+	img.fill(Color(1.0, 1.0, 1.0, 1.0))
+	_trail = CPUParticles2D.new()
+	_trail.texture = ImageTexture.create_from_image(img)
+	_trail.local_coords = false # see the const block's doc comment — the ball MOVES, so this must be world-space
+	_trail.amount = TRAIL_PARTICLE_COUNT
+	_trail.lifetime = TRAIL_PARTICLE_LIFETIME
+	_trail.explosiveness = 0.0 # continuous stream, not a burst
+	_trail.spread = 10.0
+	_trail.gravity = Vector2.ZERO
+	# 2026-09-06, two playtest rounds: 40-90 (v1) scattered each particle far
+	# enough off its own path to read as a dotted line; 5-15 (v2, overcorrected)
+	# kept particles so close to spawn they barely cleared the ball's OWN
+	# ~28px sprite footprint (max reach 15*0.35 =~ 5px, literally hidden
+	# under the ball), reading as "less visible" despite fixing the dots.
+	# This splits the difference: enough reach to clearly trail past the
+	# ball, not so much that particles visibly fly off independently.
+	_trail.initial_velocity_min = 35.0
+	_trail.initial_velocity_max = 70.0
+	_trail.scale_amount_min = 0.7
+	_trail.scale_amount_max = 1.6
+	# Gentler taper than v2's straight 1.0->0.0 (which combined with the
+	# gradient's own alpha fade to double up and vanish too fast/small) —
+	# stays big for the first half, only narrows for the back half of its
+	# life so the tail is still clearly visible right up until the
+	# gradient's alpha finishes the job.
+	var taper := Curve.new()
+	taper.add_point(Vector2(0.0, 1.0))
+	taper.add_point(Vector2(0.5, 1.0))
+	taper.add_point(Vector2(1.0, 0.4))
+	_trail.scale_amount_curve = taper
+	_trail.direction = Vector2.LEFT # re-aimed every physics tick in _update_trail_direction() once real velocity exists
+	_trail.emitting = true
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(1.0, 1.0, 0.9, 1.0)) # white-hot spark
+	gradient.add_point(0.4, Color(0.6, 0.54, 0.24, 0.9)) # yellow, -40% (2026-09-06: "la queue de la trainee peut etre un peu plus sombre", -20% then bumped to -40%)
+	gradient.set_color(1, Color(0.6, 0.51, 0.18, 0.0)) # fades to transparent gold, same -40%
+	_trail.color_ramp = gradient
+	add_child(_trail)
+
 func _physics_process(delta: float) -> void:
 	if not active:
+		if _trail:
+			_trail.emitting = false
 		return
 
 	if _respawn_freeze_timer > 0.0:
@@ -145,6 +206,8 @@ func _physics_process(delta: float) -> void:
 		if _sprite:
 			_sprite.scale = BALL_SPRITE_SCALE * lerpf(RESPAWN_POP_START_SCALE, 1.0, t)
 			_sprite.rotation += ROTATION_SPEED * delta
+		if _trail:
+			_trail.emitting = false # no trail while immobile/popping in — nothing to trail from yet
 		if _respawn_freeze_timer <= 0.0:
 			state = BallState.new(state.position, _pending_launch_velocity)
 			if _sprite:
@@ -165,6 +228,10 @@ func _physics_process(delta: float) -> void:
 
 	position = state.position
 	_sprite.rotation += ROTATION_SPEED * delta
+	if _trail:
+		_trail.emitting = true
+		if state.velocity.length_squared() > 1.0:
+			_trail.direction = -state.velocity.normalized() # trails backward through every bounce/deflection, not a fixed direction
 
 ## A ship can only return the ball once per visit to its own half — once
 ## the ball crosses back to the other half, the block clears. Prevents the

@@ -47,6 +47,13 @@ enum Phase { SLIDE_IN, HOLD, SLIDE_OUT }
 var phase := Phase.SLIDE_IN
 var _phase_timer := SLIDE_DURATION
 var character: CharacterData
+# Epic boss (2026-09-05, Camil: "pour son ultra il faudrait sa tronche
+# plutot que celle de LOURD") — the boss's `character` is still whichever
+# rival is secretly playing the organizer (needed for the masked-identity
+# beat and the real weapon kit), so FULL_TEXTURES.get(character.id) would
+# show the WRONG face here. When set, this takes priority over the
+# character.id lookup entirely — see MatchArenaNode._on_ultra_triggered().
+var override_texture: Texture2D
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST # keep the pixel-art character image crisp when scaled, same convention as CharacterSelectNode
@@ -107,9 +114,11 @@ func _draw_bar() -> void:
 	draw_string(font, text_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.08, 0.08, 0.1, 1))
 
 func _draw_character() -> void:
-	if not character:
-		return
-	var texture: Texture2D = FULL_TEXTURES.get(character.id)
+	var texture: Texture2D = override_texture
+	if not texture:
+		if not character:
+			return
+		texture = FULL_TEXTURES.get(character.id)
 	if not texture:
 		return
 	var rect := Rect2(Vector2(_character_left_x(), IMAGE_REST_CENTER.y - IMAGE_SIZE.y / 2.0), IMAGE_SIZE)

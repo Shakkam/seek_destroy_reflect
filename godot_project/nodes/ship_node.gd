@@ -389,6 +389,32 @@ func _update_character_art() -> void:
 		# as the trail ghost's polygon source (_spawn_trail_ghost()).
 		visual.color.a = 0.0
 
+## Epic 3-phase boss skin (2026-09-05, Camil: "j'aimerais faire un clin
+## d'oeil au dr wily... pour son skin (in game et hors game)") — overrides
+## whatever _update_character_art() already loaded from the REAL character's
+## own id (the "opponent" CharacterData is whichever rival is secretly
+## playing the organizer, and its own ship.png would break the masked-
+## identity beat) with the boss's own dedicated art instead. Called once by
+## MatchArenaNode._setup_boss_ship(); reset_for_new_round() never re-touches
+## character art, so this persists across round resets on its own without
+## needing to be reapplied — same reasoning as the _boss_phase reset in
+## MatchArenaNode._begin_round_ready_gate() leaving art alone.
+const BOSS_SKIN_PATH := "res://assets/art/characters/organisateur/ship.png"
+
+func apply_boss_skin() -> void:
+	var sprite := get_node_or_null("Visual/CharacterArt") as Sprite2D
+	if not sprite or not ResourceLoader.exists(BOSS_SKIN_PATH):
+		return
+	var visual := sprite.get_parent() as Polygon2D
+	var texture: Texture2D = load(BOSS_SKIN_PATH)
+	sprite.texture = texture
+	sprite.visible = true
+	var tex_size := texture.get_size()
+	if tex_size.x > 0.0 and tex_size.y > 0.0:
+		sprite.scale = (half_extents * 2.0) / tex_size
+	if visual:
+		visual.color.a = 0.0
+
 ## Story 2.7 — loads this ship's AI tuning from AI_PROFILES if its character
 ## has one, else falls back to the original Story 1.12 defaults.
 ## 2026-09-01: when ai_is_mook is true (set by MatchArenaNode for campaign

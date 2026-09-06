@@ -69,10 +69,14 @@ func _ready() -> void:
 	# etait... X !"), so this checks the fixed prefix, not an exact match.
 	var organizer_win_ok: bool = CampaignSave.is_organizer_defeated("vif") and organizer_arena.match_label.text.begins_with("Tournoi remporte !")
 	print(("PASS: winning the organizer fight marks it defeated and shows 'Tournoi remporte !'" if organizer_win_ok else ("FAIL: organizer_defeated=%s match_label='%s'" % [CampaignSave.is_organizer_defeated("vif"), organizer_arena.match_label.text])))
+	# 2026-09-06 (epic boss skin, "hors jeu" reveal) — the boss's own
+	# portrait shows alongside the text line, not the unmasked character's.
+	var portrait_ok: bool = organizer_arena.organizer_reveal_portrait.visible and organizer_arena.organizer_reveal_portrait.texture != null
+	print("PASS: the Organisateur's own portrait shows on the reveal" if portrait_ok else "FAIL: the reveal portrait wasn't shown")
 	organizer_arena.queue_free()
 	CampaignContext.clear()
 	CampaignSave.reset_all()
 	await get_tree().process_frame
 
-	var all_ok := reward_hidden_before_ok and icon_ok and label_ok and match_label_still_shows_ok and organizer_defeated_before_ok and organizer_win_ok
+	var all_ok := reward_hidden_before_ok and icon_ok and label_ok and match_label_still_shows_ok and organizer_defeated_before_ok and organizer_win_ok and portrait_ok
 	get_tree().quit(0 if all_ok else 1)
