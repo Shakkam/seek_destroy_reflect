@@ -13,6 +13,7 @@ local campaign_save = require("campaign.campaign_save")
 local timer = require("timer")
 local assets = require("assets")
 local draw_utils = require("draw_utils")
+local bullet_fx = require("bullet_fx")
 local fonts = require("fonts")
 local ULTRA_LA_MEUTE = require("data.weapons.ultra_la_meute")
 local ULTRA_PLUIE_DE_BONBONS = require("data.weapons.ultra_pluie_de_bonbons")
@@ -5023,58 +5024,9 @@ function match_arena.draw()
 			draw_utils.draw_scaled(image, bullet.position.x, bullet.position.y, bullet.visual_scale, flip_h, bullet.rotation)
 		end
 
-		-- 2026-10-05 decorative per-bullet particles (no gameplay effect;
-		-- stateless — every particle is recomputed each frame from the bullet
-		-- itself + the clock, so there is no list to spawn/cull).
-		if bullet.weapon_id == "ultra_pluie_de_bonbons" then
-			-- Spreader's falling fans spin very fast: faint yellow motes
-			-- trail behind the blades along the spin, so the speed reads.
-			local r = math.max(image:getWidth(), image:getHeight()) * bullet.visual_scale * 0.5
-			for k = 1, 16 do
-				local ang = bullet.rotation - k * 0.28
-				local rr = r * (0.55 + 0.6 * ((k * 5) % 4) / 4.0)
-				love.graphics.setColor(1.0, 0.95, 0.3, 0.75 * (1.0 - k / 17.0))
-				love.graphics.circle("fill", bullet.position.x + math.cos(ang) * rr, bullet.position.y + math.sin(ang) * rr, 4.5 - k * 0.2)
-			end
-			love.graphics.setColor(1.0, 0.95, 0.4, 0.4)
-			love.graphics.setLineWidth(2.0)
-			love.graphics.circle("line", bullet.position.x, bullet.position.y, r * 0.95)
-			-- Plus a short fading wake above it (the fan is falling).
-			for k = 1, 6 do
-				love.graphics.setColor(1.0, 0.95, 0.35, 0.5 * (1.0 - k / 7.0))
-				love.graphics.circle("fill", bullet.position.x + math.sin(bullet.rotation * 3.0 + k) * r * 0.5, bullet.position.y - k * r * 0.55, 4.0 - k * 0.4)
-			end
-			love.graphics.setLineWidth(1.0)
-			love.graphics.setColor(1, 1, 1)
-		elseif bullet.weapon_id == "ultra_la_meute" or bullet.weapon_id == "homing_missile" then
-			-- Traqueur's missiles: a rocket-exhaust plume behind the tail —
-			-- hot white-yellow near the nozzle, orange then red-grey smoke
-			-- farther back, fanning out and flickering.
-			local speed = bullet.velocity:length()
-			if speed > 1.0 then
-				local back = bullet.velocity * (-1.0 / speed)
-				local side_dir = Vector2.new(-back.y, back.x)
-				local tail = image:getWidth() * bullet.visual_scale * 0.5
-				local frame = math.floor(love.timer.getTime() * 30.0)
-				for k = 0, 17 do
-					local f = k / 17.0
-					local h = math.sin(frame * 12.9898 + k * 78.233 + bullet.position.y * 0.01) * 43758.5453
-					local jitter = (h - math.floor(h)) - 0.5
-					local dist = tail + f * 70.0 * bullet.visual_scale
-					local px = bullet.position.x + back.x * dist + side_dir.x * jitter * (3.0 + f * 16.0)
-					local py = bullet.position.y + back.y * dist + side_dir.y * jitter * (3.0 + f * 16.0)
-					if f < 0.35 then
-						love.graphics.setColor(1.0, 0.95, 0.6, 1.0)
-					elseif f < 0.7 then
-						love.graphics.setColor(1.0, 0.55, 0.15, 0.95)
-					else
-						love.graphics.setColor(0.7, 0.45, 0.35, 0.7 * (1.0 - f) / 0.3)
-					end
-					love.graphics.circle("fill", px, py, (6.5 - 3.5 * f) * (0.7 + 0.3 * bullet.visual_scale))
-				end
-				love.graphics.setColor(1, 1, 1)
-			end
-		end
+		-- 2026-10-05 decorative per-bullet particles (Spreader's Ultra fans,
+		-- Traqueur's missile plume) — shared with the mini-jeu screens, see bullet_fx.lua.
+		bullet_fx.draw(bullet, image)
 	end
 
 	-- Lourd's Ultra "Pluie de Scuds" (missile_strike_node.gd): a closing

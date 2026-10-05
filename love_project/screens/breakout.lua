@@ -11,6 +11,7 @@ local campaign_save = require("campaign.campaign_save")
 local timer = require("timer")
 local assets = require("assets")
 local draw_utils = require("draw_utils")
+local bullet_fx = require("bullet_fx")
 local charged_shot = require("charged_shot")
 
 -- Ported (simplified) from godot_project/nodes/breakout_node.gd — a
@@ -703,6 +704,7 @@ function breakout.draw()
 		love.graphics.setColor(1, 1, 1)
 		local flip_h = bullet.velocity.x < 0.0
 		draw_utils.draw_scaled(image, bullet.position.x, bullet.position.y, scale, flip_h, bullet.rotation or 0.0)
+		bullet_fx.draw(bullet, image) -- decorative particles (Traqueur's missile plume)
 	end
 
 	love.graphics.setLineWidth(2.0)
