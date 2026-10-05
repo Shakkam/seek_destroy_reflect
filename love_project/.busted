@@ -1,0 +1,11 @@
+-- Busted config — see https://lunarmodules.github.io/busted/
+-- lpath ensures `require("simulation.xxx")` resolves relative to this
+-- file's directory regardless of the caller's own LUA_PATH/cwd quirks
+-- (see the port spec, section 1, on keeping the pure-logic layer loadable
+-- by any generic Lua interpreter).
+return {
+	default = {
+		lpath = "./?.lua;./?/init.lua",
+		verbose = true,
+	},
+}

@@ -1,0 +1,15 @@
+local mini_branch_data = require("simulation.mini_branch_data")
+
+describe("mini_branch_data", function()
+	it("new() has no prerequisites by default (available from the start)", function()
+		local b = mini_branch_data.new()
+		assert.are.same({}, b.prerequisite_ids)
+		assert.is_nil(b.mook_1)
+		assert.is_nil(b.rival)
+	end)
+
+	it("prerequisite_ids gates a branch behind an earlier one", function()
+		local b = mini_branch_data.new({ id = "contre_lourd", prerequisite_ids = { "depart" } })
+		assert.are.same({ "depart" }, b.prerequisite_ids)
+	end)
+end)

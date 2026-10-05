@@ -1,0 +1,21 @@
+local character_data = require("simulation.character_data")
+
+describe("character_data", function()
+	it("new() defaults to the shared hold-to-charge lift and semi-auto fire", function()
+		local c = character_data.new()
+		assert.are.equal("none", c.special_rule)
+		assert.is_false(c.full_auto)
+		assert.are.equal("intermediate", c.complexity)
+		assert.are.same({}, c.kit)
+	end)
+
+	it("overrides opt a character into their own movement rule (e.g. Vif's dash_lift)", function()
+		local vif = character_data.new({ id = "vif", special_rule = "dash_lift" })
+		assert.are.equal("dash_lift", vif.special_rule)
+	end)
+
+	it("Mitrailleur is the one full_auto exception", function()
+		local mitrailleur = character_data.new({ id = "mitrailleur", full_auto = true })
+		assert.is_true(mitrailleur.full_auto)
+	end)
+end)

@@ -1,0 +1,10 @@
+local campaign_data = require("simulation.campaign_data")
+
+describe("campaign_data", function()
+	it("new() defaults to an empty branch list and a 3-branch requirement", function()
+		local c = campaign_data.new()
+		assert.are.equal(3, c.required_branch_count)
+		assert.are.same({}, c.mini_branches)
+		assert.is_nil(c.organizer_encounter)
+	end)
+end)

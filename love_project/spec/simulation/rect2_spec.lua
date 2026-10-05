@@ -1,0 +1,10 @@
+local Rect2 = require("simulation.rect2")
+local Vector2 = require("simulation.vector2")
+
+describe("rect2", function()
+	it("has_point() is true inside the rect and false outside", function()
+		local r = Rect2.new(0, 0, 100, 50)
+		assert.is_true(Rect2.has_point(r, Vector2.new(50, 25)))
+		assert.is_false(Rect2.has_point(r, Vector2.new(150, 25)))
+	end)
+end)
