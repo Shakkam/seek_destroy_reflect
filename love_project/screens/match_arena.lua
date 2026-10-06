@@ -2037,7 +2037,7 @@ local dash_helpers = {
 	LOURD_BOOST_MULTIPLIER = 2.2,
 	LOURD_BOOST_DECAY_TIME = 0.5, -- also the full hard-lock duration — "verrouiler la direction de LOURD" (Camil: 1.0s felt too long, settled on 0.5s)
 	SPREADER_CLONE_LIFETIME = 0.25,
-	SPREADER_CLONE_SPEED_MULTIPLIER = 2.0,
+	SPREADER_CLONE_SPEED_MULTIPLIER = 2.5, -- 2.0 * 1.25 — "rallonge legerement la distance parcourue par les clones"
 	DIAGONALS = {
 		Vector2.new(0.70710678, -0.70710678),
 		Vector2.new(0.70710678, 0.70710678),
