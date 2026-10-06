@@ -11,4 +11,5 @@ return character_data.new({
 	archetype = "Zoneur/Precision",
 	kit = { laser },
 	complexity = "intermediate",
+	dash_description = "Teleportation instantanee dans la direction visee.",
 })

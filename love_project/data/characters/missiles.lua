@@ -11,4 +11,5 @@ return character_data.new({
 	archetype = "Missiles teleguides",
 	kit = { homing_missile },
 	complexity = "advanced",
+	dash_description = "Oriente la balle vers lui (sans changer sa vitesse) tant qu'elle approche de son cote.",
 })

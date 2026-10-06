@@ -526,7 +526,7 @@ local cheat_state = { kill_prev = false, ultra_prev = false, ammo_prev = false, 
 -- larger ball-catch rect).
 local show_hitboxes = false
 
-local PAUSE_MENU_CHOICES = { "Continuer la partie", "Retourner au menu" }
+local PAUSE_MENU_CHOICES = { "Continuer la partie", "Commandes", "Retourner au menu" }
 
 -- match_arena_node.gd's _show_post_match_choice()/_process_post_match_
 -- choice() (2026-08-16 UX audit, Sally: "Versus mode ends in a dead
@@ -4324,7 +4324,7 @@ local function update_twist(dt)
 end
 
 local function open_pause_menu()
-	pause_state = { index = 0, up_prev = false, down_prev = false, confirm_prev = true }
+	pause_state = { index = 0, up_prev = false, down_prev = false, confirm_prev = true, escape_prev = true, showing_controls = false }
 end
 
 local function resume_from_pause_menu()
@@ -4348,6 +4348,19 @@ local function update_pause_menu(dt)
 	-- A shared full-screen overlay (either player can pause) — solo input
 	-- (keyboard + the first connected gamepad), same convention as every
 	-- other menu screen in this port.
+	-- 2026-10-06, Camil: "il y a un sous menu 'commandes', qui dit ce que
+	-- fait chaque touche" — the "Commandes" screen is a dead-end view (no
+	-- sub-navigation of its own), closed with Confirm or Escape either one.
+	if pause_state.showing_controls then
+		local confirm = input.solo_confirm()
+		local escape = input.solo_escape()
+		if (confirm and not pause_state.confirm_prev) or (escape and not pause_state.escape_prev) then
+			pause_state.showing_controls = false
+		end
+		pause_state.confirm_prev, pause_state.escape_prev = confirm, escape
+		return
+	end
+
 	local move_down = input.solo_down()
 	local move_up = input.solo_up()
 	if move_down and not pause_state.down_prev then
@@ -4361,6 +4374,8 @@ local function update_pause_menu(dt)
 	if confirm and not pause_state.confirm_prev then
 		if pause_state.index == 0 then
 			resume_from_pause_menu()
+		elseif pause_state.index == 1 then
+			pause_state.showing_controls = true
 		else
 			quit_to_title_from_pause_menu()
 		end
@@ -4370,7 +4385,39 @@ local function update_pause_menu(dt)
 	end
 end
 
+-- 2026-10-06, Camil: "il y a un sous menu 'commandes', qui dit ce que fait
+-- chaque touche, et detaille, pour chaque perso, le comportement de la
+-- touche [dash]" — generic bindings (same for every character) plus each
+-- current player's own Dash description (data/characters/*.lua's own
+-- dash_description — the one button whose effect actually varies per
+-- character). Nested inside draw_pause_menu() (not its own top-level
+-- local/function) — the 200-local ceiling, same reason as UT/boss_helpers.
 local function draw_pause_menu()
+	if pause_state.showing_controls then
+		love.graphics.setColor(0.0, 0.0, 0.0, 0.85)
+		love.graphics.rectangle("fill", 0, 0, 1280, 720)
+		love.graphics.setColor(1, 1, 1)
+		love.graphics.printf("COMMANDES", 0, 50, 1280, "center")
+
+		local y = 110
+		local function line(text)
+			love.graphics.printf(text, 60, y, 1160, "left")
+			y = y + 26
+		end
+		line("Joueur 1 (clavier) : ZQSD/WASD deplacement, Espace tir, Maj lift/charge, E ultra, Q dash")
+		line("Joueur 2 (clavier) : Fleches deplacement, Entree tir, Ctrl droit lift/charge, Entree (pave num.) ultra, / dash")
+		line("Manette (les deux) : stick/croix deplacement, X tir, A lift/charge, B ultra, Y dash")
+		y = y + 14
+		line("Le Dash (bouton partage, jauge a recharge de 2s) fait quelque chose de different pour chaque personnage :")
+		y = y + 4
+		line("Joueur 1 (" .. players[1].character.display_name .. ") : " .. players[1].character.dash_description)
+		line("Joueur 2 (" .. players[2].character.display_name .. ") : " .. players[2].character.dash_description)
+		y = y + 14
+		love.graphics.setColor(0.8, 0.8, 0.85)
+		line("Confirmer ou Echap pour revenir")
+		return
+	end
+
 	love.graphics.setColor(0.0, 0.0, 0.0, 0.6)
 	love.graphics.rectangle("fill", 0, 0, 1280, 720)
 	love.graphics.setColor(1, 1, 1)

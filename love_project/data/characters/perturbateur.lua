@@ -12,4 +12,5 @@ return character_data.new({
 	archetype = "Perturbateur",
 	kit = { stun_boomerang },
 	complexity = "advanced",
+	dash_description = "Ralentit la balle a 30% de sa vitesse pendant 1/2 seconde.",
 })

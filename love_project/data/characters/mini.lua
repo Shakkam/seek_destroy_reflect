@@ -12,4 +12,5 @@ return character_data.new({
 	archetype = "Glass cannon Spreader",
 	kit = { mini_shot },
 	complexity = "advanced",
+	dash_description = "Envoie 4 mini-clones rapides dans les 4 diagonales pendant 1/4 de seconde.",
 })

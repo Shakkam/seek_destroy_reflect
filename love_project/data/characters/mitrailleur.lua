@@ -11,4 +11,5 @@ return character_data.new({
 	kit = { machine_gun },
 	complexity = "beginner",
 	full_auto = true,
+	dash_description = "Lance un clone incontrolable de lui-meme, 2x plus rapide, qui disparait au bout d'1/2 seconde.",
 })

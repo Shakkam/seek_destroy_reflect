@@ -15,4 +15,5 @@ return character_data.new({
 	kit = { vortex },
 	complexity = "intermediate",
 	special_rule = "none",
+	dash_description = "Bondit dans sa direction ; les tirs adverses passent au travers pendant le saut.",
 })

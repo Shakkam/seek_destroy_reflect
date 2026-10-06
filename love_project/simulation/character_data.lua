@@ -27,6 +27,12 @@ function character_data.new(overrides)
 		-- fresh press per shot, even during a charge-capable weapon's
 		-- pre-charge grace window.
 		full_auto = false,
+
+		-- One short line of French describing this character's own Dash
+		-- effect (match_arena.lua's dash_helpers.effects[id]) — shown in the
+		-- in-match pause menu's "Commandes" screen, since the shared Dash
+		-- button does something completely different per character.
+		dash_description = "",
 	}
 	for key, value in pairs(overrides or {}) do
 		c[key] = value

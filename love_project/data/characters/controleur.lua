@@ -12,4 +12,5 @@ return character_data.new({
 	archetype = "Controleur",
 	kit = { turret },
 	complexity = "intermediate",
+	dash_description = "Invoque un clone fantome immobile a sa position actuelle, qui peut renvoyer la balle une fois.",
 })

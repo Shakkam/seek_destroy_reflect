@@ -13,4 +13,5 @@ return character_data.new({
 	kit = { bazooka },
 	complexity = "beginner",
 	special_rule = "heavy_push",
+	dash_description = "Fonce dans sa direction, verrouillee pendant 1/2 seconde (glisse incontrolable, comme sur de la glace).",
 })
