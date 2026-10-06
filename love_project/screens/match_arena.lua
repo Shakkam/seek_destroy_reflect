@@ -2025,7 +2025,7 @@ end
 local dash_helpers = {
 	COOLDOWN = 2.0, -- "on part sur 2 secondes pour l'instant, a ajuster"
 	LOURD_BOOST_MULTIPLIER = 2.2,
-	LOURD_BOOST_DECAY_TIME = 0.45,
+	LOURD_BOOST_DECAY_TIME = 1.0, -- also the full hard-lock duration — "verrouiler la direction de LOURD, le temps du dash (1 petite seconde)"
 	SPREADER_BOOST_MULTIPLIER = 1.8,
 	SPREADER_BOOST_DECAY_TIME = 1.6,
 	MITRAILLEUR_UNCONTROLLED_DURATION = 0.5,
@@ -2326,18 +2326,15 @@ local function update_player_input(player, dt)
 		local dash_fraction = player.dash_boost_timer / player.dash_boost_decay_time
 		speed_multiplier = math.max(speed_multiplier, mathx.lerp(1.0, player.dash_boost_peak_multiplier, dash_fraction))
 		if player.character.id == "lourd" then
-			-- "Inertie de derapage" (Camil, 2026-10-06, after actually testing
-			-- it: "il faut vraiment que ca glisse un peu comme s'il etait sur
-			-- une plaque de glace [...] derriere il y a cette inertie qui est
-			-- dure a gerer") — Spreader's own dash stays a plain speed boost
-			-- (steering untouched); only Lourd's locks the ship onto the
-			-- dash's own direction for a moment, fighting whatever new input
-			-- the player gives. slide_weight eases out (squared, not linear)
-			-- so the hardest-to-steer instant is right at the dash itself,
-			-- with control handed back smoothly rather than snapping.
-			local slide_weight = dash_fraction * dash_fraction
-			local desired = move_direction:length() > 0.01 and move_direction:normalized() or Vector2.ZERO
-			move_direction = desired * (1.0 - slide_weight) + player.dash_slide_direction * slide_weight
+			-- "Inertie de derapage" (Camil, 2026-10-06 — first a blend, then
+			-- after testing: "non pour lourd ca marche pas. Il faut vraiment
+			-- verrouiler la direction de LOURD, le temps du dash (1 petite
+			-- seconde)") — a real hard lock, same idea as Mitrailleur's own
+			-- forced-movement override just below, but one straight direction
+			-- for the whole LOURD_BOOST_DECAY_TIME window instead of a wall-
+			-- bouncing one: whatever the player/AI asks for this frame is
+			-- ignored outright, not blended, until the dash itself ends.
+			move_direction = player.dash_slide_direction
 		end
 	end
 	player.vulnerability_timer = math.max(player.vulnerability_timer - dt, 0.0)
