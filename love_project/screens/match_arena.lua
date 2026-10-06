@@ -2054,7 +2054,6 @@ local dash_helpers = {
 	PERTURBATEUR_BALL_SLOW_FACTOR = 0.3, -- the ball advances at 30% of its real speed while this is active
 	TRAQUEUR_PULL_DURATION = 0.8,
 	TRAQUEUR_PULL_STRENGTH = 520.0, -- px/s of velocity nudged toward the player per second ("l'aimant n'est pas assez fort, x2")
-	TRAQUEUR_PULL_ACCEL = 600.0, -- px/s^2 speed-up along the ball's own travel direction ("ca aimante mais n'accelere pas la balle")
 	GHOST_PADDLE_LIFETIME = 3.0,
 }
 
@@ -4746,17 +4745,11 @@ local function update_ball_and_twist(dt)
 			if to_player:length() < 1.0 then
 				return current_ball
 			end
+			-- Camil, reversing the previous try: "l'aimant ne doit pas du
+			-- tout accelerer la balle" — a pure directional nudge only, no
+			-- speed-up along the travel direction.
 			local pull = to_player:normalized() * (dash_helpers.TRAQUEUR_PULL_STRENGTH * dt)
-			local new_velocity = current_ball.velocity + pull
-			-- Camil: "ca aimante mais n'accelere pas la balle" — the
-			-- directional pull alone barely changes the ball's overall
-			-- SPEED (just its heading), which doesn't read as a magnet at
-			-- all. Also speed it up along whatever direction it's actually
-			-- travelling, same `acceleration` idea Vif's Ultra vortices use.
-			if new_velocity:length() > 0.01 then
-				new_velocity = new_velocity + new_velocity:normalized() * (dash_helpers.TRAQUEUR_PULL_ACCEL * dt)
-			end
-			return ball_state.new(current_ball.position, new_velocity, current_ball.spin, current_ball.rally_count)
+			return ball_state.new(current_ball.position, current_ball.velocity + pull, current_ball.spin, current_ball.rally_count)
 		end
 
 	local function resolve_ball_physics(current_ball)
