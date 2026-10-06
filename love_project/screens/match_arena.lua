@@ -654,6 +654,7 @@ local function new_player(side, character, controls, is_ai, max_hp, is_mook)
 		dash_boost_timer = 0.0, -- Lourd (drift) / Spreader (speed): decaying speed_multiplier boost
 		dash_boost_peak_multiplier = 1.0,
 		dash_boost_decay_time = 0.0,
+		dash_slide_direction = Vector2.ZERO, -- Lourd only: the fixed direction his "inertie de derapage" keeps sliding toward while dash_boost_timer counts down
 		dash_uncontrolled_timer = 0.0, -- Mitrailleur: forced movement, ignores player input
 		dash_uncontrolled_dir = Vector2.ZERO,
 		dash_invuln_timer = 0.0, -- Vif's jump: briefly untouchable by weapon fire
@@ -2069,12 +2070,16 @@ end
 dash_helpers.effects = {
 	-- "Super dash avec inertie de derapage" — a sharp burst of speed that
 	-- decays back to normal, same decaying-boost pattern as his own
-	-- Tourbillon recoil kick (see fire_recoil_timer's own use below) —
-	-- hard to stop on a dime right after dashing.
+	-- Tourbillon recoil kick (see fire_recoil_timer's own use below) — PLUS
+	-- a real slide: the ship keeps sliding toward dash_slide_direction
+	-- (locked in at the moment of the dash, below) fighting whatever new
+	-- input the player gives, same idea as skidding on ice — see the
+	-- speed_multiplier block's own "lourd" branch for the actual blend.
 	lourd = function(player, opponent)
 		player.dash_boost_timer = dash_helpers.LOURD_BOOST_DECAY_TIME
 		player.dash_boost_peak_multiplier = dash_helpers.LOURD_BOOST_MULTIPLIER
 		player.dash_boost_decay_time = dash_helpers.LOURD_BOOST_DECAY_TIME
+		player.dash_slide_direction = dash_helpers.facing_direction(player)
 	end,
 	-- "Invoque une raquette virtuelle en avance" — a stationary phantom
 	-- paddle placed toward the frontier, controlling a zone ahead of him.
@@ -2320,6 +2325,20 @@ local function update_player_input(player, dt)
 		-- kick just above (a BOOST, wins via max(), never stacks/multiplies).
 		local dash_fraction = player.dash_boost_timer / player.dash_boost_decay_time
 		speed_multiplier = math.max(speed_multiplier, mathx.lerp(1.0, player.dash_boost_peak_multiplier, dash_fraction))
+		if player.character.id == "lourd" then
+			-- "Inertie de derapage" (Camil, 2026-10-06, after actually testing
+			-- it: "il faut vraiment que ca glisse un peu comme s'il etait sur
+			-- une plaque de glace [...] derriere il y a cette inertie qui est
+			-- dure a gerer") — Spreader's own dash stays a plain speed boost
+			-- (steering untouched); only Lourd's locks the ship onto the
+			-- dash's own direction for a moment, fighting whatever new input
+			-- the player gives. slide_weight eases out (squared, not linear)
+			-- so the hardest-to-steer instant is right at the dash itself,
+			-- with control handed back smoothly rather than snapping.
+			local slide_weight = dash_fraction * dash_fraction
+			local desired = move_direction:length() > 0.01 and move_direction:normalized() or Vector2.ZERO
+			move_direction = desired * (1.0 - slide_weight) + player.dash_slide_direction * slide_weight
+		end
 	end
 	player.vulnerability_timer = math.max(player.vulnerability_timer - dt, 0.0)
 	player.paddle_flash_timer = math.max(player.paddle_flash_timer - dt, 0.0)
