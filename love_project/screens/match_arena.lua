@@ -2048,7 +2048,7 @@ local dash_helpers = {
 	MITRAILLEUR_CLONE_SPEED_MULTIPLIER = 2.0, -- "le clone va 2 fois plus vite"
 	VIF_JUMP_DURATION = 0.3,
 	VIF_JUMP_SPEED_MULTIPLIER = 2.0, -- "une acceleration de sa vitesse"
-	VIF_JUMP_SCALE_PEAK = 0.4, -- draw_ship()'s own zoom-in/zoom-out amount at the jump's midpoint
+	VIF_JUMP_SCALE_PEAK = 0.8, -- draw_ship()'s own zoom-in/zoom-out amount at the jump's midpoint ("le saut doit etre un peu plus haut")
 	ZONEUR_TELEPORT_DISTANCE = 180.0,
 	PERTURBATEUR_BALL_SLOW_DURATION = 0.5, -- "ralentir la balle pendant 1/2 secondes"
 	PERTURBATEUR_BALL_SLOW_FACTOR = 0.3, -- the ball advances at 30% of its real speed while this is active
@@ -2078,11 +2078,14 @@ end
 -- stationary paddle) lets Mitrailleur's own clone (below) actually travel —
 -- see update_ghost_paddles()'s own position update.
 function dash_helpers.spawn_ghost_paddle(player, position, velocity, lifetime)
+	lifetime = lifetime or dash_helpers.GHOST_PADDLE_LIFETIME
 	table.insert(ghost_paddles, {
 		position = position,
 		half_extents = SHIP_HALF_EXTENTS,
 		owner_side = player.side,
-		lifetime = lifetime or dash_helpers.GHOST_PADDLE_LIFETIME,
+		character_id = player.character.id, -- drawn as a translucent copy of the real ship art, see match_arena.draw()
+		lifetime = lifetime,
+		initial_lifetime = lifetime, -- draw()'s own fade window is relative to THIS, not a flat 0.5s — Spreader's 0.25s clones were barely visible otherwise ("on ne voit pas assez les clones")
 		velocity = velocity,
 	})
 end
@@ -3746,7 +3749,13 @@ local function update_bullets(dt)
 					or (not bullet.boomerang_returning and not bullet.boomerang_hit_outbound)
 			end
 
-			if can_hit and point_in_ship(target.ship, bullet.position) then
+			-- Vif's "Saut": while airborne (dash_invuln_timer), the ship isn't
+			-- just immune to damage — Camil, after seeing bullets still spark
+			-- and vanish on contact: "pendant le saut, les tirs adversaires
+			-- passent dessous". No collision at all, so they visibly fly
+			-- straight through/under him instead of looking "blocked".
+			local jumping = target.dash_invuln_timer and target.dash_invuln_timer > 0.0
+			if not jumping and can_hit and point_in_ship(target.ship, bullet.position) then
 				spawn_impact(bullet.position, bullet.weapon_id)
 				if bullet.is_boomerang then
 					if bullet.boomerang_returning then
@@ -4715,9 +4724,21 @@ local function update_ball_and_twist(dt)
 		-- 2026-10-06 dash feature: Traqueur's "aimant a balle" — nudges the
 		-- ball toward whichever player just dashed, for the dash's whole
 		-- duration. A gentle steering force (not a snap), so it still has
-		-- to be aimed/returned normally once it arrives.
+		-- to be aimed/returned normally once it arrives. Camil: "l'aimant ne
+		-- doit fonctionner que quand c'est au joueur de rattraper la balle
+		-- [...] une fois la balle renvoyee, l'aimant ne marche plus, jusqu'a
+		-- ce que ce soit de nouveau a lui de la renvoyer" — gated on the
+		-- ball actually being on his own side (same check the AI's own
+		-- ball_on_my_side uses), not just the timer: the instant he returns
+		-- it, the pull stops, even mid-timer, and only resumes if the ball
+		-- somehow comes back to his side before the timer runs out.
 		local function apply_ball_magnet(current_ball, player)
 			if player.dash_pull_timer <= 0.0 then
+				return current_ball
+			end
+			local ball_on_his_side = player.side == 0 and current_ball.position.x < current_frontier_x
+				or (player.side == 1 and current_ball.position.x > current_frontier_x)
+			if not ball_on_his_side then
 				return current_ball
 			end
 			local to_player = player.ship.position - current_ball.position
@@ -5273,15 +5294,27 @@ function match_arena.draw()
 		end
 	end
 
-	-- 2026-10-06 dash feature: Contrôleur's phantom paddle / Perturbateur's
-	-- mirror decoy — a translucent, pulsing outline in its owner's own side
-	-- color (not the real ship art) so it unmistakably reads as "not a real
-	-- ship", fading out over its last half-second before it expires.
+	-- 2026-10-06 dash feature: Contrôleur's phantom paddle / Mitrailleur's &
+	-- Spreader's thrown clones — Camil: "au niveau affichage, on avait dit
+	-- un truc, non ?" → "sprite du perso en transparent", not a generic
+	-- colored outline. Drawn as the owner's own real ship art, translucent
+	-- and gently pulsing, fading out over its last 0.5s (or its whole
+	-- lifetime if shorter — Spreader's 0.25s clones were nearly invisible
+	-- the entire time under a flat 0.5s window: "on ne voit pas assez les
+	-- clones") before it expires — reads as "a ghost of him", not an
+	-- abstract hitbox. A colored outline rides alongside the sprite for
+	-- extra contrast/pop against busy backgrounds.
 	for _, ghost in ipairs(ghost_paddles) do
+		local art = assets.characters[ghost.character_id]
+		local fade_window = math.min(0.5, ghost.initial_lifetime)
+		local fade = mathx.clampf(ghost.lifetime / fade_window, 0.0, 1.0)
+		local pulse = 0.75 + 0.2 * math.sin(love.timer.getTime() * 10.0)
 		local color = SIDE_COLOR[ghost.owner_side]
-		local fade = mathx.clampf(ghost.lifetime / 0.5, 0.0, 1.0)
-		local pulse = 0.6 + 0.2 * math.sin(love.timer.getTime() * 6.0)
-		love.graphics.setColor(color[1], color[2], color[3], pulse * fade)
+		if art and art.ship then
+			love.graphics.setColor(1.0, 1.0, 1.0, pulse * fade)
+			draw_utils.draw_stretched(art.ship, ghost.position.x, ghost.position.y, ghost.half_extents.x * 2.0, ghost.half_extents.y * 2.0)
+		end
+		love.graphics.setColor(color[1], color[2], color[3], pulse * fade * 0.9)
 		love.graphics.setLineWidth(3.0)
 		love.graphics.rectangle(
 			"line",
