@@ -479,6 +479,14 @@ local escape_prev = false
 -- match_arena.enter(), both defined earlier in this file, can reset its
 -- mutable shake_* fields between rounds/matches.
 local feedback_fx = {
+	-- Perturbateur's dash ("ralentir la balle pendant 1/2 secondes") — not
+	-- really a "feedback" value, but start_new_round()/enter() (both defined
+	-- textually before dash_helpers exists) need to reset it between rounds,
+	-- same reason ship_explosion_helpers below sits where it does rather
+	-- than folded into UT; stashed here instead of a new top-level local
+	-- (the 200-local ceiling). The mutable timer itself lives as the
+	-- ball_slow_timer field below; this is just its initial value.
+	ball_slow_timer = 0.0,
 	PADDLE_FLASH_DURATION = 0.15,
 	-- 2026-10-05 playtest: "les secousses sur un coup recu ne se sentent
 	-- pas" — most real weapon hits are small (machine_gun=2, mini_shot=3),
@@ -655,8 +663,8 @@ local function new_player(side, character, controls, is_ai, max_hp, is_mook)
 		dash_boost_peak_multiplier = 1.0,
 		dash_boost_decay_time = 0.0,
 		dash_slide_direction = Vector2.ZERO, -- Lourd only: the fixed direction his "inertie de derapage" keeps sliding toward while dash_boost_timer counts down
-		dash_uncontrolled_timer = 0.0, -- Mitrailleur: forced movement, ignores player input
-		dash_uncontrolled_dir = Vector2.ZERO,
+		dash_jump_timer = 0.0, -- Vif: forced movement + visual zoom for the jump's whole duration
+		dash_jump_duration = 0.0,
 		dash_invuln_timer = 0.0, -- Vif's jump: briefly untouchable by weapon fire
 		dash_pull_timer = 0.0, -- Traqueur: pulls the ball toward him for a moment
 
@@ -851,6 +859,7 @@ local function start_new_round(loser_side)
 	gauge_fill_effects = {} -- ball-miss travel effect (gauge_fill_effect_node.gd)
 	heal_fx = {} -- Spreader's cosmetic orbiting-bonbon flourish (passive_heal_fx_node.gd)
 	push_pending = false
+	feedback_fx.ball_slow_timer = 0.0
 	reset_round_twist_state()
 	feedback_fx.shake_timer, feedback_fx.shake_duration, feedback_fx.shake_magnitude = 0.0, 0.0, 0.0
 	begin_round_ready_gate(loser_side)
@@ -909,6 +918,7 @@ function match_arena.enter()
 	gauge_fill_effects = {}
 	heal_fx = {}
 	push_pending = false
+	feedback_fx.ball_slow_timer = 0.0
 	reset_round_twist_state()
 
 	decoy = nil
@@ -2026,16 +2036,24 @@ local dash_helpers = {
 	COOLDOWN = 2.0, -- "on part sur 2 secondes pour l'instant, a ajuster"
 	LOURD_BOOST_MULTIPLIER = 2.2,
 	LOURD_BOOST_DECAY_TIME = 0.5, -- also the full hard-lock duration — "verrouiler la direction de LOURD" (Camil: 1.0s felt too long, settled on 0.5s)
-	SPREADER_BOOST_MULTIPLIER = 1.8,
-	SPREADER_BOOST_DECAY_TIME = 1.6,
-	MITRAILLEUR_UNCONTROLLED_DURATION = 0.5,
-	MITRAILLEUR_UNCONTROLLED_SPEED_MULTIPLIER = 2.6,
-	VIF_HOP_DISTANCE = 90.0,
-	VIF_INVULN_DURATION = 0.35,
+	SPREADER_CLONE_LIFETIME = 0.25,
+	SPREADER_CLONE_SPEED_MULTIPLIER = 2.0,
+	DIAGONALS = {
+		Vector2.new(0.70710678, -0.70710678),
+		Vector2.new(0.70710678, 0.70710678),
+		Vector2.new(-0.70710678, -0.70710678),
+		Vector2.new(-0.70710678, 0.70710678),
+	},
+	MITRAILLEUR_CLONE_LIFETIME = 0.5,
+	MITRAILLEUR_CLONE_SPEED_MULTIPLIER = 2.0, -- "le clone va 2 fois plus vite"
+	VIF_JUMP_DURATION = 0.3,
+	VIF_JUMP_SPEED_MULTIPLIER = 2.0, -- "une acceleration de sa vitesse"
+	VIF_JUMP_SCALE_PEAK = 0.4, -- draw_ship()'s own zoom-in/zoom-out amount at the jump's midpoint
 	ZONEUR_TELEPORT_DISTANCE = 180.0,
-	PERTURBATEUR_DASH_DISTANCE = 130.0,
+	PERTURBATEUR_BALL_SLOW_DURATION = 0.5, -- "ralentir la balle pendant 1/2 secondes"
+	PERTURBATEUR_BALL_SLOW_FACTOR = 0.3, -- the ball advances at 30% of its real speed while this is active
 	TRAQUEUR_PULL_DURATION = 0.8,
-	TRAQUEUR_PULL_STRENGTH = 260.0, -- px/s of velocity nudged toward the player per second
+	TRAQUEUR_PULL_STRENGTH = 520.0, -- px/s of velocity nudged toward the player per second ("l'aimant n'est pas assez fort, x2")
 	GHOST_PADDLE_LIFETIME = 3.0,
 }
 
@@ -2055,14 +2073,17 @@ end
 
 -- Contrôleur's phantom paddle AND Perturbateur's mirror decoy are the same
 -- underlying entity (see update_ghost_paddles()/the ball-bounce check in
--- update_ball_and_twist()) — a stationary, non-damaging hitbox that can
--- return the ball exactly once before it expires, then vanishes.
-function dash_helpers.spawn_ghost_paddle(player, position)
+-- update_ball_and_twist()) — a non-damaging hitbox that can return the ball
+-- exactly once before it expires, then vanishes. `velocity` (nil for a
+-- stationary paddle) lets Mitrailleur's own clone (below) actually travel —
+-- see update_ghost_paddles()'s own position update.
+function dash_helpers.spawn_ghost_paddle(player, position, velocity, lifetime)
 	table.insert(ghost_paddles, {
 		position = position,
 		half_extents = SHIP_HALF_EXTENTS,
 		owner_side = player.side,
-		lifetime = dash_helpers.GHOST_PADDLE_LIFETIME,
+		lifetime = lifetime or dash_helpers.GHOST_PADDLE_LIFETIME,
+		velocity = velocity,
 	})
 end
 
@@ -2091,30 +2112,45 @@ dash_helpers.effects = {
 	-- forced movement in one direction, ignoring player input, bouncing off
 	-- the arena's own bounds (and the frontier) for its whole duration —
 	-- see the wall-bounce check right after ship_state.update() below.
+	-- 2026-10-06, Camil (after disliking the original uncontrollable-ship
+	-- version): "fais lui lancer un clone de lui-meme qui part dans la
+	-- direction souhaitee et fade au bout d'1/2 seconde. le clone va 2 fois
+	-- plus vite et n'est pas controlable." The real ship stays under full
+	-- player control the whole time — only the thrown clone is the
+	-- uncontrollable part, reusing the ghost_paddle entity (a real
+	-- paddle-style ball bounce) but given a velocity instead of sitting
+	-- still, see update_ghost_paddles()'s own position update.
 	mitrailleur = function(player, opponent)
-		player.dash_uncontrolled_timer = dash_helpers.MITRAILLEUR_UNCONTROLLED_DURATION
-		player.dash_uncontrolled_dir = dash_helpers.facing_direction(player)
-	end,
-	-- "Saut" — a quick hop plus a brief window of being untouchable by
-	-- weapon fire (see apply_damage_and_check_round()'s own early-out) —
-	-- "attaques surprises ou rattrapages in extremis".
-	vif = function(player, opponent)
 		local dir = dash_helpers.facing_direction(player)
-		player.ship = ship_state.knocked_back(player.ship, dir * dash_helpers.VIF_HOP_DISTANCE, current_arena_bounds, current_frontier_x)
-		player.dash_invuln_timer = dash_helpers.VIF_INVULN_DURATION
+		local velocity = dir * (ship_state.SPEED * dash_helpers.MITRAILLEUR_CLONE_SPEED_MULTIPLIER)
+		dash_helpers.spawn_ghost_paddle(player, player.ship.position, velocity, dash_helpers.MITRAILLEUR_CLONE_LIFETIME)
+	end,
+	-- "Saut" — Camil, after the first version read as "une teleportation
+	-- ratee": "on devrait faire vraiment un saut, avec le vaisseau qui zoome
+	-- et dezoome, comme s'il sautait vraiment (et une acceleration de sa
+	-- vitesse)". Now a real timed forced-movement burst (like Lourd's own
+	-- direction lock) instead of an instant position snap, paired with a
+	-- visual scale pulse in draw_ship() and invulnerability for exactly the
+	-- jump's duration — "attaques surprises ou rattrapages in extremis".
+	vif = function(player, opponent)
+		player.dash_jump_timer = dash_helpers.VIF_JUMP_DURATION
+		player.dash_jump_duration = dash_helpers.VIF_JUMP_DURATION
+		player.dash_slide_direction = dash_helpers.facing_direction(player)
+		player.dash_invuln_timer = dash_helpers.VIF_JUMP_DURATION
 	end,
 	-- "Teleportation" — an instant blink, no slide, no animation arc.
 	zoneur = function(player, opponent)
 		local dir = dash_helpers.facing_direction(player)
 		player.ship = ship_state.knocked_back(player.ship, dir * dash_helpers.ZONEUR_TELEPORT_DISTANCE, current_arena_bounds, current_frontier_x)
 	end,
-	-- "Dash miroir (laisse un leurre)" — moves a short distance and leaves
-	-- a ghost_paddle (same system as Contrôleur's) at the spot he just left.
+	-- 2026-10-06, Camil (after disliking the mirror-dash-plus-leurre
+	-- version, which read as unclear): "on pourrait le faire ralentir la
+	-- balle pendant 1/2 secondes" — a global slow-motion window on the ball
+	-- itself (see ball_slow_timer/resolve_ball_physics()), matching his own
+	-- "perturbateur" theme (messing with the match's own rules, same spirit
+	-- as his Ultra "Brouillage de commandes").
 	perturbateur = function(player, opponent)
-		local old_position = player.ship.position
-		local dir = dash_helpers.facing_direction(player)
-		player.ship = ship_state.knocked_back(player.ship, dir * dash_helpers.PERTURBATEUR_DASH_DISTANCE, current_arena_bounds, current_frontier_x)
-		dash_helpers.spawn_ghost_paddle(player, old_position)
+		feedback_fx.ball_slow_timer = dash_helpers.PERTURBATEUR_BALL_SLOW_DURATION
 	end,
 	-- "Aimant a balle" — the ball (if it's a real ball match, not a mini-jeu)
 	-- gets nudged toward him for a short while — see the pull applied in
@@ -2122,12 +2158,17 @@ dash_helpers.effects = {
 	missiles = function(player, opponent)
 		player.dash_pull_timer = dash_helpers.TRAQUEUR_PULL_DURATION
 	end,
-	-- "Augmentation de rapidite" — a simple, longer-lasting speed buff
-	-- (same decaying-boost mechanism as Lourd's, just gentler/longer).
+	-- 2026-10-06, Camil (after disliking the plain speed-buff version):
+	-- "spreader c'est pas dingue. On va rester dans le mood de spreader. Je
+	-- pensais lancer des mini clones de lui dans 4 directions (les
+	-- diagonales) sur 1/4 de secondes" — matches his own fan-shot weapon's
+	-- spread pattern. Four short-lived, fast clones (same thrown-ghost_paddle
+	-- mechanism as Mitrailleur's own single clone), one per diagonal.
 	mini = function(player, opponent)
-		player.dash_boost_timer = dash_helpers.SPREADER_BOOST_DECAY_TIME
-		player.dash_boost_peak_multiplier = dash_helpers.SPREADER_BOOST_MULTIPLIER
-		player.dash_boost_decay_time = dash_helpers.SPREADER_BOOST_DECAY_TIME
+		local speed = ship_state.SPEED * dash_helpers.SPREADER_CLONE_SPEED_MULTIPLIER
+		for _, dir in ipairs(dash_helpers.DIAGONALS) do
+			dash_helpers.spawn_ghost_paddle(player, player.ship.position, dir * speed, dash_helpers.SPREADER_CLONE_LIFETIME)
+		end
 	end,
 }
 
@@ -2349,44 +2390,20 @@ local function update_player_input(player, dt)
 	-- (ship_node.gd: `speed_multiplier *= _passive_speed_multiplier`).
 	speed_multiplier = speed_multiplier * passive_state[player.side + 1].speed_multiplier
 
-	-- Mitrailleur's dash: forced movement for its whole duration, ignoring
-	-- whatever the player/AI actually asked for this frame.
-	if player.dash_uncontrolled_timer > 0.0 then
-		move_direction = player.dash_uncontrolled_dir
-		speed_multiplier = math.max(speed_multiplier, dash_helpers.MITRAILLEUR_UNCONTROLLED_SPEED_MULTIPLIER)
+	-- Vif's "saut": forced movement in the locked direction for the jump's
+	-- whole duration, same hard-override idea as Lourd's own dash — see
+	-- draw_ship() for the paired zoom-in/zoom-out visual.
+	if player.dash_jump_timer > 0.0 then
+		move_direction = player.dash_slide_direction
+		speed_multiplier = math.max(speed_multiplier, dash_helpers.VIF_JUMP_SPEED_MULTIPLIER)
 	end
+	player.dash_jump_timer = math.max(player.dash_jump_timer - dt, 0.0)
 
 	player.last_input_direction = move_direction -- reused for the ball-return aim, see match_arena.update()
 	if move_direction:length() > 0.01 then
 		player.last_move_direction = move_direction -- Perturbateur's boomerang throw-arc side
 	end
 	player.ship = ship_state.update(player.ship, move_direction, dt, current_arena_bounds, current_frontier_x, speed_multiplier)
-
-	if player.dash_uncontrolled_timer > 0.0 then
-		-- "Rebondit contre les murs": ship_state.update() always clamps the
-		-- new position back inside this player's own half, so comparing
-		-- the post-clamp position's axis to where it would have landed
-		-- un-clamped tells us whether that axis just hit a wall — flip it,
-		-- same idea as a real ball bounce, for the rest of the dash.
-		local half = player.ship.half_extents
-		local min_y = current_arena_bounds.position.y + half.y
-		local max_y = current_arena_bounds.position.y + current_arena_bounds.size.y - half.y
-		if player.ship.position.y <= min_y + 0.01 or player.ship.position.y >= max_y - 0.01 then
-			player.dash_uncontrolled_dir = Vector2.new(player.dash_uncontrolled_dir.x, -player.dash_uncontrolled_dir.y)
-		end
-		local min_x, max_x
-		if player.side == 0 then
-			min_x = current_arena_bounds.position.x + half.x
-			max_x = current_frontier_x - ship_state.NEUTRAL_ZONE_HALF_WIDTH - half.x
-		else
-			min_x = current_frontier_x + ship_state.NEUTRAL_ZONE_HALF_WIDTH + half.x
-			max_x = current_arena_bounds.position.x + current_arena_bounds.size.x - half.x
-		end
-		if player.ship.position.x <= min_x + 0.01 or player.ship.position.x >= max_x - 0.01 then
-			player.dash_uncontrolled_dir = Vector2.new(-player.dash_uncontrolled_dir.x, player.dash_uncontrolled_dir.y)
-		end
-	end
-	player.dash_uncontrolled_timer = math.max(player.dash_uncontrolled_timer - dt, 0.0)
 
 	if charge_capable and is_charging then
 		-- normal fire suspended while actively charging (past the grace window)
@@ -3765,6 +3782,11 @@ local function update_ghost_paddles(dt)
 	local i = 1
 	while i <= #ghost_paddles do
 		local ghost = ghost_paddles[i]
+		if ghost.velocity then
+			-- Mitrailleur's thrown clone — the only moving ghost_paddle; a
+			-- stationary one (Contrôleur's/Perturbateur's) has no velocity set.
+			ghost.position = ghost.position + ghost.velocity * dt
+		end
 		ghost.lifetime = ghost.lifetime - dt
 		if ghost.lifetime <= 0.0 then
 			table.remove(ghost_paddles, i)
@@ -4709,7 +4731,12 @@ local function update_ball_and_twist(dt)
 	local function resolve_ball_physics(current_ball)
 		current_ball = apply_ball_magnet(current_ball, p1)
 		current_ball = apply_ball_magnet(current_ball, p2)
-		current_ball = ball_state.update(current_ball, dt)
+		-- Perturbateur's dash: "ralentir la balle pendant 1/2 secondes" — a
+		-- slow-motion window on the ball itself (every ball, including
+		-- multi_ball extras), not a speed change stored on the ball — it
+		-- simply advances less per real frame while ball_slow_timer runs.
+		local ball_dt = feedback_fx.ball_slow_timer > 0.0 and dt * dash_helpers.PERTURBATEUR_BALL_SLOW_FACTOR or dt
+		current_ball = ball_state.update(current_ball, ball_dt)
 
 		local min_y = current_arena_bounds.position.y + ball_state.RADIUS
 		local max_y = current_arena_bounds.position.y + current_arena_bounds.size.y - ball_state.RADIUS
@@ -4826,6 +4853,7 @@ local function update_ball_and_twist(dt)
 	for _, turret in ipairs(turrets) do
 		turret.bounce_cooldown = math.max(turret.bounce_cooldown - dt, 0.0)
 	end
+	feedback_fx.ball_slow_timer = math.max(feedback_fx.ball_slow_timer - dt, 0.0) -- Perturbateur's dash — ticked once per frame here, not inside resolve_ball_physics (which runs once per ball, including multi_ball extras)
 
 	local missed_side
 	ball, missed_side = resolve_ball_physics(ball)
@@ -4959,13 +4987,22 @@ local function draw_ship(player)
 	-- look, in-game AND on the Ultra intro slot (draw_ultra_intro() below).
 	local art = boss_helpers.is_ship(player) and assets.organisateur or assets.characters[player.character.id]
 	local r, g, b = ship_tint(player)
+	-- Vif's "saut": a visual-only zoom-in/zoom-out pulse over the jump's
+	-- duration (peaks at the midpoint, back to 1.0 at takeoff/landing) — the
+	-- hitbox itself (ship.half_extents) is untouched, only the drawn size.
+	local jump_scale = 1.0
+	if player.dash_jump_timer > 0.0 and player.dash_jump_duration > 0.0 then
+		local elapsed_fraction = 1.0 - player.dash_jump_timer / player.dash_jump_duration
+		jump_scale = 1.0 + dash_helpers.VIF_JUMP_SCALE_PEAK * math.sin(math.pi * elapsed_fraction)
+	end
+	local draw_w, draw_h = ship.half_extents.x * 2.0 * jump_scale, ship.half_extents.y * 2.0 * jump_scale
 	if art and art.ship then
 		love.graphics.setColor(r, g, b)
-		draw_utils.draw_stretched(art.ship, ship.position.x, ship.position.y, ship.half_extents.x * 2.0, ship.half_extents.y * 2.0)
+		draw_utils.draw_stretched(art.ship, ship.position.x, ship.position.y, draw_w, draw_h)
 	else
 		local color = SIDE_COLOR[ship.side]
 		love.graphics.setColor(color[1] * r, color[2] * g, color[3] * b)
-		love.graphics.rectangle("fill", ship_rect(ship))
+		love.graphics.rectangle("fill", ship.position.x - draw_w / 2.0, ship.position.y - draw_h / 2.0, draw_w, draw_h)
 	end
 end
 
