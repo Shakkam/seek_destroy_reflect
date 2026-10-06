@@ -21,8 +21,14 @@ ball_state.BASE_SPEED = 418.0 -- +10% (2026-08-01 playtest feedback: felt a bit 
 -- a long rally eventually unreturnable/unreadable, so this caps it at a
 -- clean 2x the base serve speed (returned() below clamps to it).
 ball_state.RADIUS = 10.0 * 1.5
-ball_state.SPEED_INCREMENT_PER_RETURN = 18.0 * 1.5 -- Story 1.3 — ball speeds up slightly each rally exchange
-ball_state.MAX_SPEED = ball_state.BASE_SPEED * 2.0
+-- 2026-10-06 (Floppy's playtest, relayed by Camil: "il faut augmenter
+-- l'acceleration de la balle a chaque rebond [...] le chaos n'arrive pas
+-- assez vite") — doubled again on top of yesterday's x1.5 (effectively
+-- x3 the original 18.0). MAX_SPEED raised a bit too so the ramp has more
+-- room to climb before hard-capping, even though it's now reached sooner
+-- (a rally hits the ceiling in ~8 returns now, was ~15).
+ball_state.SPEED_INCREMENT_PER_RETURN = 18.0 * 1.5 * 2.0 -- Story 1.3 — ball speeds up slightly each rally exchange
+ball_state.MAX_SPEED = ball_state.BASE_SPEED * 2.2
 ball_state.SPIN_STRENGTH = 2.0 -- rad/s of curvature at full (100%) lift charge
 ball_state.SPIN_DECAY = 1.0 -- rad/s^2 — spin fades out over the flight instead of curving forever
 ball_state.MAX_SPIN_ANGLE_FROM_HORIZONTAL_RAD = mathx.deg_to_rad(70.0) -- 2026-08-14 bug fix: clamp keeps at least 20 degrees of margin from straight-up/down at all times

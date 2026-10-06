@@ -19,7 +19,11 @@ weapon_system_state.MISS_GAUGE_FILL = 50.0 -- Story 1.6 — playtest-tuned down 
 -- per opponent miss, consumed entirely when the ultra triggers. Named
 -- "Ultra" not "Super" — collides with the GDD's existing "arme 'super'"
 -- weapon-tier naming otherwise.
-weapon_system_state.ULTRA_METER_MAX = 5
+-- 2026-10-06 (Floppy's playtest, relayed by Camil: "l'ulti devrait se
+-- debloquer a 3 balles ratees au lieu de 5, histoire de le voir plus
+-- souvent") — the "5 balles" name above is now a bit stale (left as
+-- historical context, not worth rewriting every comment that quotes it).
+weapon_system_state.ULTRA_METER_MAX = 3
 
 function weapon_system_state.new(kit, start_selected)
 	local gauges, heats = {}, {}

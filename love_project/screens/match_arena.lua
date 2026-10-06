@@ -383,8 +383,13 @@ local SIDE_COLOR = {
 -- le lift, X pour le tir, B pour l'ultra", pause menu on Start instead of
 -- B/back since B is now Ultra — see open_pause_menu()'s own poll below):
 -- X = fire, A = lift, B = ultra.
-local P1_CONTROLS = { up = "w", down = "s", left = "a", right = "d", fire = "space", lift = { "lshift", "rshift" }, ultra = "e", fire_button = "x", lift_button = "a", ultra_button = "b" }
-local P2_CONTROLS = { up = "up", down = "down", left = "left", right = "right", fire = "return", lift = "rctrl", ultra = "kpenter", fire_button = "x", lift_button = "a", ultra_button = "b" }
+-- 2026-10-06 (Floppy's playtest, relayed by Camil: "puisque tu as encore
+-- des boutons qui ne font rien, je rajouterais bien un petit dash") — Q
+-- (next to WASD) for P1, "/" (next to the arrow cluster) for P2, Y on
+-- both gamepads (the one face button still free). See dash_helpers.effects/
+-- update_dash() for the actual per-character behavior.
+local P1_CONTROLS = { up = "w", down = "s", left = "a", right = "d", fire = "space", lift = { "lshift", "rshift" }, ultra = "e", dash = "q", fire_button = "x", lift_button = "a", ultra_button = "b", dash_button = "y" }
+local P2_CONTROLS = { up = "up", down = "down", left = "left", right = "right", fire = "return", lift = "rctrl", ultra = "kpenter", dash = "/", fire_button = "x", lift_button = "a", ultra_button = "b", dash_button = "y" }
 
 -- A control binding can be a single scancode string, or (P1's lift, above)
 -- a list of alternatives — true if ANY of them (or the given gamepad
@@ -441,6 +446,7 @@ local serve_freeze_elapsed
 local extra_balls = {}
 
 local bullets, impacts, beams, turrets, fire_trails, missile_strikes, black_holes, laser_meshes, wind_gusts, floating_texts, gauge_fill_effects, heal_fx
+local ghost_paddles -- Contrôleur's/Perturbateur's dash: temporary stationary paddle-like hitboxes (see dash_helpers.effects/update_ghost_paddles())
 
 -- Epic 4 reward system: unlike every other entity list above, this is
 -- match-persistent, not round-persistent — built once in match_arena.
@@ -636,6 +642,23 @@ local function new_player(side, character, controls, is_ai, max_hp, is_mook)
 		boss_simultaneous_fire_indices = {}, -- Epic boss: extra kit-slot indices that fire for free alongside the selected weapon's own normal shot, from phase 2/3 onward — see boss_helpers.setup_ship()/update_phases()
 		exploded_hidden = false, -- set true once this ship's own death explosion finishes (see ship_explosion_helpers.update_explosion()) — draw_ship() skips it from then on
 
+		-- 2026-10-06 (Floppy's playtest, relayed by Camil: "je rajouterais
+		-- bien un petit dash [...] si ce dash est specifique a chaque perso,
+		-- c'est le pied") — one button, one cooldown, 8 completely different
+		-- effects (see dash_helpers.effects/update_dash()). Fields below are shared
+		-- generic-purpose state reused by whichever effect the player's own
+		-- character actually has — never more than one is meaningful per
+		-- character, so there's no need for 8 separate field sets.
+		dash_prev = false, -- edge-detects the dash key/button
+		dash_cooldown_timer = 0.0, -- 0 = ready; see dash_helpers.COOLDOWN
+		dash_boost_timer = 0.0, -- Lourd (drift) / Spreader (speed): decaying speed_multiplier boost
+		dash_boost_peak_multiplier = 1.0,
+		dash_boost_decay_time = 0.0,
+		dash_uncontrolled_timer = 0.0, -- Mitrailleur: forced movement, ignores player input
+		dash_uncontrolled_dir = Vector2.ZERO,
+		dash_invuln_timer = 0.0, -- Vif's jump: briefly untouchable by weapon fire
+		dash_pull_timer = 0.0, -- Traqueur: pulls the ball toward him for a moment
+
 		-- ship_node.gd's real AI (see AI_TUNING's own doc comment).
 		ai_is_mook = is_mook or false,
 		ai_vertical_dir = 0.0, -- persists between frames — hysteresis avoids jittery on/off "freeze"
@@ -817,6 +840,7 @@ local function start_new_round(loser_side)
 	bullets = {} -- `impacts` is left alone so the round-ending hit's own flash still plays out
 	beams = {} -- a beam's `player` reference would otherwise go stale (new_player() swaps in a fresh table)
 	turrets = {} -- turrets/projectiles/beams don't survive a round boundary (match_arena_node.gd's _clear_round_entities())
+	ghost_paddles = {} -- Contrôleur's/Perturbateur's dash
 	fire_trails = {} -- Perturbateur's charged Boomerang de Feu puddles
 	missile_strikes = {} -- Lourd's Ultra "Pluie de Scuds"
 	black_holes = {} -- Contrôleur's Ultra "Trou noir"
@@ -874,6 +898,7 @@ function match_arena.enter()
 	ship_explosion_helpers.round = nil
 	beams = {}
 	turrets = {}
+	ghost_paddles = {}
 	fire_trails = {}
 	missile_strikes = {}
 	black_holes = {}
@@ -1988,6 +2013,121 @@ function ai_helpers.read_input(player)
 	return Vector2.new(player.ai_horizontal_dir, player.ai_vertical_dir)
 end
 
+-- 2026-10-06 (Floppy's playtest, relayed by Camil: "je rajouterais bien un
+-- petit dash [...] si ce dash est specifique a chaque perso, c'est le
+-- pied") — one shared cooldown-gated button, 8 completely different
+-- effects, one per character (dash_helpers.effects below), picked with Camil one
+-- character at a time. AI doesn't use it (a human-only "new button" ask;
+-- can be revisited if AI dash usage is ever requested).
+-- 2026-10-06 dash feature — one table (not several top-level locals), same
+-- 200-local-ceiling convention as UT/boss_helpers/ai_helpers/feedback_fx.
+local dash_helpers = {
+	COOLDOWN = 2.0, -- "on part sur 2 secondes pour l'instant, a ajuster"
+	LOURD_BOOST_MULTIPLIER = 2.2,
+	LOURD_BOOST_DECAY_TIME = 0.45,
+	SPREADER_BOOST_MULTIPLIER = 1.8,
+	SPREADER_BOOST_DECAY_TIME = 1.6,
+	MITRAILLEUR_UNCONTROLLED_DURATION = 0.5,
+	MITRAILLEUR_UNCONTROLLED_SPEED_MULTIPLIER = 2.6,
+	VIF_HOP_DISTANCE = 90.0,
+	VIF_INVULN_DURATION = 0.35,
+	ZONEUR_TELEPORT_DISTANCE = 180.0,
+	PERTURBATEUR_DASH_DISTANCE = 130.0,
+	TRAQUEUR_PULL_DURATION = 0.8,
+	TRAQUEUR_PULL_STRENGTH = 260.0, -- px/s of velocity nudged toward the player per second
+	GHOST_PADDLE_LIFETIME = 3.0,
+	GHOST_PADDLE_AHEAD_OFFSET = 220.0, -- Contrôleur: how far toward the frontier the phantom spawns
+}
+
+-- Which way a position-based dash (hop/teleport/mirror-dash) should go:
+-- whatever direction is currently held, else the last real direction moved,
+-- else a sane default (up) rather than never moving at all on the very
+-- first frame of a match.
+function dash_helpers.facing_direction(player)
+	if player.last_input_direction:length() > 0.01 then
+		return player.last_input_direction:normalized()
+	end
+	if player.last_move_direction:length() > 0.01 then
+		return player.last_move_direction:normalized()
+	end
+	return Vector2.new(0.0, -1.0)
+end
+
+-- Contrôleur's phantom paddle AND Perturbateur's mirror decoy are the same
+-- underlying entity (see update_ghost_paddles()/the ball-bounce check in
+-- update_ball_and_twist()) — a stationary, non-damaging hitbox that can
+-- return the ball exactly once before it expires, then vanishes.
+function dash_helpers.spawn_ghost_paddle(player, position)
+	table.insert(ghost_paddles, {
+		position = position,
+		half_extents = SHIP_HALF_EXTENTS,
+		owner_side = player.side,
+		lifetime = dash_helpers.GHOST_PADDLE_LIFETIME,
+	})
+end
+
+dash_helpers.effects = {
+	-- "Super dash avec inertie de derapage" — a sharp burst of speed that
+	-- decays back to normal, same decaying-boost pattern as his own
+	-- Tourbillon recoil kick (see fire_recoil_timer's own use below) —
+	-- hard to stop on a dime right after dashing.
+	lourd = function(player, opponent)
+		player.dash_boost_timer = dash_helpers.LOURD_BOOST_DECAY_TIME
+		player.dash_boost_peak_multiplier = dash_helpers.LOURD_BOOST_MULTIPLIER
+		player.dash_boost_decay_time = dash_helpers.LOURD_BOOST_DECAY_TIME
+	end,
+	-- "Invoque une raquette virtuelle en avance" — a stationary phantom
+	-- paddle placed toward the frontier, controlling a zone ahead of him.
+	controleur = function(player, opponent)
+		local ahead_x = player.side == 0
+			and (player.ship.position.x + dash_helpers.GHOST_PADDLE_AHEAD_OFFSET)
+			or (player.ship.position.x - dash_helpers.GHOST_PADDLE_AHEAD_OFFSET)
+		dash_helpers.spawn_ghost_paddle(player, Vector2.new(ahead_x, player.ship.position.y))
+	end,
+	-- "Ultra dash incontrolable ou la raquette rebondit contre les murs" —
+	-- forced movement in one direction, ignoring player input, bouncing off
+	-- the arena's own bounds (and the frontier) for its whole duration —
+	-- see the wall-bounce check right after ship_state.update() below.
+	mitrailleur = function(player, opponent)
+		player.dash_uncontrolled_timer = dash_helpers.MITRAILLEUR_UNCONTROLLED_DURATION
+		player.dash_uncontrolled_dir = dash_helpers.facing_direction(player)
+	end,
+	-- "Saut" — a quick hop plus a brief window of being untouchable by
+	-- weapon fire (see apply_damage_and_check_round()'s own early-out) —
+	-- "attaques surprises ou rattrapages in extremis".
+	vif = function(player, opponent)
+		local dir = dash_helpers.facing_direction(player)
+		player.ship = ship_state.knocked_back(player.ship, dir * dash_helpers.VIF_HOP_DISTANCE, current_arena_bounds, current_frontier_x)
+		player.dash_invuln_timer = dash_helpers.VIF_INVULN_DURATION
+	end,
+	-- "Teleportation" — an instant blink, no slide, no animation arc.
+	zoneur = function(player, opponent)
+		local dir = dash_helpers.facing_direction(player)
+		player.ship = ship_state.knocked_back(player.ship, dir * dash_helpers.ZONEUR_TELEPORT_DISTANCE, current_arena_bounds, current_frontier_x)
+	end,
+	-- "Dash miroir (laisse un leurre)" — moves a short distance and leaves
+	-- a ghost_paddle (same system as Contrôleur's) at the spot he just left.
+	perturbateur = function(player, opponent)
+		local old_position = player.ship.position
+		local dir = dash_helpers.facing_direction(player)
+		player.ship = ship_state.knocked_back(player.ship, dir * dash_helpers.PERTURBATEUR_DASH_DISTANCE, current_arena_bounds, current_frontier_x)
+		dash_helpers.spawn_ghost_paddle(player, old_position)
+	end,
+	-- "Aimant a balle" — the ball (if it's a real ball match, not a mini-jeu)
+	-- gets nudged toward him for a short while — see the pull applied in
+	-- update_ball_and_twist()'s resolve_ball_physics().
+	missiles = function(player, opponent)
+		player.dash_pull_timer = dash_helpers.TRAQUEUR_PULL_DURATION
+	end,
+	-- "Augmentation de rapidite" — a simple, longer-lasting speed buff
+	-- (same decaying-boost mechanism as Lourd's, just gentler/longer).
+	mini = function(player, opponent)
+		player.dash_boost_timer = dash_helpers.SPREADER_BOOST_DECAY_TIME
+		player.dash_boost_peak_multiplier = dash_helpers.SPREADER_BOOST_MULTIPLIER
+		player.dash_boost_decay_time = dash_helpers.SPREADER_BOOST_DECAY_TIME
+	end,
+}
+
 local function update_player_input(player, dt)
 	local lift_held = false
 	local firing
@@ -2023,6 +2163,20 @@ local function update_player_input(player, dt)
 		lift_held = is_binding_down(player.controls.lift, joystick, player.controls.lift_button)
 		firing = love.keyboard.isScancodeDown(player.controls.fire) or input.button_down(joystick, player.controls.fire_button)
 		move_direction = input_direction(player.controls, joystick)
+
+		-- Dash: edge-triggered, gated by its own cooldown — human-only (no
+		-- AI usage yet). player.controls.dash is nil for a boss/mook's own
+		-- CONTROLS table reuse quirk? No — both P1_CONTROLS/P2_CONTROLS
+		-- always define it, so this is just the ordinary cooldown gate.
+		local dash_pressed = love.keyboard.isScancodeDown(player.controls.dash) or input.button_down(joystick, player.controls.dash_button)
+		if dash_pressed and not player.dash_prev and player.dash_cooldown_timer <= 0.0 then
+			local effect = dash_helpers.effects[player.character.id]
+			if effect then
+				effect(player, opponent_of(player.side))
+				player.dash_cooldown_timer = dash_helpers.COOLDOWN
+			end
+		end
+		player.dash_prev = dash_pressed
 	end
 	-- ship_node.gd, 2026-08-13 bug report: "si j'appuie a la fois sur charge
 	-- tir + charge lift, ca fait... du caca. on va donner la priorite au
@@ -2161,21 +2315,64 @@ local function update_player_input(player, dt)
 		local recoil_fraction = player.fire_recoil_timer / selected_weapon.fire_recoil_boost_decay_time
 		speed_multiplier = math.max(speed_multiplier, 1.0 + selected_weapon.fire_recoil_speed_boost * recoil_fraction)
 	end
+	if player.dash_boost_timer > 0.0 and player.dash_boost_decay_time > 0.0 then
+		-- Lourd's/Spreader's dash: same decaying-boost shape as the recoil
+		-- kick just above (a BOOST, wins via max(), never stacks/multiplies).
+		local dash_fraction = player.dash_boost_timer / player.dash_boost_decay_time
+		speed_multiplier = math.max(speed_multiplier, mathx.lerp(1.0, player.dash_boost_peak_multiplier, dash_fraction))
+	end
 	player.vulnerability_timer = math.max(player.vulnerability_timer - dt, 0.0)
 	player.paddle_flash_timer = math.max(player.paddle_flash_timer - dt, 0.0)
 	player.fire_recoil_timer = math.max(player.fire_recoil_timer - dt, 0.0)
 	player.charged_beam_slow_timer = math.max(player.charged_beam_slow_timer - dt, 0.0)
 	player.external_slow_timer = math.max(player.external_slow_timer - dt, 0.0)
+	player.dash_cooldown_timer = math.max(player.dash_cooldown_timer - dt, 0.0)
+	player.dash_boost_timer = math.max(player.dash_boost_timer - dt, 0.0)
+	player.dash_invuln_timer = math.max(player.dash_invuln_timer - dt, 0.0)
+	player.dash_pull_timer = math.max(player.dash_pull_timer - dt, 0.0)
 	-- Epic 4 reward system: Vif's unlocked passive is a PERMANENT speed
 	-- multiplier, stacked multiplicatively on top of everything else above
 	-- (ship_node.gd: `speed_multiplier *= _passive_speed_multiplier`).
 	speed_multiplier = speed_multiplier * passive_state[player.side + 1].speed_multiplier
+
+	-- Mitrailleur's dash: forced movement for its whole duration, ignoring
+	-- whatever the player/AI actually asked for this frame.
+	if player.dash_uncontrolled_timer > 0.0 then
+		move_direction = player.dash_uncontrolled_dir
+		speed_multiplier = math.max(speed_multiplier, dash_helpers.MITRAILLEUR_UNCONTROLLED_SPEED_MULTIPLIER)
+	end
 
 	player.last_input_direction = move_direction -- reused for the ball-return aim, see match_arena.update()
 	if move_direction:length() > 0.01 then
 		player.last_move_direction = move_direction -- Perturbateur's boomerang throw-arc side
 	end
 	player.ship = ship_state.update(player.ship, move_direction, dt, current_arena_bounds, current_frontier_x, speed_multiplier)
+
+	if player.dash_uncontrolled_timer > 0.0 then
+		-- "Rebondit contre les murs": ship_state.update() always clamps the
+		-- new position back inside this player's own half, so comparing
+		-- the post-clamp position's axis to where it would have landed
+		-- un-clamped tells us whether that axis just hit a wall — flip it,
+		-- same idea as a real ball bounce, for the rest of the dash.
+		local half = player.ship.half_extents
+		local min_y = current_arena_bounds.position.y + half.y
+		local max_y = current_arena_bounds.position.y + current_arena_bounds.size.y - half.y
+		if player.ship.position.y <= min_y + 0.01 or player.ship.position.y >= max_y - 0.01 then
+			player.dash_uncontrolled_dir = Vector2.new(player.dash_uncontrolled_dir.x, -player.dash_uncontrolled_dir.y)
+		end
+		local min_x, max_x
+		if player.side == 0 then
+			min_x = current_arena_bounds.position.x + half.x
+			max_x = current_frontier_x - ship_state.NEUTRAL_ZONE_HALF_WIDTH - half.x
+		else
+			min_x = current_frontier_x + ship_state.NEUTRAL_ZONE_HALF_WIDTH + half.x
+			max_x = current_arena_bounds.position.x + current_arena_bounds.size.x - half.x
+		end
+		if player.ship.position.x <= min_x + 0.01 or player.ship.position.x >= max_x - 0.01 then
+			player.dash_uncontrolled_dir = Vector2.new(-player.dash_uncontrolled_dir.x, player.dash_uncontrolled_dir.y)
+		end
+	end
+	player.dash_uncontrolled_timer = math.max(player.dash_uncontrolled_timer - dt, 0.0)
 
 	if charge_capable and is_charging then
 		-- normal fire suspended while actively charging (past the grace window)
@@ -2307,6 +2504,12 @@ end
 -- its own update loop that same frame, since `bullets`/`beams` may have
 -- just been replaced out from under it.
 local function apply_damage_and_check_round(target, winner_side, damage)
+	if target.dash_invuln_timer and target.dash_invuln_timer > 0.0 then
+		-- Vif's "Saut" dash: briefly untouchable by weapon fire — "attaques
+		-- surprises ou rattrapages in extremis". No shake/flash either;
+		-- nothing actually landed.
+		return false
+	end
 	target.ship = ship_state.damaged(target.ship, damage)
 	feedback_fx.trigger_shake(
 		mathx.clampf(damage * feedback_fx.SHAKE_DAMAGE_MAGNITUDE_PER_DAMAGE, feedback_fx.SHAKE_DAMAGE_MAGNITUDE_MIN, feedback_fx.SHAKE_DAMAGE_MAGNITUDE_MAX),
@@ -2319,6 +2522,7 @@ local function apply_damage_and_check_round(target, winner_side, damage)
 		bullets = {}
 		beams = {}
 		turrets = {}
+		ghost_paddles = {}
 		fire_trails = {}
 		missile_strikes = {}
 		black_holes = {}
@@ -3540,6 +3744,22 @@ end
 -- autonomously at the opponent's CURRENT position (re-aimed fresh each
 -- shot, then flies straight — not homing). Removed once its lifetime runs
 -- out or an enemy projectile chips it down to 0 hp (see update_bullets()).
+-- 2026-10-06 dash feature: Contrôleur's phantom paddle / Perturbateur's
+-- mirror decoy — a stationary hitbox with its own lifetime (independently
+-- also zeroed out the instant it bounces a ball, see resolve_ball_physics()).
+local function update_ghost_paddles(dt)
+	local i = 1
+	while i <= #ghost_paddles do
+		local ghost = ghost_paddles[i]
+		ghost.lifetime = ghost.lifetime - dt
+		if ghost.lifetime <= 0.0 then
+			table.remove(ghost_paddles, i)
+		else
+			i = i + 1
+		end
+	end
+end
+
 local function update_turrets(dt)
 	local i = 1
 	while i <= #turrets do
@@ -4401,6 +4621,7 @@ local function update_all_entities(dt)
 	update_bullets(dt)
 	update_beams(dt)
 	update_turrets(dt)
+	update_ghost_paddles(dt)
 	update_impacts(dt)
 	update_fire_trails(dt)
 	update_missile_strikes(dt)
@@ -4455,7 +4676,25 @@ local function update_ball_and_twist(dt)
 	-- Nested here (not a top-level local — the 200-local ceiling) since
 	-- only this one caller needs it. Returns the updated ball plus the
 	-- missed side (0/1) if it just went out of bounds this frame, or nil.
+		-- 2026-10-06 dash feature: Traqueur's "aimant a balle" — nudges the
+		-- ball toward whichever player just dashed, for the dash's whole
+		-- duration. A gentle steering force (not a snap), so it still has
+		-- to be aimed/returned normally once it arrives.
+		local function apply_ball_magnet(current_ball, player)
+			if player.dash_pull_timer <= 0.0 then
+				return current_ball
+			end
+			local to_player = player.ship.position - current_ball.position
+			if to_player:length() < 1.0 then
+				return current_ball
+			end
+			local pull = to_player:normalized() * (dash_helpers.TRAQUEUR_PULL_STRENGTH * dt)
+			return ball_state.new(current_ball.position, current_ball.velocity + pull, current_ball.spin, current_ball.rally_count)
+		end
+
 	local function resolve_ball_physics(current_ball)
+		current_ball = apply_ball_magnet(current_ball, p1)
+		current_ball = apply_ball_magnet(current_ball, p2)
 		current_ball = ball_state.update(current_ball, dt)
 
 		local min_y = current_arena_bounds.position.y + ball_state.RADIUS
@@ -4475,6 +4714,21 @@ local function update_ball_and_twist(dt)
 				local outgoing_side = turret.owner_side == 0 and 1 or -1
 				current_ball = ball_state.returned(current_ball, Vector2.ZERO, 0.0, outgoing_side)
 				turret.bounce_cooldown = 0.2
+			end
+		end
+
+		-- 2026-10-06 dash feature: Contrôleur's phantom paddle / Perturbateur's
+		-- mirror decoy (ghost_paddles) — a real paddle-style bounce (angle
+		-- depends on contact position, same as a live paddle), but spends
+		-- itself: one return, then it's gone (lifetime forced to 0, swept by
+		-- update_ghost_paddles() this same frame's later pass).
+		for _, ghost in ipairs(ghost_paddles) do
+			if ghost.lifetime > 0.0 and point_in_ship(ghost, current_ball.position) then
+				local outgoing_side = ghost.owner_side == 0 and 1 or -1
+				local contact_offset = (current_ball.position.y - ghost.position.y) / ghost.half_extents.y
+				current_ball = ball_state.returned(current_ball, Vector2.ZERO, 0.0, outgoing_side, nil, contact_offset)
+				spawn_impact(current_ball.position, "paddle_bounce")
+				ghost.lifetime = 0.0
 			end
 		end
 
@@ -4745,14 +4999,17 @@ local function draw_player_hud(player, x)
 	draw_bar(x, 40, 160, 6, player.weapon.gauges[1] / weapon.gauge_max, { 1.0, 0.85, 0.2 })
 	draw_bar(x, 50, 160, 4, player.weapon.heats[1] / (weapon.heat_max > 0.0 and weapon.heat_max or 1.0), { 1.0, 0.3, 0.3 })
 	draw_bar(x, 58, 160, 4, lift_charge_fraction(player.lift_charge_timer), { 0.6, 0.8, 1.0 })
-	draw_ultra_pips(player, x, 70)
+	-- 2026-10-06 dash feature: fills back up as the cooldown counts down —
+	-- full/bright = ready to use again.
+	draw_bar(x, 64, 160, 4, 1.0 - player.dash_cooldown_timer / dash_helpers.COOLDOWN, { 0.75, 0.4, 0.95 })
+	draw_ultra_pips(player, x, 76)
 	if player.double_fire_shots_remaining > 0 then
 		love.graphics.setColor(1.0, 0.84, 0.29)
-		love.graphics.print(string.format("DOUBLE x%d", player.double_fire_shots_remaining), x, 94)
+		love.graphics.print(string.format("DOUBLE x%d", player.double_fire_shots_remaining), x, 98)
 	end
 	if player.ultra_flash_timer > 0.0 then
 		love.graphics.setColor(1.0, 0.84, 0.29)
-		love.graphics.print("ULTRA !", x, 94)
+		love.graphics.print("ULTRA !", x, 98)
 	end
 end
 
@@ -4964,6 +5221,27 @@ function match_arena.draw()
 			love.graphics.setColor(1, 1, 1)
 		end
 	end
+
+	-- 2026-10-06 dash feature: Contrôleur's phantom paddle / Perturbateur's
+	-- mirror decoy — a translucent, pulsing outline in its owner's own side
+	-- color (not the real ship art) so it unmistakably reads as "not a real
+	-- ship", fading out over its last half-second before it expires.
+	for _, ghost in ipairs(ghost_paddles) do
+		local color = SIDE_COLOR[ghost.owner_side]
+		local fade = mathx.clampf(ghost.lifetime / 0.5, 0.0, 1.0)
+		local pulse = 0.6 + 0.2 * math.sin(love.timer.getTime() * 6.0)
+		love.graphics.setColor(color[1], color[2], color[3], pulse * fade)
+		love.graphics.setLineWidth(3.0)
+		love.graphics.rectangle(
+			"line",
+			ghost.position.x - ghost.half_extents.x,
+			ghost.position.y - ghost.half_extents.y,
+			ghost.half_extents.x * 2.0,
+			ghost.half_extents.y * 2.0
+		)
+		love.graphics.setLineWidth(1.0)
+	end
+	love.graphics.setColor(1, 1, 1)
 
 	-- Bourrasque's decorative wind streaks (behind the vortices; see
 	-- update_wind_gusts()).
