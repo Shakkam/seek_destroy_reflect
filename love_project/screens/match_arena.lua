@@ -2053,7 +2053,7 @@ local dash_helpers = {
 	PERTURBATEUR_BALL_SLOW_DURATION = 0.5, -- "ralentir la balle pendant 1/2 secondes"
 	PERTURBATEUR_BALL_SLOW_FACTOR = 0.3, -- the ball advances at 30% of its real speed while this is active
 	TRAQUEUR_PULL_DURATION = 0.8,
-	TRAQUEUR_PULL_STRENGTH = 520.0, -- px/s of velocity nudged toward the player per second ("l'aimant n'est pas assez fort, x2")
+	TRAQUEUR_PULL_TURN_RATE = 5.0, -- fraction-per-second the ball's HEADING turns toward the player (speed untouched) — redesigned from a velocity-add after Camil found that always changed speed too; "et plus franchement ! (*1.25 encore)" on top of the redesign's own base rate
 	GHOST_PADDLE_LIFETIME = 3.0,
 }
 
@@ -4756,11 +4756,22 @@ local function update_ball_and_twist(dt)
 			if to_player:length() < 1.0 then
 				return current_ball
 			end
-			-- Camil, reversing the previous try: "l'aimant ne doit pas du
-			-- tout accelerer la balle" — a pure directional nudge only, no
-			-- speed-up along the travel direction.
-			local pull = to_player:normalized() * (dash_helpers.TRAQUEUR_PULL_STRENGTH * dt)
-			return ball_state.new(current_ball.position, current_ball.velocity + pull, current_ball.spin, current_ball.rally_count)
+			-- Camil: "l'aimant fait toujours accelerer la balle, il ne faut
+			-- absolument pas ! on ne lui fait juste que s'orienter vers le
+			-- vaisseau !" — adding a pull vector onto velocity (the previous
+			-- approach) always changes its MAGNITUDE too, not just its
+			-- heading, which is exactly the "acceleration" he keeps seeing
+			-- even with the extra accel term removed. Steer the velocity's
+			-- DIRECTION toward the player instead, by a fraction each frame,
+			-- then rescale back to the ball's own ORIGINAL speed — heading
+			-- changes, speed never does.
+			local speed = current_ball.velocity:length()
+			if speed < 0.01 then
+				return current_ball
+			end
+			local turn_fraction = mathx.clampf(dash_helpers.TRAQUEUR_PULL_TURN_RATE * dt, 0.0, 1.0)
+			local new_direction = (current_ball.velocity:normalized() * (1.0 - turn_fraction) + to_player:normalized() * turn_fraction):normalized()
+			return ball_state.new(current_ball.position, new_direction * speed, current_ball.spin, current_ball.rally_count)
 		end
 
 	local function resolve_ball_physics(current_ball)
