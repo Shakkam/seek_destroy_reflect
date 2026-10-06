@@ -2025,7 +2025,7 @@ end
 local dash_helpers = {
 	COOLDOWN = 2.0, -- "on part sur 2 secondes pour l'instant, a ajuster"
 	LOURD_BOOST_MULTIPLIER = 2.2,
-	LOURD_BOOST_DECAY_TIME = 1.0, -- also the full hard-lock duration — "verrouiler la direction de LOURD, le temps du dash (1 petite seconde)"
+	LOURD_BOOST_DECAY_TIME = 0.5, -- also the full hard-lock duration — "verrouiler la direction de LOURD" (Camil: 1.0s felt too long, settled on 0.5s)
 	SPREADER_BOOST_MULTIPLIER = 1.8,
 	SPREADER_BOOST_DECAY_TIME = 1.6,
 	MITRAILLEUR_UNCONTROLLED_DURATION = 0.5,
@@ -2037,7 +2037,6 @@ local dash_helpers = {
 	TRAQUEUR_PULL_DURATION = 0.8,
 	TRAQUEUR_PULL_STRENGTH = 260.0, -- px/s of velocity nudged toward the player per second
 	GHOST_PADDLE_LIFETIME = 3.0,
-	GHOST_PADDLE_AHEAD_OFFSET = 220.0, -- Contrôleur: how far toward the frontier the phantom spawns
 }
 
 -- Which way a position-based dash (hop/teleport/mirror-dash) should go:
@@ -2082,12 +2081,11 @@ dash_helpers.effects = {
 		player.dash_slide_direction = dash_helpers.facing_direction(player)
 	end,
 	-- "Invoque une raquette virtuelle en avance" — a stationary phantom
-	-- paddle placed toward the frontier, controlling a zone ahead of him.
+	-- paddle dropped at his exact current position (Camil, 2026-10-06: "le
+	-- clone se place a l'endroit exact ou est controleur") — he can then
+	-- move on and have two coverage points active at once.
 	controleur = function(player, opponent)
-		local ahead_x = player.side == 0
-			and (player.ship.position.x + dash_helpers.GHOST_PADDLE_AHEAD_OFFSET)
-			or (player.ship.position.x - dash_helpers.GHOST_PADDLE_AHEAD_OFFSET)
-		dash_helpers.spawn_ghost_paddle(player, Vector2.new(ahead_x, player.ship.position.y))
+		dash_helpers.spawn_ghost_paddle(player, Vector2.new(player.ship.position.x, player.ship.position.y))
 	end,
 	-- "Ultra dash incontrolable ou la raquette rebondit contre les murs" —
 	-- forced movement in one direction, ignoring player input, bouncing off
