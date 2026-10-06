@@ -2054,6 +2054,7 @@ local dash_helpers = {
 	PERTURBATEUR_BALL_SLOW_FACTOR = 0.3, -- the ball advances at 30% of its real speed while this is active
 	TRAQUEUR_PULL_DURATION = 0.8,
 	TRAQUEUR_PULL_STRENGTH = 520.0, -- px/s of velocity nudged toward the player per second ("l'aimant n'est pas assez fort, x2")
+	TRAQUEUR_PULL_ACCEL = 600.0, -- px/s^2 speed-up along the ball's own travel direction ("ca aimante mais n'accelere pas la balle")
 	GHOST_PADDLE_LIFETIME = 3.0,
 }
 
@@ -4746,7 +4747,16 @@ local function update_ball_and_twist(dt)
 				return current_ball
 			end
 			local pull = to_player:normalized() * (dash_helpers.TRAQUEUR_PULL_STRENGTH * dt)
-			return ball_state.new(current_ball.position, current_ball.velocity + pull, current_ball.spin, current_ball.rally_count)
+			local new_velocity = current_ball.velocity + pull
+			-- Camil: "ca aimante mais n'accelere pas la balle" — the
+			-- directional pull alone barely changes the ball's overall
+			-- SPEED (just its heading), which doesn't read as a magnet at
+			-- all. Also speed it up along whatever direction it's actually
+			-- travelling, same `acceleration` idea Vif's Ultra vortices use.
+			if new_velocity:length() > 0.01 then
+				new_velocity = new_velocity + new_velocity:normalized() * (dash_helpers.TRAQUEUR_PULL_ACCEL * dt)
+			end
+			return ball_state.new(current_ball.position, new_velocity, current_ball.spin, current_ball.rally_count)
 		end
 
 	local function resolve_ball_physics(current_ball)
@@ -5294,39 +5304,6 @@ function match_arena.draw()
 		end
 	end
 
-	-- 2026-10-06 dash feature: Contrôleur's phantom paddle / Mitrailleur's &
-	-- Spreader's thrown clones — Camil: "au niveau affichage, on avait dit
-	-- un truc, non ?" → "sprite du perso en transparent", not a generic
-	-- colored outline. Drawn as the owner's own real ship art, translucent
-	-- and gently pulsing, fading out over its last 0.5s (or its whole
-	-- lifetime if shorter — Spreader's 0.25s clones were nearly invisible
-	-- the entire time under a flat 0.5s window: "on ne voit pas assez les
-	-- clones") before it expires — reads as "a ghost of him", not an
-	-- abstract hitbox. A colored outline rides alongside the sprite for
-	-- extra contrast/pop against busy backgrounds.
-	for _, ghost in ipairs(ghost_paddles) do
-		local art = assets.characters[ghost.character_id]
-		local fade_window = math.min(0.5, ghost.initial_lifetime)
-		local fade = mathx.clampf(ghost.lifetime / fade_window, 0.0, 1.0)
-		local pulse = 0.75 + 0.2 * math.sin(love.timer.getTime() * 10.0)
-		local color = SIDE_COLOR[ghost.owner_side]
-		if art and art.ship then
-			love.graphics.setColor(1.0, 1.0, 1.0, pulse * fade)
-			draw_utils.draw_stretched(art.ship, ghost.position.x, ghost.position.y, ghost.half_extents.x * 2.0, ghost.half_extents.y * 2.0)
-		end
-		love.graphics.setColor(color[1], color[2], color[3], pulse * fade * 0.9)
-		love.graphics.setLineWidth(3.0)
-		love.graphics.rectangle(
-			"line",
-			ghost.position.x - ghost.half_extents.x,
-			ghost.position.y - ghost.half_extents.y,
-			ghost.half_extents.x * 2.0,
-			ghost.half_extents.y * 2.0
-		)
-		love.graphics.setLineWidth(1.0)
-	end
-	love.graphics.setColor(1, 1, 1)
-
 	-- Bourrasque's decorative wind streaks (behind the vortices; see
 	-- update_wind_gusts()).
 	if wind_gusts.streaks then
@@ -5390,6 +5367,27 @@ function match_arena.draw()
 		-- Traqueur's missile plume) — shared with the mini-jeu screens, see bullet_fx.lua.
 		bullet_fx.draw(bullet, image)
 	end
+
+	-- 2026-10-06 dash feature: Contrôleur's phantom paddle / Mitrailleur's &
+	-- Spreader's thrown clones — drawn AFTER bullets (not before), so a shot
+	-- passing through one visibly disappears behind the ship art instead of
+	-- rendering on top of it (Camil: "le tir doit passer dessous le vaisseau
+	-- [...] cache par le vaisseau"). Just the owner's own real ship art,
+	-- translucent and gently pulsing — no hitbox outline anymore ("enleve le
+	-- rectangle de hitbox"). Fade window is relative to each clone's own
+	-- lifetime, not a flat 0.5s (Spreader's 0.25s clones were nearly
+	-- invisible under that: "on ne voit pas assez les clones").
+	for _, ghost in ipairs(ghost_paddles) do
+		local art = assets.characters[ghost.character_id]
+		if art and art.ship then
+			local fade_window = math.min(0.5, ghost.initial_lifetime)
+			local fade = mathx.clampf(ghost.lifetime / fade_window, 0.0, 1.0)
+			local pulse = 0.75 + 0.2 * math.sin(love.timer.getTime() * 10.0)
+			love.graphics.setColor(1.0, 1.0, 1.0, pulse * fade)
+			draw_utils.draw_stretched(art.ship, ghost.position.x, ghost.position.y, ghost.half_extents.x * 2.0, ghost.half_extents.y * 2.0)
+		end
+	end
+	love.graphics.setColor(1, 1, 1)
 
 	-- Lourd's Ultra "Pluie de Scuds" (missile_strike_node.gd): a closing
 	-- ring counts down to impact while the shell sprite falls in (starts
