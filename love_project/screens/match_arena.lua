@@ -4738,7 +4738,18 @@ local function update_ball_and_twist(dt)
 			end
 			local ball_on_his_side = player.side == 0 and current_ball.position.x < current_frontier_x
 				or (player.side == 1 and current_ball.position.x > current_frontier_x)
-			if not ball_on_his_side then
+			-- Camil, still unhappy after the first side-only gate: "ca ne
+			-- doit aimanter QUE si la balle est 'a rattraper'. Si elle a ete
+			-- renvoyee, l'aimant ne doit pas marcher" — right after he
+			-- returns it, the ball is still briefly on his own side
+			-- (hasn't crossed the frontier yet) but is now moving AWAY from
+			-- him, so position alone isn't enough: also require it to
+			-- actually be heading toward his own wall (same
+			-- "moving_toward_my_wall" idea ai_helpers.ball_time_to_arrival
+			-- uses for the AI's own interception logic).
+			local moving_toward_him = player.side == 0 and current_ball.velocity.x < 0.0
+				or (player.side == 1 and current_ball.velocity.x > 0.0)
+			if not ball_on_his_side or not moving_toward_him then
 				return current_ball
 			end
 			local to_player = player.ship.position - current_ball.position
