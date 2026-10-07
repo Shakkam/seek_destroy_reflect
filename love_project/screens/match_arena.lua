@@ -2210,7 +2210,7 @@ local dash_helpers = {
 	PERTURBATEUR_BALL_SLOW_DURATION = 0.5, -- "ralentir la balle pendant 1/2 secondes"
 	PERTURBATEUR_BALL_SLOW_FACTOR = 0.3, -- the ball advances at 30% of its real speed while this is active
 	TRAQUEUR_PULL_DURATION = 0.8,
-	TRAQUEUR_PULL_TURN_RATE = 5.0 * 0.85, -- fraction-per-second the ball's HEADING turns toward the player (speed untouched) — redesigned from a velocity-add after Camil found that always changed speed too; "et plus franchement ! (*1.25 encore)" then, after the ball got steered all the way to vertical, "diminuer un poil l'effet de l'aimant (-15%)"
+	TRAQUEUR_PULL_TURN_RATE = 5.0 * 0.85 * 0.75, -- fraction-per-second the ball's HEADING turns toward the player (speed untouched) — redesigned from a velocity-add after Camil found that always changed speed too; "et plus franchement ! (*1.25 encore)" then "-15%" then, still "trop puissant": "encore reduire son effet de 25%"
 	GHOST_PADDLE_LIFETIME = 3.0,
 }
 
