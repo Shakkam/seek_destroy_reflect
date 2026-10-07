@@ -7,12 +7,17 @@ local weapon_data = require("simulation.weapon_data")
 return weapon_data.new({
 	id = "homing_missile",
 	display_name = "Missiles",
-	damage = 3.0,
+	-- 2026-10-07 balance pass — Camil: "j'ai pas envie de baisser le nombre
+	-- de missiles, c'est classe. En revanche on peut baisser legerement son
+	-- taux de homing (1.4) et les degats (2.5)" — keeps the 3-missile fan
+	-- (and the 6-missile charged burst) untouched, just each shot a little
+	-- weaker and a little less precise.
+	damage = 2.5,
 	fire_rate = 0.8,
 	gauge_max = 100.0,
 	gauge_cost_per_shot = 22.0,
 	is_heavy = false,
-	homing_strength = 1.6,
+	homing_strength = 1.4,
 	projectile_count = 3,
 	burst_spread_deg = 50.0,
 	burst_stagger = 0.05,
