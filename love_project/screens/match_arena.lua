@@ -1036,6 +1036,21 @@ local IMPACT_STYLE_BY_WEAPON = {
 	-- much bigger/bolder style (see spawn_impact()/the draw loop's own
 	-- "bounce_flash" branch).
 	paddle_bounce = "bounce_flash",
+	-- 2026-10-07 (Camil: "des effets speciaux / particules pour les dash ?")
+	-- — one bespoke burst per character's dash, same "fake weapon_id" trick
+	-- fire_trail_tick/paddle_bounce already use to reuse spawn_impact()'s
+	-- existing entity list/update/draw plumbing instead of a whole new
+	-- system. See spawn_impact()'s own per-style branches for what each
+	-- actually looks like.
+	dash_lourd_burst = "dash_lourd_burst",
+	dash_lourd_trail = "dash_lourd_trail",
+	dash_controleur = "dash_controleur",
+	dash_mitrailleur = "dash_mitrailleur",
+	dash_vif_burst = "dash_vif_burst",
+	dash_vif_trail = "dash_vif_trail",
+	dash_zoneur_vanish = "dash_zoneur_vanish",
+	dash_zoneur_arrive = "dash_zoneur_arrive",
+	dash_mini = "dash_mini",
 }
 
 -- Params for the ring-style impacts (everything except fan_shatter/
@@ -1127,7 +1142,7 @@ local SIDE_SPLIT_BULLET_WEAPONS = { machine_gun = true, turret = true }
 -- other caller (every other weapon, plus Lourd's Ultra "Pluie de Scuds"
 -- impact flash, which already deals its own damage through a separate,
 -- unrelated mechanic) omits them, leaving the explosion purely cosmetic.
-local function spawn_impact(position, weapon_id, owner_side, damage)
+local function spawn_impact(position, weapon_id, owner_side, damage, direction)
 	local style = IMPACT_STYLE_BY_WEAPON[weapon_id] or "spark_ring"
 	local impact = { position = position, age = 0.0, style = style }
 	if style == "fan_shatter" then
@@ -1179,6 +1194,102 @@ local function spawn_impact(position, weapon_id, owner_side, damage)
 		-- against a busy paddle-edge of the arena).
 		impact.duration = 0.2
 		impact.radius = 36.0
+	-- 2026-10-07 dash VFX — one bespoke burst per character (Camil: "des
+	-- effets speciaux / particules pour les dash ?"). Each reuses this same
+	-- particles-precomputed-at-spawn trick every other style above already
+	-- uses, just with its own shape/color to match what that dash actually
+	-- does.
+	elseif style == "dash_lourd_burst" then
+		-- "glisse sur la glace": an icy shard burst radiating outward.
+		impact.duration = 0.35
+		impact.particles = {}
+		for _ = 1, 10 do
+			local angle = math.random() * math.pi * 2.0
+			local speed = 90.0 + math.random() * 70.0
+			table.insert(impact.particles, Vector2.new(math.cos(angle) * speed, math.sin(angle) * speed))
+		end
+	elseif style == "dash_lourd_trail" then
+		-- Small, frequent puffs sampled along his slide (see the per-frame
+		-- spawn in update_player_input()'s own "lourd" dash_boost branch).
+		impact.duration = 0.25
+		impact.particles = {}
+		for _ = 1, 4 do
+			local angle = math.random() * math.pi * 2.0
+			local speed = 15.0 + math.random() * 25.0
+			table.insert(impact.particles, Vector2.new(math.cos(angle) * speed, math.sin(angle) * speed))
+		end
+	elseif style == "dash_controleur" then
+		-- The phantom paddle "materializing": particles start out spread and
+		-- converge INWARD (see the draw loop's own t-based lerp), plus an
+		-- expanding ring, both techy green.
+		impact.duration = 0.35
+		impact.particles = {}
+		for i = 0, 7 do
+			local angle = mathx.deg_to_rad(45.0 * i)
+			table.insert(impact.particles, Vector2.new(math.cos(angle) * 50.0, math.sin(angle) * 50.0))
+		end
+	elseif style == "dash_mitrailleur" then
+		-- The thrown clone's own launch — a forward muzzle-flash cone in
+		-- `direction` rather than a radial burst.
+		impact.duration = 0.25
+		impact.direction = direction or Vector2.RIGHT
+		impact.particles = {}
+		for _ = 1, 10 do
+			local spread = mathx.deg_to_rad((math.random() - 0.5) * 50.0)
+			local speed = 140.0 + math.random() * 120.0
+			local dir = impact.direction:rotated(spread)
+			table.insert(impact.particles, Vector2.new(dir.x * speed, dir.y * speed))
+		end
+	elseif style == "dash_vif_burst" then
+		-- Takeoff dust: a low, wide ground-level puff (vertical speed damped
+		-- so it reads as hugging the floor, not a radial explosion).
+		impact.duration = 0.3
+		impact.particles = {}
+		for _ = 1, 8 do
+			local angle = math.random() * math.pi * 2.0
+			local speed = 50.0 + math.random() * 60.0
+			table.insert(impact.particles, Vector2.new(math.cos(angle) * speed, math.sin(angle) * speed * 0.4))
+		end
+	elseif style == "dash_vif_trail" then
+		-- Thin speed-streak motes sampled along the jump (see the per-frame
+		-- spawn in update_player_input()'s own "vif" dash_jump branch).
+		impact.duration = 0.18
+		impact.particles = {}
+		for _ = 1, 3 do
+			local angle = math.random() * math.pi * 2.0
+			local speed = 10.0 + math.random() * 20.0
+			table.insert(impact.particles, Vector2.new(math.cos(angle) * speed, math.sin(angle) * speed))
+		end
+	elseif style == "dash_zoneur_vanish" or style == "dash_zoneur_arrive" then
+		-- Teleport: particles converge INWARD at the spot he just left
+		-- (vanish) and explode OUTWARD at the spot he lands (arrive) — same
+		-- draw-time t-based lerp trick as "dash_controleur".
+		impact.duration = 0.25
+		impact.particles = {}
+		for i = 0, 7 do
+			local angle = mathx.deg_to_rad(45.0 * i)
+			table.insert(impact.particles, Vector2.new(math.cos(angle) * 70.0, math.sin(angle) * 70.0))
+		end
+	elseif style == "dash_mini" then
+		-- Mirrors the 4 diagonal clones themselves — small sparks fanning
+		-- out along the SAME fixed diagonals as dash_helpers.DIAGONALS
+		-- (hardcoded here too — spawn_impact() is defined before
+		-- dash_helpers exists, so it can't reference that table directly),
+		-- not a random radial burst.
+		impact.duration = 0.3
+		impact.particles = {}
+		local diagonals = {
+			Vector2.new(0.70710678, -0.70710678),
+			Vector2.new(0.70710678, 0.70710678),
+			Vector2.new(-0.70710678, -0.70710678),
+			Vector2.new(-0.70710678, 0.70710678),
+		}
+		for _, dir in ipairs(diagonals) do
+			for k = 1, 3 do
+				local speed = (60.0 + k * 40.0) * (0.85 + math.random() * 0.3)
+				table.insert(impact.particles, Vector2.new(dir.x * speed, dir.y * speed))
+			end
+		end
 	else
 		local params = RING_IMPACT_PARAMS[style] or RING_IMPACT_PARAMS.spark_ring
 		impact.duration = params.duration
@@ -2149,6 +2260,7 @@ dash_helpers.effects = {
 		player.dash_boost_peak_multiplier = dash_helpers.LOURD_BOOST_MULTIPLIER
 		player.dash_boost_decay_time = dash_helpers.LOURD_BOOST_DECAY_TIME
 		player.dash_slide_direction = dash_helpers.facing_direction(player)
+		spawn_impact(player.ship.position, "dash_lourd_burst")
 	end,
 	-- "Invoque une raquette virtuelle en avance" — a stationary phantom
 	-- paddle dropped at his exact current position (Camil, 2026-10-06: "le
@@ -2156,6 +2268,7 @@ dash_helpers.effects = {
 	-- move on and have two coverage points active at once.
 	controleur = function(player, opponent)
 		dash_helpers.spawn_ghost_paddle(player, Vector2.new(player.ship.position.x, player.ship.position.y))
+		spawn_impact(player.ship.position, "dash_controleur")
 	end,
 	-- "Ultra dash incontrolable ou la raquette rebondit contre les murs" —
 	-- forced movement in one direction, ignoring player input, bouncing off
@@ -2173,6 +2286,7 @@ dash_helpers.effects = {
 		local dir = dash_helpers.facing_direction(player)
 		local velocity = dir * (ship_state.SPEED * dash_helpers.MITRAILLEUR_CLONE_SPEED_MULTIPLIER)
 		dash_helpers.spawn_ghost_paddle(player, player.ship.position, velocity, dash_helpers.MITRAILLEUR_CLONE_LIFETIME)
+		spawn_impact(player.ship.position, "dash_mitrailleur", nil, nil, dir)
 	end,
 	-- "Saut" — Camil, after the first version read as "une teleportation
 	-- ratee": "on devrait faire vraiment un saut, avec le vaisseau qui zoome
@@ -2186,11 +2300,15 @@ dash_helpers.effects = {
 		player.dash_jump_duration = dash_helpers.VIF_JUMP_DURATION
 		player.dash_slide_direction = dash_helpers.facing_direction(player)
 		player.dash_invuln_timer = dash_helpers.VIF_JUMP_DURATION
+		spawn_impact(player.ship.position, "dash_vif_burst")
 	end,
 	-- "Teleportation" — an instant blink, no slide, no animation arc.
 	zoneur = function(player, opponent)
 		local dir = dash_helpers.facing_direction(player)
+		local old_position = player.ship.position
 		player.ship = ship_state.knocked_back(player.ship, dir * dash_helpers.ZONEUR_TELEPORT_DISTANCE, current_arena_bounds, current_frontier_x)
+		spawn_impact(old_position, "dash_zoneur_vanish")
+		spawn_impact(player.ship.position, "dash_zoneur_arrive")
 	end,
 	-- 2026-10-06, Camil (after disliking the mirror-dash-plus-leurre
 	-- version, which read as unclear): "on pourrait le faire ralentir la
@@ -2218,6 +2336,7 @@ dash_helpers.effects = {
 		for _, dir in ipairs(dash_helpers.DIAGONALS) do
 			dash_helpers.spawn_ghost_paddle(player, player.ship.position, dir * speed, dash_helpers.SPREADER_CLONE_LIFETIME)
 		end
+		spawn_impact(player.ship.position, "dash_mini")
 	end,
 }
 
@@ -2503,6 +2622,12 @@ local function update_player_input(player, dt)
 			-- bouncing one: whatever the player/AI asks for this frame is
 			-- ignored outright, not blended, until the dash itself ends.
 			move_direction = player.dash_slide_direction
+			-- 2026-10-07 dash VFX: a sparse icy trail along the slide
+			-- (throttled — a puff every frame reads as a solid smear, not
+			-- "quelques particules").
+			if math.random() < 0.25 then
+				spawn_impact(player.ship.position, "dash_lourd_trail")
+			end
 		end
 	end
 	player.vulnerability_timer = math.max(player.vulnerability_timer - dt, 0.0)
@@ -2525,6 +2650,10 @@ local function update_player_input(player, dt)
 	if player.dash_jump_timer > 0.0 then
 		move_direction = player.dash_slide_direction
 		speed_multiplier = math.max(speed_multiplier, dash_helpers.VIF_JUMP_SPEED_MULTIPLIER)
+		-- 2026-10-07 dash VFX: sparse speed-streak motes while airborne.
+		if math.random() < 0.25 then
+			spawn_impact(player.ship.position, "dash_vif_trail")
+		end
 	end
 	player.dash_jump_timer = math.max(player.dash_jump_timer - dt, 0.0)
 
@@ -5723,6 +5852,74 @@ function match_arena.draw()
 			love.graphics.setLineWidth(5.0)
 			love.graphics.circle("line", impact.position.x, impact.position.y, impact.radius * (1.0 - t * 0.5))
 			love.graphics.setLineWidth(1.0)
+		-- 2026-10-07 dash VFX — see spawn_impact()'s own per-style comments
+		-- for what each one represents.
+		elseif impact.style == "dash_lourd_burst" then
+			love.graphics.setColor(0.6, 0.9, 1.0, 0.5 * (1.0 - t))
+			love.graphics.setLineWidth(3.0)
+			love.graphics.circle("line", impact.position.x, impact.position.y, 50.0 * t)
+			love.graphics.setLineWidth(1.0)
+			for _, vel in ipairs(impact.particles) do
+				local p = impact.position + vel * impact.age
+				love.graphics.setColor(0.85, 0.97, 1.0, 1.0 - t)
+				love.graphics.rectangle("fill", p.x - 2.5, p.y - 2.5, 5.0, 5.0)
+			end
+		elseif impact.style == "dash_lourd_trail" then
+			for _, vel in ipairs(impact.particles) do
+				local p = impact.position + vel * impact.age
+				love.graphics.setColor(0.75, 0.92, 1.0, 0.6 * (1.0 - t))
+				love.graphics.circle("fill", p.x, p.y, 3.0 * (1.0 - t))
+			end
+		elseif impact.style == "dash_controleur" then
+			love.graphics.setColor(0.5, 1.0, 0.6, 0.6 * (1.0 - t))
+			love.graphics.setLineWidth(3.0)
+			love.graphics.circle("line", impact.position.x, impact.position.y, 10.0 + 35.0 * t)
+			love.graphics.setLineWidth(1.0)
+			for _, vel in ipairs(impact.particles) do
+				local p = impact.position + vel * (1.0 - t) -- converges INWARD, not outward
+				love.graphics.setColor(0.6, 1.0, 0.7, 1.0 - t)
+				love.graphics.circle("fill", p.x, p.y, 3.0)
+			end
+		elseif impact.style == "dash_mitrailleur" then
+			love.graphics.setColor(1.0, 0.9, 0.5, 0.7 * (1.0 - t))
+			love.graphics.circle("fill", impact.position.x, impact.position.y, 10.0 * (1.0 - t))
+			for _, vel in ipairs(impact.particles) do
+				local p = impact.position + vel * impact.age
+				love.graphics.setColor(1.0, 0.8 + 0.2 * (1.0 - t), 0.3, 1.0 - t)
+				love.graphics.circle("fill", p.x, p.y, 2.5)
+			end
+		elseif impact.style == "dash_vif_burst" then
+			for _, vel in ipairs(impact.particles) do
+				local p = impact.position + vel * impact.age
+				love.graphics.setColor(0.85, 0.9, 1.0, 0.5 * (1.0 - t))
+				love.graphics.circle("fill", p.x, p.y, 5.0 * (1.0 - t * 0.5))
+			end
+		elseif impact.style == "dash_vif_trail" then
+			for _, vel in ipairs(impact.particles) do
+				local p = impact.position + vel * impact.age
+				love.graphics.setColor(0.8, 0.92, 1.0, 0.5 * (1.0 - t))
+				love.graphics.circle("fill", p.x, p.y, 2.0 * (1.0 - t))
+			end
+		elseif impact.style == "dash_zoneur_vanish" then
+			for _, vel in ipairs(impact.particles) do
+				local p = impact.position + vel * (1.0 - t) -- converges INWARD at the spot he just left
+				love.graphics.setColor(0.4, 1.0, 0.5, 1.0 - t)
+				love.graphics.circle("fill", p.x, p.y, 3.0)
+			end
+		elseif impact.style == "dash_zoneur_arrive" then
+			love.graphics.setColor(0.5, 1.0, 0.6, 0.6 * (1.0 - t))
+			love.graphics.circle("fill", impact.position.x, impact.position.y, 14.0 * (1.0 - t))
+			for _, vel in ipairs(impact.particles) do
+				local p = impact.position + vel * impact.age -- explodes OUTWARD at the spot he lands
+				love.graphics.setColor(0.4, 1.0, 0.5, 1.0 - t)
+				love.graphics.circle("fill", p.x, p.y, 3.0)
+			end
+		elseif impact.style == "dash_mini" then
+			for _, vel in ipairs(impact.particles) do
+				local p = impact.position + vel * impact.age
+				love.graphics.setColor(1.0, 0.95, 0.4, 1.0 - t)
+				love.graphics.circle("fill", p.x, p.y, 3.0)
+			end
 		else
 			local c = impact.color
 			love.graphics.setColor(c[1], c[2], c[3], 1.0 - t)
@@ -5759,6 +5956,45 @@ function match_arena.draw()
 		love.graphics.draw(extra.trail_ps, 0, 0)
 		draw_utils.draw_scaled(assets.ball, extra.ball_data.position.x, extra.ball_data.position.y, 1.4 * 1.5 * (extra.scale or 1.0), false, extra.rotation or 0.0)
 	end
+
+	-- 2026-10-07 dash VFX: Perturbateur's ball-slow and Traqueur's magnet are
+	-- both CONTINUOUS effects tracking a moving target (the ball), which
+	-- doesn't fit the `impacts` list's fixed-position-at-spawn model (every
+	-- other dash VFX above uses that) — drawn here instead, directly keyed
+	-- off the same timers that already drive the real gameplay effect, no
+	-- extra state needed.
+	if feedback_fx.ball_slow_timer > 0.0 then
+		local fade = feedback_fx.ball_slow_timer / dash_helpers.PERTURBATEUR_BALL_SLOW_DURATION
+		local pulse = 1.0 + math.sin(love.timer.getTime() * 10.0) * 0.1
+		love.graphics.setColor(0.7, 0.4, 1.0, 0.6 * fade)
+		love.graphics.setLineWidth(3.0)
+		love.graphics.circle("line", ball.position.x, ball.position.y, ball_state.RADIUS * 3.0 * pulse)
+		love.graphics.setLineWidth(1.0)
+	end
+	for _, player in ipairs(players) do
+		if player.dash_pull_timer > 0.0 then
+			local fade = player.dash_pull_timer / dash_helpers.TRAQUEUR_PULL_DURATION
+			local to_ball = ball.position - player.ship.position
+			local dist = to_ball:length()
+			if dist > 1.0 then
+				local dir = to_ball:normalized()
+				local perp = Vector2.new(-dir.y, dir.x)
+				local segments = 6
+				love.graphics.setLineWidth(2.0)
+				for seg = 0, segments - 1 do
+					local t0 = seg / segments
+					local t1 = (seg + 0.6) / segments -- gaps between segments read as an energy tether, not a solid line
+					local jitter = math.sin(love.timer.getTime() * 14.0 + seg * 2.1) * 6.0
+					local p0 = player.ship.position + dir * (dist * t0) + perp * jitter
+					local p1 = player.ship.position + dir * (dist * t1) + perp * jitter
+					love.graphics.setColor(1.0, 0.6, 0.2, 0.5 * fade)
+					love.graphics.line(p0.x, p0.y, p1.x, p1.y)
+				end
+				love.graphics.setLineWidth(1.0)
+			end
+		end
+	end
+	love.graphics.setColor(1, 1, 1)
 
 	-- Ball-miss travel effect (gauge_fill_effect_node.gd) — drawn before its
 	-- own eventual "+X" floating text lands.
