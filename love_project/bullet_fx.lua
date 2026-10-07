@@ -51,9 +51,10 @@ local function draw_fan_motes(bullet, image)
 		love.graphics.setColor(1.0, 0.95, 0.3, 0.75 * (1.0 - k / 17.0))
 		love.graphics.circle("fill", bullet.position.x + math.cos(ang) * rr, bullet.position.y + math.sin(ang) * rr, 4.5 - k * 0.2)
 	end
-	love.graphics.setColor(1.0, 0.95, 0.4, 0.4)
-	love.graphics.setLineWidth(2.0)
-	love.graphics.circle("line", bullet.position.x, bullet.position.y, r * 0.95)
+	-- 2026-10-07, Camil: "les particules sont cool, par contre ca fait trop
+	-- 'un cercle' autour de chaque eventail" — the outline ring made each
+	-- fan read as a circle rather than a spinning blade; dropped, keeping
+	-- just the trailing motes and the short wake above.
 	for k = 1, 6 do
 		love.graphics.setColor(1.0, 0.95, 0.35, 0.5 * (1.0 - k / 7.0))
 		love.graphics.circle("fill", bullet.position.x + math.sin((bullet.rotation or 0.0) * 3.0 + k) * r * 0.5, bullet.position.y - k * r * 0.55, 4.0 - k * 0.4)

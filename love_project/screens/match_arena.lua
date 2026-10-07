@@ -1058,12 +1058,11 @@ local RING_IMPACT_PARAMS = {
 -- height it currently is, instead of waiting for its own Y to happen to
 -- match the target's Y. Radius bumped to x2 (was x1.5), duration to 0.5s,
 -- and applies to BOTH Lourd's normal shot and his charged burst now.
--- 2026-10-07 balance pass (headless win-rate data: Lourd at 17%, near the
--- bottom) — Camil: "on peut aussi augmenter un peu le splash radius de
--- lourd (et l'effet d'explosion qui va avec) de 25%". Drives both the
--- visual size AND the real hit reach (update_impacts()'s damaging
--- fragments fly outward at a speed proportional to this radius).
-local BIG_EXPLOSION_RADIUS = 32.0 * 2.0 * 1.25
+-- 2026-10-07 balance pass: tried +25% here alongside the gauge-cost drop,
+-- but after testing it Lourd became "beaucoup trop fort" — reverted back
+-- to its pre-pass size; the gauge-cost change alone (25 -> 20, see
+-- bazooka.lua) is the one that stuck.
+local BIG_EXPLOSION_RADIUS = 32.0 * 2.0
 local BIG_EXPLOSION_DURATION = 0.5
 
 -- Same "tight tolerance + same-frame crossing" idea as the earlier Y-based
@@ -5536,15 +5535,15 @@ function match_arena.draw()
 		if bullet.weapon_id == "turret" then
 			draw_utils.draw_scaled(image, bullet.position.x, bullet.position.y, bullet.visual_scale, false, bullet.velocity:angle())
 		else
-			-- projectile_factory.gd: flip_h = direction < 0.0 for every
-			-- weapon EXCEPT is_heavy (bazooka), which is the one deliberate
-			-- inversion (flip_h = direction > 0.0). Bourrasque's vortices are
-			-- built directly (never through the factory), so they keep its
-			-- default: never flipped.
+			-- 2026-10-07 (Camil, now that Lourd is actually being played
+			-- more: "les tirs de lourd ont un sprite inverse (miroir)") —
+			-- the old projectile_factory.gd-ported special case flipped
+			-- bazooka backwards relative to every other weapon; dropped in
+			-- favor of the same rule everyone else uses. Bourrasque's
+			-- vortices are built directly (never through spawn_projectile),
+			-- so they keep their own default: never flipped.
 			local flip_h
-			if bullet.weapon_id == "bazooka" then
-				flip_h = bullet.velocity.x > 0.0
-			elseif bullet.weapon_id == "ultra_bourrasque" then
+			if bullet.weapon_id == "ultra_bourrasque" then
 				flip_h = false
 			else
 				flip_h = bullet.velocity.x < 0.0
