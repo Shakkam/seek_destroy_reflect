@@ -5412,6 +5412,73 @@ local function draw_player_hud(player, x)
 	end
 end
 
+-- 2026-10-07 dash VFX: Perturbateur's ball-slow and Traqueur's magnet are
+-- both CONTINUOUS effects tracking a moving target (the ball), which
+-- doesn't fit the `impacts` list's fixed-position-at-spawn model (every
+-- other dash VFX uses that) — drawn here instead, directly keyed off the
+-- same timers that already drive the real gameplay effect, no extra state
+-- needed. A method on dash_helpers (not a new top-level local/function) —
+-- match_arena.draw() is one giant function that LuaJIT caps at 60 upvalues
+-- (a DIFFERENT, stricter limit than the 200-local ceiling hit elsewhere in
+-- this file; a plain `lua -e loadfile` syntax check on a desktop Lua 5.4
+-- install does NOT catch this, since 5.2+ raised the cap to 255 — only a
+-- real LÖVE/LuaJIT boot actually enforces it) — inlining this block
+-- directly into draw() pushed it over that limit (draw() was already
+-- sitting right at 60), and a bare new local function instead hits the
+-- OTHER (200-local) ceiling. Hung off feedback_fx rather than
+-- dash_helpers specifically because draw() already references
+-- feedback_fx directly (feedback_fx.shake_offset(), right at the top of
+-- this function) — reusing that existing upvalue costs draw() nothing
+-- new at all, where dash_helpers would have been one upvalue too many.
+function feedback_fx.draw_dash_continuous_fx()
+	if feedback_fx.ball_slow_timer > 0.0 then
+		local fade = feedback_fx.ball_slow_timer / dash_helpers.PERTURBATEUR_BALL_SLOW_DURATION
+		local pulse = 1.0 + math.sin(love.timer.getTime() * 10.0) * 0.1
+		love.graphics.setColor(0.7, 0.4, 1.0, 0.6 * fade)
+		love.graphics.setLineWidth(3.0)
+		love.graphics.circle("line", ball.position.x, ball.position.y, ball_state.RADIUS * 3.0 * pulse)
+		love.graphics.setLineWidth(1.0)
+	end
+	for _, player in ipairs(players) do
+		if player.dash_pull_timer > 0.0 then
+			local fade = player.dash_pull_timer / dash_helpers.TRAQUEUR_PULL_DURATION
+			local to_ball = ball.position - player.ship.position
+			local dist = to_ball:length()
+			if dist > 1.0 then
+				local dir = to_ball:normalized()
+				local perp = Vector2.new(-dir.y, dir.x)
+				local segments = 6
+				love.graphics.setLineWidth(2.0)
+				for seg = 0, segments - 1 do
+					local t0 = seg / segments
+					local t1 = (seg + 0.6) / segments -- gaps between segments read as an energy tether, not a solid line
+					local jitter = math.sin(love.timer.getTime() * 14.0 + seg * 2.1) * 6.0
+					local p0 = player.ship.position + dir * (dist * t0) + perp * jitter
+					local p1 = player.ship.position + dir * (dist * t1) + perp * jitter
+					love.graphics.setColor(1.0, 0.6, 0.2, 0.5 * fade)
+					love.graphics.line(p0.x, p0.y, p1.x, p1.y)
+				end
+				love.graphics.setLineWidth(1.0)
+			end
+		end
+	end
+	love.graphics.setColor(1, 1, 1)
+end
+
+-- 2026-10-07: this function sits at EXACTLY 60 upvalues (debug.getinfo(
+-- match_arena.draw, "u").nups), LuaJIT's own hard cap — a DIFFERENT,
+-- stricter limit than the file's own 200-local ceiling, and one a plain
+-- `lua -e loadfile` syntax check on a desktop Lua 5.2+/5.4 install will
+-- NOT catch (those raised the cap to 255) — only a real LÖVE/LuaJIT boot
+-- enforces it, and LÖVE's own in-window error screen doesn't crash the
+-- process or write to stderr, so a "process still alive, stderr empty"
+-- boot check won't catch it either (a real screenshot/visual check is
+-- the only reliable signal). Any new code that needs a value NOT already
+-- referenced somewhere else in this function's own body WILL break it —
+-- route it through an already-used upvalue (feedback_fx, UT, dash_helpers,
+-- etc. — whichever this function already touches) via a method on that
+-- table, same as feedback_fx.draw_dash_continuous_fx() below, rather than
+-- inlining new logic directly here.
 function match_arena.draw()
 	-- 2026-10-05 (feedback FX) — the whole gameplay world (background
 	-- through ships/projectiles/popups) shakes; the HUD drawn after
@@ -5957,44 +6024,7 @@ function match_arena.draw()
 		draw_utils.draw_scaled(assets.ball, extra.ball_data.position.x, extra.ball_data.position.y, 1.4 * 1.5 * (extra.scale or 1.0), false, extra.rotation or 0.0)
 	end
 
-	-- 2026-10-07 dash VFX: Perturbateur's ball-slow and Traqueur's magnet are
-	-- both CONTINUOUS effects tracking a moving target (the ball), which
-	-- doesn't fit the `impacts` list's fixed-position-at-spawn model (every
-	-- other dash VFX above uses that) — drawn here instead, directly keyed
-	-- off the same timers that already drive the real gameplay effect, no
-	-- extra state needed.
-	if feedback_fx.ball_slow_timer > 0.0 then
-		local fade = feedback_fx.ball_slow_timer / dash_helpers.PERTURBATEUR_BALL_SLOW_DURATION
-		local pulse = 1.0 + math.sin(love.timer.getTime() * 10.0) * 0.1
-		love.graphics.setColor(0.7, 0.4, 1.0, 0.6 * fade)
-		love.graphics.setLineWidth(3.0)
-		love.graphics.circle("line", ball.position.x, ball.position.y, ball_state.RADIUS * 3.0 * pulse)
-		love.graphics.setLineWidth(1.0)
-	end
-	for _, player in ipairs(players) do
-		if player.dash_pull_timer > 0.0 then
-			local fade = player.dash_pull_timer / dash_helpers.TRAQUEUR_PULL_DURATION
-			local to_ball = ball.position - player.ship.position
-			local dist = to_ball:length()
-			if dist > 1.0 then
-				local dir = to_ball:normalized()
-				local perp = Vector2.new(-dir.y, dir.x)
-				local segments = 6
-				love.graphics.setLineWidth(2.0)
-				for seg = 0, segments - 1 do
-					local t0 = seg / segments
-					local t1 = (seg + 0.6) / segments -- gaps between segments read as an energy tether, not a solid line
-					local jitter = math.sin(love.timer.getTime() * 14.0 + seg * 2.1) * 6.0
-					local p0 = player.ship.position + dir * (dist * t0) + perp * jitter
-					local p1 = player.ship.position + dir * (dist * t1) + perp * jitter
-					love.graphics.setColor(1.0, 0.6, 0.2, 0.5 * fade)
-					love.graphics.line(p0.x, p0.y, p1.x, p1.y)
-				end
-				love.graphics.setLineWidth(1.0)
-			end
-		end
-	end
-	love.graphics.setColor(1, 1, 1)
+	feedback_fx.draw_dash_continuous_fx()
 
 	-- Ball-miss travel effect (gauge_fill_effect_node.gd) — drawn before its
 	-- own eventual "+X" floating text lands.
