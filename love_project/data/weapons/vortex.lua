@@ -5,9 +5,14 @@ return weapon_data.new({
 	id = "vortex",
 	display_name = "Tourbillon",
 	damage = 3.0,
-	fire_rate = 2.3,
+	-- 2026-10-07 balance pass (Vif still weakest in the headless battery) —
+	-- Camil: "tu peux legerement diminuer le cooldown entre 2 tirs (25%) et
+	-- le cout d'un tir (-15%)". fire_rate is shots/s (cooldown = 1/fire_rate
+	-- in weapon_system_state.lua), so a 25% SHORTER cooldown means fire_rate
+	-- scaled up by 1/0.75.
+	fire_rate = 2.3 / 0.75,
 	gauge_max = 100.0,
-	gauge_cost_per_shot = 8.0,
+	gauge_cost_per_shot = 8.0 * 0.85,
 	is_heavy = false,
 	projectile_speed = 900.0,
 	is_sine = true,
