@@ -66,7 +66,11 @@ end
 function bullet_fx.draw(bullet, image)
 	if bullet.weapon_id == "ultra_pluie_de_bonbons" then
 		draw_fan_motes(bullet, image)
-	elseif bullet.weapon_id == "ultra_la_meute" or bullet.weapon_id == "homing_missile" then
+	elseif bullet.weapon_id == "ultra_la_meute" or bullet.weapon_id == "homing_missile" or bullet.weapon_id == "bazooka" then
+		-- 2026-10-07, Camil: "tu peux mettre quelques particules derriere le
+		-- tir de lourd (reacteur blanc / orange)" — same rocket-exhaust
+		-- plume Traqueur's missiles already have; the white-hot-near-nozzle,
+		-- then orange look is exactly what was asked for.
 		draw_missile_plume(bullet, image)
 	end
 end
