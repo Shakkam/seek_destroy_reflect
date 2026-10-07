@@ -1058,7 +1058,12 @@ local RING_IMPACT_PARAMS = {
 -- height it currently is, instead of waiting for its own Y to happen to
 -- match the target's Y. Radius bumped to x2 (was x1.5), duration to 0.5s,
 -- and applies to BOTH Lourd's normal shot and his charged burst now.
-local BIG_EXPLOSION_RADIUS = 32.0 * 2.0
+-- 2026-10-07 balance pass (headless win-rate data: Lourd at 17%, near the
+-- bottom) — Camil: "on peut aussi augmenter un peu le splash radius de
+-- lourd (et l'effet d'explosion qui va avec) de 25%". Drives both the
+-- visual size AND the real hit reach (update_impacts()'s damaging
+-- fragments fly outward at a speed proportional to this radius).
+local BIG_EXPLOSION_RADIUS = 32.0 * 2.0 * 1.25
 local BIG_EXPLOSION_DURATION = 0.5
 
 -- Same "tight tolerance + same-frame crossing" idea as the earlier Y-based
@@ -1429,6 +1434,14 @@ local function spawn_projectile(player, weapon, angle_offset_deg, speed_multipli
 		bullet.sine_elapsed = 0.0
 		bullet.sine_amplitude = weapon.sine_amplitude
 		bullet.sine_angular_speed = weapon.sine_angular_speed
+		-- 2026-10-07 balance pass — Camil: "la vitesse peut augmenter avec la
+		-- distance [...] si je tire du bord gauche, arrive au bord droit le
+		-- tir a pris +50% de vitesse". Reuses the SAME growing-drift
+		-- mechanic Bourrasque's Ultra vortices already use (update_bullets()'s
+		-- is_sine branch already reads bullet.acceleration) — only Vif's
+		-- normal Tourbillon shot sets it now, via weapon data instead of a
+		-- hardcoded ultra-only constant.
+		bullet.acceleration = weapon.travel_acceleration or 0.0
 	end
 	table.insert(bullets, bullet)
 end

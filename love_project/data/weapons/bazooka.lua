@@ -7,7 +7,7 @@ return weapon_data.new({
 	damage = 10.0,
 	fire_rate = 0.8,
 	gauge_max = 100.0,
-	gauge_cost_per_shot = 25.0,
+	gauge_cost_per_shot = 15.0, -- 2026-10-07 balance pass (headless win-rate data: 17% vs the roster's 50% baseline, lowest besides Vif) — Camil: "lourd, on peut baisser le cout a 15" (was 25, so 6-7 shots per full gauge instead of 4)
 	is_heavy = true, -- triggers the shooter's own vulnerability window on fire (Story 1.8)
 	homing_strength = 1.8,
 	-- Charged fire: a 2-shot staggered burst (match_arena.lua's

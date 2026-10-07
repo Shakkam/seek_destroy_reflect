@@ -11,8 +11,22 @@ return weapon_data.new({
 	is_heavy = false,
 	projectile_speed = 900.0,
 	is_sine = true,
-	sine_amplitude = 20.0,
+	-- 2026-10-07 balance pass (headless data: Vif fires a lot but only lands
+	-- ~20% of shots, by far the lowest hit-rate in the roster — the sine
+	-- drift makes it easy to sidestep once the pattern reads) — Camil:
+	-- "on peut augmenter un peu la sinusoide (+20%)" (was 20.0).
+	sine_amplitude = 24.0,
 	sine_angular_speed = 720.0, -- deg/sec
+	-- 2026-10-07, same pass — Camil: "la vitesse peut augmenter avec la
+	-- distance [...] si je tire du bord gauche, arrive au bord droit le tir
+	-- a pris +50% de vitesse". Solved from v0=900 and the arena's own full
+	-- width (ARENA_BOUNDS.size.x = 1200): constant acceleration along the
+	-- shot's own travel direction such that v(t)=1.5*v0 exactly when the
+	-- shot has covered that distance (v_f^2 = v0^2 + 2*a*D) — reuses the
+	-- same generic `bullet.acceleration` mechanic Bourrasque's Ultra
+	-- vortices already use (see update_bullets()'s is_sine branch and
+	-- spawn_projectile()'s own read of this field).
+	travel_acceleration = 421.875,
 	-- Vif's own recoil kick: +60% move speed on fire, decaying linearly to
 	-- 0 over 0.5s. Re-firing resets the window rather than stacking.
 	fire_recoil_speed_boost = 0.6,

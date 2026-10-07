@@ -5,7 +5,7 @@ return weapon_data.new({
 	id = "turret",
 	display_name = "Tourelle",
 	damage = 3.0,
-	fire_rate = 1.5,
+	fire_rate = 1.32, -- 2026-10-07 balance pass (headless win-rate data: 79% vs the roster's 50% baseline, by far the strongest besides Traqueur) — Camil: "controleur... je propose de baisser la cadence de tirs de 12%" (was 1.5)
 	gauge_max = 100.0,
 	gauge_cost_per_shot = 40.0,
 	is_heavy = false,
