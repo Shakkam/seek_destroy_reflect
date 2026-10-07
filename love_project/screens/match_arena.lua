@@ -2210,7 +2210,7 @@ local dash_helpers = {
 	PERTURBATEUR_BALL_SLOW_DURATION = 0.5, -- "ralentir la balle pendant 1/2 secondes"
 	PERTURBATEUR_BALL_SLOW_FACTOR = 0.3, -- the ball advances at 30% of its real speed while this is active
 	TRAQUEUR_PULL_DURATION = 0.8,
-	TRAQUEUR_PULL_TURN_RATE = 5.0, -- fraction-per-second the ball's HEADING turns toward the player (speed untouched) — redesigned from a velocity-add after Camil found that always changed speed too; "et plus franchement ! (*1.25 encore)" on top of the redesign's own base rate
+	TRAQUEUR_PULL_TURN_RATE = 5.0 * 0.85, -- fraction-per-second the ball's HEADING turns toward the player (speed untouched) — redesigned from a velocity-add after Camil found that always changed speed too; "et plus franchement ! (*1.25 encore)" then, after the ball got steered all the way to vertical, "diminuer un poil l'effet de l'aimant (-15%)"
 	GHOST_PADDLE_LIFETIME = 3.0,
 }
 
@@ -5073,6 +5073,25 @@ local function update_ball_and_twist(dt)
 			end
 			local turn_fraction = mathx.clampf(dash_helpers.TRAQUEUR_PULL_TURN_RATE * dt, 0.0, 1.0)
 			local new_direction = (current_ball.velocity:normalized() * (1.0 - turn_fraction) + to_player:normalized() * turn_fraction):normalized()
+			-- Camil: "j'ai tellement aimante la balle qu'elle s'est retrouvee
+			-- a la verticale. ca ne doit pas arriver" — a ball with near-zero
+			-- horizontal speed can never cross the frontier to be returned,
+			-- softlocking the rally (likely the exact cause of the "missiles
+			-- vs missiles" stalemate timeouts the headless balance battery
+			-- found). Clamp the steered direction the same way ball_state.
+			-- lua's own clamp_from_vertical() already keeps spin-curved shots
+			-- from going unreturnably vertical.
+			local min_abs_x = math.cos(ball_state.MAX_SPIN_ANGLE_FROM_HORIZONTAL_RAD)
+			if math.abs(new_direction.x) < min_abs_x then
+				local x_sign = new_direction.x ~= 0.0 and mathx.signf(new_direction.x) or mathx.signf(current_ball.velocity.x)
+				if x_sign == 0.0 then
+					x_sign = 1.0
+				end
+				local y_sign = new_direction.y ~= 0.0 and mathx.signf(new_direction.y) or 1.0
+				local clamped_x = min_abs_x * x_sign
+				local clamped_y = math.sqrt(math.max(1.0 - clamped_x * clamped_x, 0.0)) * y_sign
+				new_direction = Vector2.new(clamped_x, clamped_y)
+			end
 			return ball_state.new(current_ball.position, new_direction * speed, current_ball.spin, current_ball.rally_count)
 		end
 
