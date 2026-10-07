@@ -1076,8 +1076,10 @@ local RING_IMPACT_PARAMS = {
 -- 2026-10-07 balance pass: tried +25% here alongside the gauge-cost drop,
 -- but after testing it Lourd became "beaucoup trop fort" — reverted back
 -- to its pre-pass size; the gauge-cost change alone (25 -> 20, see
--- bazooka.lua) is the one that stuck.
-local BIG_EXPLOSION_RADIUS = 32.0 * 2.0
+-- bazooka.lua) is the one that stuck. Lourd is still weak in the headless
+-- battery though (14.8% win rate) — Camil: "ok pour augmenter un peu sa
+-- zone de degats (+10%)", a gentler bump than the earlier +25% attempt.
+local BIG_EXPLOSION_RADIUS = 32.0 * 2.0 * 1.1
 local BIG_EXPLOSION_DURATION = 0.5
 
 -- Same "tight tolerance + same-frame crossing" idea as the earlier Y-based
@@ -1121,7 +1123,15 @@ local BULLET_VISUALS = {
 	bazooka = { radius = 7.0, color = { 1.0, 0.6, 0.2 }, scale = 1.4 * 1.5 },
 	stun_boomerang = { radius = 6.0, color = { 0.6, 0.85, 1.0 }, scale = 1.4 * 1.5 },
 	turret = { radius = 3.5, color = { 0.6, 0.95, 0.6 }, scale = 1.0 * 1.5 },
-	homing_missile = { radius = 5.0, color = { 1.0, 0.6, 0.2 }, scale = 0.8 * 1.5 },
+	-- 2026-10-07 balance pass (Traqueur still dominant at 90%+ win rate in
+	-- the headless battery despite earlier magnet nerfs) — Camil: "la taille
+	-- -et hitbox- des homing missiles (-20%)". Note: this engine checks
+	-- bullet hits as a POINT against the target ship's own box (point_in_
+	-- ship()), not a bullet-sized hitbox of its own — `radius` above is
+	-- already dead for any weapon with real art (see BULLET_VISUALS' own
+	-- doc comment) — so `scale` (the sprite's drawn size) is the only real
+	-- lever here; there's no separate collision hitbox to shrink.
+	homing_missile = { radius = 5.0, color = { 1.0, 0.6, 0.2 }, scale = 0.8 * 1.5 * 0.8 },
 	vortex = { radius = 5.0, color = { 0.7, 0.9, 1.0 }, scale = 2.4 * 1.5 },
 	-- Ultra weapons: base weapon's own scale * WeaponData.visual_scale_
 	-- multiplier (homing_missile 0.8*2.0, mini_shot 1.0*1.4) — the one place
@@ -2210,7 +2220,7 @@ local dash_helpers = {
 	PERTURBATEUR_BALL_SLOW_DURATION = 0.5, -- "ralentir la balle pendant 1/2 secondes"
 	PERTURBATEUR_BALL_SLOW_FACTOR = 0.3, -- the ball advances at 30% of its real speed while this is active
 	TRAQUEUR_PULL_DURATION = 0.8,
-	TRAQUEUR_PULL_TURN_RATE = 5.0 * 0.85 * 0.75, -- fraction-per-second the ball's HEADING turns toward the player (speed untouched) — redesigned from a velocity-add after Camil found that always changed speed too; "et plus franchement ! (*1.25 encore)" then "-15%" then, still "trop puissant": "encore reduire son effet de 25%"
+	TRAQUEUR_PULL_TURN_RATE = 5.0 * 0.85 * 0.75 * 0.9, -- fraction-per-second the ball's HEADING turns toward the player (speed untouched) — redesigned from a velocity-add after Camil found that always changed speed too; "et plus franchement ! (*1.25 encore)" then "-15%" then "-25%" then, still "vraiment fort": "-10%"
 	GHOST_PADDLE_LIFETIME = 3.0,
 }
 
