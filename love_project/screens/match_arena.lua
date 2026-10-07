@@ -235,9 +235,21 @@ local AI_TUNING = {
 	-- CHARGE_FIRE_CHANCE and CHARGE_DECIDE_INTERVAL_* after playtesting — the
 	-- mechanism is proven correct (see the throwaway test in
 	-- AI_TUNING_LOG.md), FREQUENCY is the tuning knob.
-	CHARGE_FIRE_CHANCE = 0.35,         -- prob. to attempt a charge when the roll fires (0-1)
-	CHARGE_DECIDE_INTERVAL_MIN = 4.0,  -- seconds between charge attempt rolls (min)
-	CHARGE_DECIDE_INTERVAL_MAX = 8.0,  -- seconds between charge attempt rolls (max)
+	-- 2026-10-07, Camil: "qu'elle utilise un peu plus les tirs charges" —
+	-- rolls more often AND is more likely to commit once it rolls.
+	CHARGE_FIRE_CHANCE = 0.6,          -- prob. to attempt a charge when the roll fires (0-1)
+	CHARGE_DECIDE_INTERVAL_MIN = 2.5,  -- seconds between charge attempt rolls (min)
+	CHARGE_DECIDE_INTERVAL_MAX = 5.0,  -- seconds between charge attempt rolls (max)
+
+	-- 2026-10-07, Camil: "qu'elle fasse un peu plus humaine (un peu moins
+	-- 'collee' aux ordonnees de la balle)" — a small, periodically re-rolled
+	-- aim error added on top of the real ball-Y prediction (see
+	-- ai_helpers.update_tracking_error()/read_input()'s own ball_target_y),
+	-- plus a lower ball_weight ceiling (read_input()) so even a healthy AI
+	-- isn't locked dead-on the ball's own Y.
+	TRACKING_ERROR_INTERVAL_MIN = 0.5,
+	TRACKING_ERROR_INTERVAL_MAX = 1.1,
+	TRACKING_ERROR_MAGNITUDE = 38.0, -- px, the re-rolled offset's +/- range
 
 	-- Per-archetype tuning, keyed by CharacterData.id. signature_bias was
 	-- previously omitted as "a pure no-op for every matchup this game
@@ -674,6 +686,8 @@ local function new_player(side, character, controls, is_ai, max_hp, is_mook)
 		ai_horizontal_dir = 0.0,
 		ai_wander_timer = 0.0,
 		ai_wander_target_y = 0.0,
+		ai_tracking_error_timer = 0.0, -- "qu'elle fasse un peu plus humaine" — a small re-rolled aim-error offset, see update_tracking_error()
+		ai_tracking_error_y = 0.0,
 		ai_depth_timer = 0.0,
 		ai_preferred_depth = 0.35, -- 0 = back wall, 1 = frontier — re-picked periodically
 		ai_lift_timer = 0.0,
@@ -1740,6 +1754,23 @@ function ai_helpers.ball_time_to_arrival(player)
 	return mathx.clampf(dx / math.abs(velocity_x), 0.0, AI_TUNING.MAX_LOOKAHEAD)
 end
 
+-- 2026-10-07, Camil: "qu'elle fasse un peu plus humaine (un peu moins
+-- 'collee' aux ordonnees de la balle)" — a small, periodically re-rolled
+-- aim-error offset added onto the real ball-Y prediction in read_input(),
+-- same re-roll-on-a-timer shape as update_wander() below but much faster
+-- (sub-second) and much smaller in magnitude: not "idle drifting", just
+-- imperfect tracking, the way a real player's eye/hand never sits exactly
+-- on the predicted spot either.
+function ai_helpers.update_tracking_error(player, dt)
+	player.ai_tracking_error_timer = player.ai_tracking_error_timer - dt
+	if player.ai_tracking_error_timer > 0.0 then
+		return
+	end
+	player.ai_tracking_error_timer = AI_TUNING.TRACKING_ERROR_INTERVAL_MIN
+		+ math.random() * (AI_TUNING.TRACKING_ERROR_INTERVAL_MAX - AI_TUNING.TRACKING_ERROR_INTERVAL_MIN)
+	player.ai_tracking_error_y = (math.random() * 2.0 - 1.0) * AI_TUNING.TRACKING_ERROR_MAGNITUDE
+end
+
 -- ship_node.gd's _ai_update_wander(): periodically picks a new "idle" y
 -- target, so the AI keeps some independent motion instead of purely
 -- mirroring the ball.
@@ -1952,13 +1983,16 @@ function ai_helpers.read_input(player)
 		-- ball. ball_weight/aggression_weight always sum to 1.0: healthy
 		-- leans hard on the ball, low HP leans hard on the opponent
 		-- instead ("moins regardante sur le renvoi").
-		local ball_target_y = ball.position.y + ball.velocity.y * ai_helpers.ball_time_to_arrival(player)
+		local ball_target_y = ball.position.y + ball.velocity.y * ai_helpers.ball_time_to_arrival(player) + player.ai_tracking_error_y
 		-- A placed turret is FIXED at wherever it was cast, so chasing the
 		-- owner ship's CURRENT Y rarely lines a shot up with it anymore
 		-- once the owner has moved on — an enemy turret, while alive,
 		-- replaces the opponent as this priority's target.
 		local aggression_target_y = enemy_turret and enemy_turret.position.y or (opponent and opponent.ship.position.y or ball_target_y)
-		local ball_weight = mathx.lerp(0.97, 0.4, defensiveness)
+		-- Ceiling lowered from 0.97 (2026-10-07, "un peu moins collee aux
+		-- ordonnees de la balle") — a healthy AI leans hard on the ball but
+		-- no longer reads as laser-locked onto it.
+		local ball_weight = mathx.lerp(0.85, 0.4, defensiveness)
 		local combat_target_y = mathx.lerp(aggression_target_y, ball_target_y, ball_weight)
 		-- A live enemy turret isn't ambient "aggression", it's a standing
 		-- threat that will keep dealing damage completely unopposed for
@@ -2175,6 +2209,84 @@ dash_helpers.effects = {
 	end,
 }
 
+-- 2026-10-07, Camil: "qu'elle utilise les dash" — one trigger condition per
+-- character, matching what each dash is actually FOR (a defensive panic
+-- button, an aggressive catch-up, a safe-window gamble...), not a single
+-- generic rule. Mirrors ai_helpers' own per-character functions in spirit,
+-- but lives here (not inside ai_helpers, which is declared BEFORE this
+-- table exists) so it can call dash_helpers.effects directly.
+dash_helpers.AI_CHASE_DISTANCE = 420.0 -- lourd/mini/missiles: horizontal gap beyond which a dash actually helps catch the ball in time
+dash_helpers.AI_URGENT_TIME = 0.4 -- zoneur/perturbateur: ball arriving this soon (or sooner) counts as "about to be in trouble"
+dash_helpers.AI_URGENT_VERTICAL_GAP = 120.0 -- zoneur: vertical gap wide enough that normal movement alone won't close it in time
+dash_helpers.AI_OPPORTUNIST_CHANCE_PER_SEC = 0.15 -- controleur/mitrailleur: no natural urgency signal exists for these, so a slow safe-window gamble instead
+
+dash_helpers.ai_triggers = {
+	-- Speed-boost dashes: worth it specifically when the ball is bearing
+	-- down on this side AND already too far to reach normally.
+	lourd = function(player, opponent, ctx)
+		return ctx.ball_on_my_side and ctx.horizontal_gap > dash_helpers.AI_CHASE_DISTANCE
+	end,
+	mini = function(player, opponent, ctx)
+		return ctx.ball_on_my_side and ctx.horizontal_gap > dash_helpers.AI_CHASE_DISTANCE
+	end,
+	-- Vif's hop is a panic button: use it exactly when dodge_direction()
+	-- already decided a shot is imminent and lined up.
+	vif = function(player, opponent, ctx)
+		return ctx.dodge_dir ~= 0.0
+	end,
+	-- Emergency catch-up tools: the ball is arriving very soon and normal
+	-- movement alone won't line the ship up in time.
+	zoneur = function(player, opponent, ctx)
+		return ctx.ball_on_my_side and ctx.ball_time < dash_helpers.AI_URGENT_TIME and ctx.vertical_gap > dash_helpers.AI_URGENT_VERTICAL_GAP
+	end,
+	perturbateur = function(player, opponent, ctx)
+		return ctx.ball_on_my_side and ctx.ball_time < dash_helpers.AI_URGENT_TIME
+	end,
+	-- Traqueur's magnet already gates itself to "ball on my side and
+	-- incoming" — trigger it a bit more eagerly than the chase dashes since
+	-- its own effect is gentle (a steer, not a teleport).
+	missiles = function(player, opponent, ctx)
+		return ctx.ball_on_my_side and ctx.horizontal_gap > dash_helpers.AI_CHASE_DISTANCE * 0.6
+	end,
+	-- No natural "I need this now" signal for these two — only use them
+	-- opportunistically, and only in a safe window (ball NOT demanding an
+	-- immediate return), so the risk/decoy value doesn't cost a missed point.
+	controleur = function(player, opponent, ctx)
+		return not ctx.ball_on_my_side and math.random() < dash_helpers.AI_OPPORTUNIST_CHANCE_PER_SEC * ctx.dt
+	end,
+	mitrailleur = function(player, opponent, ctx)
+		return not ctx.ball_on_my_side and math.random() < dash_helpers.AI_OPPORTUNIST_CHANCE_PER_SEC * ctx.dt
+	end,
+}
+
+function dash_helpers.update_ai_attempt(player, dt)
+	if player.dash_cooldown_timer > 0.0 then
+		return
+	end
+	local effect = dash_helpers.effects[player.character.id]
+	local trigger = dash_helpers.ai_triggers[player.character.id]
+	if not effect or not trigger then
+		return
+	end
+	local ball_on_my_side = player.side == 0 and ball.position.x < current_frontier_x or (player.side == 1 and ball.position.x > current_frontier_x)
+	local ball_time = ai_helpers.ball_time_to_arrival(player)
+	local predicted_y = ball.position.y + ball.velocity.y * ball_time
+	local hp_fraction = mathx.clampf(player.ship.hp / player.max_hp, 0.0, 1.0)
+	local ctx = {
+		dodge_dir = ai_helpers.dodge_direction(player, 1.0 - hp_fraction),
+		ball_on_my_side = ball_on_my_side,
+		ball_time = ball_time,
+		vertical_gap = math.abs(predicted_y - player.ship.position.y),
+		horizontal_gap = math.abs(ball.position.x - player.ship.position.x),
+		hp_fraction = hp_fraction,
+		dt = dt,
+	}
+	if trigger(player, opponent_of(player.side), ctx) then
+		effect(player, opponent_of(player.side))
+		player.dash_cooldown_timer = dash_helpers.COOLDOWN
+	end
+end
+
 local function update_player_input(player, dt)
 	local lift_held = false
 	local firing
@@ -2184,8 +2296,10 @@ local function update_player_input(player, dt)
 		-- timers tick BEFORE input is read this frame.
 		ai_helpers.update_wander(player, dt)
 		ai_helpers.update_depth(player, dt)
+		ai_helpers.update_tracking_error(player, dt)
 		ai_helpers.update_weapon_switch(player, dt)
 		ai_helpers.update_lift_attempt(player, dt)
+		dash_helpers.update_ai_attempt(player, dt)
 		lift_held = player.ai_lift_timer > 0.0
 		-- 2026-09-27: charge-fire state machine. update_charge_attempt() runs
 		-- BEFORE reading firing so its timer changes take effect this frame.
