@@ -860,7 +860,19 @@ local function start_new_round(loser_side)
 	if boss_helpers.is_ship(players[2]) then
 		boss_helpers.setup_ship(players[2]) -- reapplies size/hp/kit AND resets boss_helpers.phase to 1 every round (2026-09-12 bug fix: "le boss est toujours en mode dechaine")
 	end
-	bullets = {} -- `impacts` is left alone so the round-ending hit's own flash still plays out
+	bullets = {}
+	-- 2026-10-08 bug fix (Camil: "il faut s'assurer que TOUT soit cleane,
+	-- les tirs, les tourelles, les FX, les ultra, etc... TOUT on repart a
+	-- neuf") — `impacts` used to be deliberately left alone so the
+	-- round-ending hit's own flash could "still play out", but update_impacts()
+	-- never actually RUNS during the ship-explosion/round-start-gate freeze
+	-- that follows (match_arena.update() skips update_all_entities()
+	-- entirely while frozen) — so a leftover impact doesn't animate/fade
+	-- during that freeze, it just sits there FROZEN mid-flash, visible for
+	-- the gate's whole duration (exactly what the bug report's screenshot
+	-- shows). Clearing it outright reads better than a stuck half-finished
+	-- effect.
+	impacts = {}
 	beams = {} -- a beam's `player` reference would otherwise go stale (new_player() swaps in a fresh table)
 	turrets = {} -- turrets/projectiles/beams don't survive a round boundary (match_arena_node.gd's _clear_round_entities())
 	ghost_paddles = {} -- Contrôleur's/Perturbateur's dash
@@ -4715,7 +4727,14 @@ end
 -- a bug to fix here.
 local function update_round_start_gate(dt)
 	if round_start_gate.phase == "waiting_for_input" then
+		-- 2026-10-08 bug fix (Camil: "sur l'ecran suivant si je joue a la
+		-- manette je ne peux pas continuer") — this only ever checked the
+		-- keyboard, so a gamepad-only player had no way to dismiss the gate
+		-- at all. Both players' own fire button (X) now also works, same
+		-- convention as every other "confirm" input in this screen.
 		local pressed = love.keyboard.isScancodeDown("space") or love.keyboard.isScancodeDown("return")
+			or input.button_down(input.get_joystick(1), "x")
+			or input.button_down(input.get_joystick(2), "x")
 		if pressed then
 			round_start_gate.phase = "ready_flash"
 			round_start_gate.phase_timer = ROUND_START_GATE.READY_FLASH_DURATION
